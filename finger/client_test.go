@@ -2,6 +2,7 @@ package finger
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"net"
 	"testing"
@@ -198,5 +199,42 @@ func TestQuery_ContextCancel(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Errorf("Query took %v after cancel; want < 2s (cancel should close conn promptly)", elapsed)
+	}
+}
+
+func TestQuery_EOFMidLineNotTruncated(t *testing.T) {
+	// Server sends partial line (no final \r\n) then closes.
+	fs := newFakeServer(t, func(line string) []byte {
+		return []byte("Login: alice\r\nName: Alice\r\nno trailing newline here")
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	body, meta, err := Query(ctx, Target{HostPort: fs.addr})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if meta.Truncated {
+		t.Errorf("Truncated = true, want false for normal TCP-close EOF")
+	}
+	want := "Login: alice\nName: Alice\nno trailing newline here"
+	if string(body) != want {
+		t.Errorf("body:\n  got:  %q\n  want: %q", body, want)
+	}
+}
+
+func TestQuery_BinaryBytesPreserved(t *testing.T) {
+	// Server emits a high-bit byte (Latin-1 'é' = 0xE9) that's not valid UTF-8.
+	fs := newFakeServer(t, func(line string) []byte {
+		return []byte{'P', 'l', 'a', 'n', ':', '\r', '\n', 'c', 'a', 'f', 0xE9, '\r', '\n'}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	body, _, err := Query(ctx, Target{HostPort: fs.addr})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	want := []byte{'P', 'l', 'a', 'n', ':', '\n', 'c', 'a', 'f', 0xE9, '\n'}
+	if !bytes.Equal(body, want) {
+		t.Errorf("body:\n  got:  % x\n  want: % x", body, want)
 	}
 }

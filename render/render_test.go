@@ -82,3 +82,23 @@ func TestRender_NoTTY_HasNoANSI(t *testing.T) {
 		t.Fatalf("NoTTY output contains ANSI escape sequence: %q", got)
 	}
 }
+
+func TestRender_AsciiArtPreserved(t *testing.T) {
+	body := loadInput(t, "ascii-art")
+	target := finger.Target{User: "bob", HostPort: "example.com:79", Raw: "bob@example.com"}
+	meta := finger.Meta{Addr: "example.com:79", Elapsed: 90 * time.Millisecond, Bytes: len(body)}
+	got := Render(target, body, meta, nil, colorprofile.TrueColor)
+	compareGolden(t, "ascii-art", "truecolor", got)
+
+	// Programmatic check: every input line that is not a field-prefixed line
+	// must appear verbatim somewhere in the output.
+	inputLines := strings.Split(string(body), "\n")
+	for _, line := range inputLines {
+		if line == "" || strings.HasPrefix(line, "Login:") || strings.HasPrefix(line, "Plan:") {
+			continue
+		}
+		if !strings.Contains(got, line) {
+			t.Errorf("ASCII art line not preserved verbatim:\n  line:   %q\n  output: %s", line, got)
+		}
+	}
+}

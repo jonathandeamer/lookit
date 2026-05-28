@@ -51,6 +51,18 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 	}
 	defer conn.Close()
 
+	// Propagate caller-ctx cancellation to the connection. A blocking
+	// net.Conn.Read does not observe context.Done() on its own.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
+
 	// Overall read deadline. context.WithTimeout alone does NOT interrupt
 	// a blocking net.Conn.Read; SetDeadline does.
 	if err := conn.SetDeadline(time.Now().Add(opts.readTimeout)); err != nil {

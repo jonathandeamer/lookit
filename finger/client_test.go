@@ -167,3 +167,36 @@ func TestQuery_SizeCap(t *testing.T) {
 		t.Errorf("len(body) = %d, want %d", len(body), maxBodyBytes)
 	}
 }
+
+func TestQuery_ContextCancel(t *testing.T) {
+	// Server accepts and stalls; we cancel the context.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		time.Sleep(5 * time.Second)
+		conn.Close()
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, _, err = Query(ctx, Target{HostPort: ln.Addr().String()})
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("Query took %v after cancel; want < 2s (cancel should close conn promptly)", elapsed)
+	}
+}

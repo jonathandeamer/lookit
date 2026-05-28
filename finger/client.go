@@ -96,6 +96,9 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 	}
 
 	if readErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return body, meta, ctxErr
+		}
 		// Timeout? Treat as truncated. Other errors propagate as-is.
 		if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
 			meta.Truncated = true

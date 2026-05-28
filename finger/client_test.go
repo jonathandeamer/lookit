@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -196,6 +197,9 @@ func TestQuery_ContextCancel(t *testing.T) {
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
 	}
 	if elapsed > 2*time.Second {
 		t.Errorf("Query took %v after cancel; want < 2s (cancel should close conn promptly)", elapsed)

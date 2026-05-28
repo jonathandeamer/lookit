@@ -1,0 +1,8 @@
+# Binary
+/lookit
+
+# Build artifacts
+/dist/
+
+# OS junk
+.DS_Store

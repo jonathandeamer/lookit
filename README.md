@@ -2,11 +2,22 @@
 
 A finger client for the modern terminal.
 
-Lookit talks RFC 1288 finger over TCP/79 and renders the response with chrome and structured field highlighting. Built with [Charm](https://charm.sh) tools.
+```
+➜ alice@plan.cat   123ms ✦
+Login: alice
+Name: Alice Example
+Directory: /home/alice
+Shell: /bin/zsh
+On since Mon Mar 10 09:14 (PST) on tty1
+Plan:
+This is my plan for today.
+- finish lookit MVP
+- have a snack
 
-## Status
+1.2 KiB · 123ms
+```
 
-Phase 1 (CLI MVP) — under construction. See [design spec](docs/superpowers/specs/2026-05-28-lookit-design.md).
+Lookit talks [RFC 1288](https://www.rfc-editor.org/rfc/rfc1288) finger over TCP/79 and renders the response with chrome and structured field highlighting. Built with [Charm](https://charm.sh) tools.
 
 ## Install
 
@@ -14,13 +25,34 @@ Phase 1 (CLI MVP) — under construction. See [design spec](docs/superpowers/spe
 go install github.com/jonathandeamer/lookit@latest
 ```
 
+(Or clone and `go build .`)
+
 ## Usage
 
 ```bash
-lookit alice@plan.cat
-lookit @tilde.team
-lookit alice@example.com:7979
+lookit alice@plan.cat        # finger a user
+lookit @tilde.team           # finger a server (banner + user list)
+lookit alice@example.com:79  # explicit port
 ```
+
+Output styling adapts to your terminal's color capabilities. When stdout is piped or `NO_COLOR` is set, lookit emits plain text — `lookit user@host | grep` works as expected.
+
+## What it doesn't do
+
+- It doesn't post `.plan` files or write to finger servers. Read-only.
+- It doesn't send `/W` (verbose). RFC 1288 §2.5.5 calls it out as privacy-sensitive.
+- It doesn't run a daemon. There is no background polling.
+- It doesn't follow the deprecated `user@host1@host2` forwarding form.
+
+## Roadmap
+
+This is Phase 1 (CLI MVP). Planned next:
+
+- **Phase 2** — a TUI reader (Bubble Tea) for browsing.
+- **Phase 3** — subscriptions (`lookit subscribe` + `lookit refresh` for watch-and-diff) and a curated catalog (`lookit discover`).
+- **Phase 4** — polish: VHS demo gif, Homebrew tap.
+
+Design spec: [`docs/superpowers/specs/2026-05-28-lookit-design.md`](docs/superpowers/specs/2026-05-28-lookit-design.md).
 
 ## License
 

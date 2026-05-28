@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: vet
+        run: go vet ./...
+      - name: gofmt
+        # gofmt -d prints diffs but always exits 0; we use -l (lists files
+        # that would be reformatted) and fail if its output is non-empty.
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt would reformat the following files:"
+            echo "$out"
+            exit 1
+          fi
+      - name: test
+        run: go test ./... -race

@@ -4,10 +4,10 @@ import "testing"
 
 func TestParseTarget(t *testing.T) {
 	cases := []struct {
-		name     string
-		input    string
-		want     Target
-		wantErr  bool
+		name    string
+		input   string
+		want    Target
+		wantErr bool
 	}{
 		{
 			name:  "user@host",

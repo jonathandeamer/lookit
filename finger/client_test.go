@@ -95,3 +95,35 @@ func TestQuery_ServerForm(t *testing.T) {
 		t.Errorf("body:\n  got:  %q\n  want: %q", body, want)
 	}
 }
+
+func TestQuery_ReadDeadline(t *testing.T) {
+	// Server accepts but never writes — should hit the read deadline.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		// Hold the connection open without writing.
+		time.Sleep(2 * time.Second)
+		conn.Close()
+	}()
+
+	ctx := context.Background()
+	body, meta, err := queryWith(ctx, Target{HostPort: ln.Addr().String()}, queryOpts{
+		readTimeout: 100 * time.Millisecond,
+	})
+	if err == nil {
+		t.Fatalf("expected timeout error, got nil")
+	}
+	if !meta.Truncated {
+		t.Errorf("Truncated = false, want true on timeout")
+	}
+	if body == nil {
+		t.Logf("body is nil — acceptable; the point is Truncated=true")
+	}
+}

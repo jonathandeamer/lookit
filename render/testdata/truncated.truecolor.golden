@@ -1,0 +1,8 @@
+[1;38;2;255;111;213m➜[0m [1;38;2;255;111;213malice@plan.cat[0m [38;2;128;128;128m800ms[0m [38;2;255;208;107m✦[0m
+[1;38;2;107;225;255mLogin:[0m alice
+[1;38;2;107;225;255mName:[0m Alice
+[1;38;2;107;225;255mPlan:[0m
+This is a body that the server kept streaming past 1 MiB. We only show
+the part lookit captured; the footer notes the truncation.
+
+[38;2;128;128;128m161 B · 800ms[0m [38;2;128;128;128m·[0m [38;2;255;208;107mtruncated[0m

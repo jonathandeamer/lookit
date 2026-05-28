@@ -1,6 +1,7 @@
 package render
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -101,4 +102,39 @@ func TestRender_AsciiArtPreserved(t *testing.T) {
 			t.Errorf("ASCII art line not preserved verbatim:\n  line:   %q\n  output: %s", line, got)
 		}
 	}
+}
+
+func TestRender_EmptyResponse(t *testing.T) {
+	body := loadInput(t, "empty")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 42 * time.Millisecond, Bytes: 0}
+	got := Render(target, body, meta, nil, colorprofile.TrueColor)
+	compareGolden(t, "empty", "truecolor", got)
+}
+
+func TestRender_Truncated(t *testing.T) {
+	body := loadInput(t, "truncated")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{
+		Addr:      "plan.cat:79",
+		Elapsed:   800 * time.Millisecond,
+		Bytes:     len(body),
+		Truncated: true,
+	}
+	got := Render(target, body, meta, nil, colorprofile.TrueColor)
+	compareGolden(t, "truncated", "truecolor", got)
+}
+
+func TestRender_Timeout(t *testing.T) {
+	body := loadInput(t, "timeout")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{
+		Addr:      "plan.cat:79",
+		Elapsed:   30 * time.Second,
+		Bytes:     len(body),
+		Truncated: true,
+	}
+	queryErr := errors.New("read response timed out after 30s")
+	got := Render(target, body, meta, queryErr, colorprofile.TrueColor)
+	compareGolden(t, "timeout", "truecolor", got)
 }

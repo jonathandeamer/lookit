@@ -127,3 +127,43 @@ func TestQuery_ReadDeadline(t *testing.T) {
 		t.Logf("body is nil — acceptable; the point is Truncated=true")
 	}
 }
+
+func TestQuery_SizeCap(t *testing.T) {
+	// Server streams a body larger than maxBodyBytes (1 MiB).
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = bufio.NewReader(conn).ReadString('\n')
+		// 2 MiB of 'x'
+		buf := make([]byte, 64*1024)
+		for i := range buf {
+			buf[i] = 'x'
+		}
+		for written := 0; written < 2<<20; written += len(buf) {
+			if _, err := conn.Write(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	body, meta, err := Query(ctx, Target{HostPort: ln.Addr().String()})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if !meta.Truncated {
+		t.Errorf("Truncated = false, want true after exceeding cap")
+	}
+	if len(body) != maxBodyBytes {
+		t.Errorf("len(body) = %d, want %d", len(body), maxBodyBytes)
+	}
+}

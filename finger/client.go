@@ -63,10 +63,25 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 		return nil, meta, fmt.Errorf("write query: %w", err)
 	}
 
-	raw, readErr := io.ReadAll(conn)
+	// Read up to maxBodyBytes + 1 so we can detect overflow.
+	lr := &io.LimitedReader{R: conn, N: maxBodyBytes + 1}
+	raw, readErr := io.ReadAll(lr)
+
+	truncatedByCap := false
+	if len(raw) > maxBodyBytes {
+		raw = raw[:maxBodyBytes]
+		truncatedByCap = true
+	}
+
 	body := bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n"))
 	meta.Bytes = len(body)
 	meta.Elapsed = time.Since(start)
+
+	if truncatedByCap {
+		meta.Truncated = true
+		// readErr may be non-nil (timeout) or nil — either way, cap wins.
+		return body, meta, nil
+	}
 
 	if readErr != nil {
 		// Timeout? Treat as truncated. Other errors propagate as-is.

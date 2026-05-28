@@ -20,9 +20,12 @@ A beautiful, modern, usable TUI finger client in Go. Showcases the charmbracelet
 
 - **fang** — CLI dispatcher. Introduced in Phase 2 when we add a second subcommand. Not used in MVP.
 - **bubbletea** + **bubbles** + **lipgloss** — TUI framework, components (list, viewport, textinput), styling/layout.
-- **huh** — interactive forms for "add subscription," "pick a server," etc.
+- **colorprofile** — terminal color-capability detection (TrueColor / ANSI256 / ANSI / Ascii / NoTTY) plus automatic color downsampling. Used from the MVP. Replaces hand-rolled `term.IsTerminal` + `NO_COLOR` handling and ensures rainbow accents degrade gracefully on 8/16-color terminals.
+- **huh** — interactive forms for "add subscription," "pick a server," etc. Phase 3.
 - **glamour** — markdown rendering. Used selectively in Phase 3+ (the `.plan` body is never auto-markdownified in the MVP).
-- **VHS** — recording the README demo gif. Build-time only.
+- **log** — Charm's colorful structured logger. Phase 2+ when `lookit refresh` and the TUI grow `--verbose` output and we want logs that match the app's aesthetic. MVP uses stdlib `log`.
+- **VHS** — recording the README demo gif. Build-time only. Phase 4.
+- **freeze** — static PNG screenshots of terminal output for the README. Build-time only. Phase 4.
 - Standard library only for `finger/` networking and `store/` JSON persistence.
 
 ## Phasing
@@ -120,10 +123,11 @@ The MVP isn't a throwaway. The split between `finger/` and `render/` is chosen s
    - `user@host` → query line = `user\r\n`, dial `host:79`
    - `@host` → query line = `\r\n`, dial `host:79`
    - `user@host:port` → custom port
-2. Dial with a 10s connect timeout. Set a 30s overall read deadline via `context.WithTimeout`.
-3. Send the query line. **Never send `/W`** (the verbose flag) by default — RFC 1288 §2.5.5 calls it out as privacy-sensitive and most modern servers ignore it. Add `--verbose` later if anyone asks.
-4. Read until EOF or deadline. Cap response at 1 MiB (defensive — finger has no length limit and a hostile server could stream forever). Set `Truncated = true` on the meta if the cap is hit.
-5. Normalize line endings: convert `\r\n` → `\n`. Preserve all other bytes byte-for-byte. **Do not decode bytes as UTF-8** — some servers emit Latin-1 or other encodings. Pass bytes through; the terminal handles display.
+2. Dial with a 10s connect timeout using `net.Dialer.DialContext` with a `context.WithTimeout`. The connect timeout is purely about reaching the server.
+3. Set a 30s overall read deadline on the connection using `conn.SetDeadline(time.Now().Add(30 * time.Second))`. `context.WithTimeout` alone does **not** interrupt a blocking `net.Conn.Read` — a server that accepts and then hangs would otherwise block forever. Additionally, launch a small goroutine that closes the conn if the caller's context is cancelled, so cancellation propagates promptly.
+4. Send the query line. **Never send `/W`** (the verbose flag) by default — RFC 1288 §2.5.5 calls it out as privacy-sensitive and most modern servers ignore it. Add `--verbose` later if anyone asks.
+5. Read until EOF, the read deadline fires, or 1 MiB is reached (defensive — finger has no length marker and a hostile server could stream forever). Set `Truncated = true` on the meta **only** if the size cap or read deadline triggers. Plain TCP EOF (including EOF mid-line) is the normal end of a finger response and is **not** truncation — finger has no in-protocol "response complete" sentinel; the server signals end-of-response by closing the connection.
+6. Normalize line endings: convert `\r\n` → `\n`. Preserve all other bytes byte-for-byte. **Do not decode bytes as UTF-8** — some servers emit Latin-1 or other encodings. Pass bytes through; the terminal handles display.
 
 ### Rendering pipeline
 
@@ -140,9 +144,15 @@ bytes from finger/  →  split into lines  →  for each line:
 - Field prefixes (small allow-list): `Login:`, `Name:`, `Plan:`, `Project:`, `Office:`, `Office Phone:`, `Home Phone:`, `Directory:`, `Shell:`, `Last login`, `No Plan.`, `On since`.
 - Critically: matched lines still print their content verbatim. We only style the label, never the data after the colon. This prevents ever mangling `.plan` content.
 
-### TTY detection
+### TTY detection & color profile
 
-If stdout is not a terminal (piped, redirected), skip all styling and print plain text. Use `term.IsTerminal(int(os.Stdout.Fd()))` from `golang.org/x/term`. Required for `lookit user@host | grep` to work. Also honor `NO_COLOR` per the convention.
+Use `colorprofile.Detect(os.Stdout, os.Environ())` to determine what the terminal supports. The returned profile is one of `TrueColor`, `ANSI256`, `ANSI`, `Ascii`, or `NoTTY`. This single call handles:
+
+- Stdout-not-a-terminal (piped, redirected) → `NoTTY` → render plain text. Required for `lookit user@host | grep` to work.
+- `NO_COLOR=1` → `Ascii` → no styling.
+- Limited-color terminals → downsample our pink/cyan/charcoal + rainbow accents to whatever the terminal can render via `profile.Convert(color)`.
+
+Render code stores colors as `lipgloss.Color` values and runs them through the detected profile before emitting.
 
 ## Error handling
 
@@ -167,10 +177,11 @@ Integration tests against an in-process fake finger server (`net.Listen` on `127
 Cases:
 
 - Happy path: user query, server query (`@host`), custom port.
-- Server hangs forever → context deadline fires; returns timeout error.
-- Server sends > 1 MiB → response truncated cleanly, `Truncated` set, no panic.
-- Server closes mid-line → returns what we have plus a truncated sentinel.
-- Server sends Latin-1 bytes → bytes pass through unchanged.
+- Server hangs forever after accepting → 30s read deadline fires; returns timeout error with `Truncated = true` on whatever partial body arrived.
+- Caller context cancelled mid-read → conn-close goroutine fires; `Query` returns promptly with context error.
+- Server sends > 1 MiB → response truncated cleanly at the cap, `Truncated = true`, no panic.
+- Server sends a partial response then closes (including EOF mid-line, no trailing newline) → body returned as-is, `Truncated = false`. TCP close is the normal end of a finger response.
+- Server sends Latin-1 / non-UTF-8 bytes → bytes pass through unchanged.
 
 ### `render/` package
 
@@ -197,7 +208,7 @@ GitHub Actions, free tier, runs on push:
 
 - `go test ./...`
 - `go vet ./...`
-- `gofmt -d` check (fail if any file would be reformatted)
+- Formatting check: `test -z "$(gofmt -l .)"` — fails (non-zero exit) if any file would be reformatted. (Plain `gofmt -d` prints the diff but exits 0, so it can't gate CI on its own.)
 
 ## Open questions
 

@@ -73,3 +73,25 @@ func TestQuery_UserHappyPath(t *testing.T) {
 		t.Errorf("Elapsed = %v, want > 0", meta.Elapsed)
 	}
 }
+
+func TestQuery_ServerForm(t *testing.T) {
+	fs := newFakeServer(t, func(line string) []byte {
+		return []byte("Welcome to plan.cat\r\nUsers: alice, bob\r\n")
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	body, _, err := Query(ctx, Target{User: "", HostPort: fs.addr, Raw: "@" + fs.addr})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	// The "@host" form sends just "\r\n" (empty user).
+	if fs.gotLine != "\r\n" {
+		t.Errorf("server received %q, want %q", fs.gotLine, "\r\n")
+	}
+	want := "Welcome to plan.cat\nUsers: alice, bob\n"
+	if string(body) != want {
+		t.Errorf("body:\n  got:  %q\n  want: %q", body, want)
+	}
+}

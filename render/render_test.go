@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,4 +55,30 @@ func TestRender_BasicTrueColor(t *testing.T) {
 	}
 	got := Render(target, body, meta, nil, colorprofile.TrueColor)
 	compareGolden(t, "basic", "truecolor", got)
+}
+
+func TestRender_BasicNoTTY(t *testing.T) {
+	body := loadInput(t, "basic")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{
+		Addr:    "plan.cat:79",
+		Elapsed: 123 * time.Millisecond,
+		Bytes:   len(body),
+	}
+	got := Render(target, body, meta, nil, colorprofile.NoTTY)
+	compareGolden(t, "basic", "notty", got)
+}
+
+func TestRender_NoTTY_HasNoANSI(t *testing.T) {
+	body := loadInput(t, "basic")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{
+		Addr:    "plan.cat:79",
+		Elapsed: 123 * time.Millisecond,
+		Bytes:   len(body),
+	}
+	got := Render(target, body, meta, nil, colorprofile.NoTTY)
+	if strings.Contains(got, "\x1b[") {
+		t.Fatalf("NoTTY output contains ANSI escape sequence: %q", got)
+	}
 }

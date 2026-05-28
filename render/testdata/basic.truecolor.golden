@@ -1,10 +1,10 @@
 [1;38;2;255;111;213m➜[0m [1;38;2;255;111;213malice@plan.cat[0m [38;2;128;128;128m123ms[0m [38;2;255;208;107m✦[0m
-Login: alice
-Name: Alice Example
-Directory: /home/alice
-Shell: /bin/zsh
-On since Mon Mar 10 09:14 (PST) on tty1
-Plan:
+[1;38;2;107;225;255mLogin:[0m alice
+[1;38;2;107;225;255mName:[0m Alice Example
+[1;38;2;107;225;255mDirectory:[0m /home/alice
+[1;38;2;107;225;255mShell:[0m /bin/zsh
+[1;38;2;107;225;255mOn since[0m Mon Mar 10 09:14 (PST) on tty1
+[1;38;2;107;225;255mPlan:[0m
 This is my plan for today.
 - finish lookit MVP
 - have a snack

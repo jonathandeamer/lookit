@@ -352,3 +352,67 @@ func TestDeclineSavaTitleWithoutTableRows(t *testing.T) {
 		t.Fatal("ParseUsers ok = true, want false (sava title, no | table rows)")
 	}
 }
+
+// --- Generic fallback: structured-login gate ---
+
+func TestParseGenericBareLoginBlock(t *testing.T) {
+	// No Login header, no online/logged-in cue, no "> " marker, no named menu:
+	// every earlier matcher declines, so the generic fallback must open this.
+	body := []byte("the crew:\nbetsy\nMelchizedek\nOleander\nStarbloom\n")
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true (bare-login block)")
+	}
+	want := []string{"betsy", "Melchizedek", "Oleander", "Starbloom"}
+	if got := logins(users); !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v", got, want)
+	}
+}
+
+func TestParseGenericColumnarNoHeader(t *testing.T) {
+	// login + 2-space gap + name, but no "Login" header so parseColumnar declines.
+	body := []byte("klu      pilot\ntomasino  navigator\n")
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true (headerless columnar)")
+	}
+	if got, want := logins(users), []string{"klu", "tomasino"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v", got, want)
+	}
+	if users[0].Name != "pilot" || users[1].Name != "navigator" {
+		t.Fatalf("names = %q,%q want pilot,navigator", users[0].Name, users[1].Name)
+	}
+}
+
+func TestGenericRequiresTwoLogins(t *testing.T) {
+	// A single bare-login line is not enough to open a list.
+	if _, ok := ParseUsers([]byte("Welcome.\n\nbetsy\n")); ok {
+		t.Fatal("ParseUsers ok = true, want false (only one structured login)")
+	}
+}
+
+func TestGenericDeclinesColonLegendDebian(t *testing.T) {
+	// db.debian.org daemon help: a "key : value" attribute legend must NOT be
+	// read as a user list. This is the headline guard for excluding the colon
+	// (and single-space) form from the generic fallback.
+	body := []byte("userdir-ldap finger daemon\n" +
+		"--------------------------\n" +
+		"finger <uid>[/<attributes>]@db.debian.org\n" +
+		"    The following attributes are currently supported:\n" +
+		"      cn : First name\n" +
+		"      mn : Middle name\n" +
+		"      sn : Last name\n" +
+		"      email : Email\n" +
+		"      key : Key block\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (colon attribute legend)")
+	}
+}
+
+func TestGenericDeclinesSingleSpaceProse(t *testing.T) {
+	// "login value" with a single space is prose, not a columnar entry.
+	body := []byte("must provide username\nplease try again later\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (single-space prose)")
+	}
+}

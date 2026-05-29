@@ -35,6 +35,7 @@ var fingerCommandRe = regexp.MustCompile(`\bfinger\s+([A-Za-z0-9_][A-Za-z0-9_.-]
 type parsedUserList struct {
 	users    []User
 	preamble string
+	generic  bool
 }
 
 // ParseUsers extracts a host's listed users/entries from a finger response
@@ -76,6 +77,9 @@ func parseUserList(body []byte) (parsedUserList, bool) {
 	}
 	if users, preamble, ok := parseTelehackStatus(lines); ok {
 		return parsedUserList{users: users, preamble: preamble}, true
+	}
+	if users, preamble, ok := parseGenericList(lines); ok {
+		return parsedUserList{users: users, preamble: preamble, generic: true}, true
 	}
 	return parsedUserList{}, false
 }
@@ -453,4 +457,79 @@ func preambleBeforeGrid(lines []string) string {
 func preambleBeforeMarker(lines []string) string {
 	preamble, _ := markerPreamble(lines)
 	return preamble
+}
+
+// structuredLogin reports whether a single line is a generic structured login
+// entry, returning the login and a best-effort name. It accepts only two
+// shapes: a bare login (the whole trimmed line is one loginRe token), or a
+// columnar login (first token is a loginRe token followed by a tab or 2+
+// spaces, then free text taken as the name). A login followed by a single
+// space, and any "login : value" colon form, are treated as prose and rejected
+// — those shapes appear constantly in help text, legends, and glossaries
+// (e.g. db.debian.org's "cn : First name"), where they are not user lists.
+func structuredLogin(line string) (login, name string, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", "", false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 1 {
+		if loginRe.MatchString(fields[0]) {
+			return fields[0], "", true
+		}
+		return "", "", false
+	}
+	first := fields[0]
+	if !loginRe.MatchString(first) {
+		return "", "", false
+	}
+	// trimmed begins with first (leading space already removed); the gap that
+	// follows must be a tab or 2+ spaces to count as a deliberate column layout.
+	rest := trimmed[len(first):]
+	if strings.HasPrefix(rest, "\t") || strings.HasPrefix(rest, "  ") {
+		return first, strings.TrimSpace(rest), true
+	}
+	return "", "", false
+}
+
+// parseGenericList is the last-resort matcher, tried only after every named
+// parser declines. It finds the longest contiguous run of structuredLogin
+// lines and opens a list when that run holds >= 2 distinct logins; otherwise it
+// declines. A blank or non-entry line ends a run.
+func parseGenericList(lines []string) ([]User, string, bool) {
+	bestStart, bestEnd, bestCount := -1, -1, 0
+	for i := 0; i < len(lines); {
+		if _, _, ok := structuredLogin(lines[i]); !ok {
+			i++
+			continue
+		}
+		start := i
+		seen := map[string]bool{}
+		for i < len(lines) {
+			login, _, ok := structuredLogin(lines[i])
+			if !ok {
+				break
+			}
+			seen[login] = true
+			i++
+		}
+		if len(seen) > bestCount {
+			bestCount, bestStart, bestEnd = len(seen), start, i
+		}
+	}
+	if bestCount < 2 {
+		return nil, "", false
+	}
+
+	var users []User
+	seen := map[string]bool{}
+	for _, ln := range lines[bestStart:bestEnd] {
+		login, name, ok := structuredLogin(ln)
+		if !ok || seen[login] {
+			continue
+		}
+		seen[login] = true
+		users = append(users, User{Login: login, Name: name})
+	}
+	return users, trimPreamble(lines[:bestStart]), true
 }

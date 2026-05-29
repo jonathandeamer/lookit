@@ -39,6 +39,8 @@ lookit version               # print version/build info
 
 In the TUI, type a target and press Enter to fetch it. Use arrows or PageUp/PageDown to scroll the response. Press Esc or Ctrl+C to quit.
 
+Fingering a server (`@host`) that returns a list of users opens a selectable list: use the arrows to move, `/` to filter, and Enter to finger the highlighted user. Press Esc to go back to the list, and Esc again to return to the input.
+
 Output styling adapts to your terminal's color capabilities. When stdout is piped or `NO_COLOR` is set, lookit emits plain text — `lookit user@host | grep` works as expected.
 
 ## What it doesn't do

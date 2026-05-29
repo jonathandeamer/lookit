@@ -417,6 +417,33 @@ func TestGenericDeclinesSingleSpaceProse(t *testing.T) {
 	}
 }
 
+// --- Generic fallback: additive strong-context targets ---
+
+func TestGenericHarvestsFingerCommandTarget(t *testing.T) {
+	// A bare-login block opens the list; a "finger user@host" mention elsewhere
+	// in the body is appended as a cross-host drill target.
+	body := []byte("betsy\nMelchizedek\n\nContact me: finger bob@example.org\n")
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true")
+	}
+	if got, want := logins(users), []string{"betsy", "Melchizedek", "bob"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v (harvested target appended last)", got, want)
+	}
+	if users[2].Target != "bob@example.org" {
+		t.Fatalf("users[2].Target = %q, want bob@example.org", users[2].Target)
+	}
+}
+
+func TestGenericTargetsDoNotOpenAlone(t *testing.T) {
+	// No structured-login block: a lone "finger user@host" mention in prose must
+	// NOT open a list (additive-only rule). This is the graph.no shape.
+	body := []byte("Weather via finger.\nUsage:\n    finger oslo@graph.no\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (targets are additive-only)")
+	}
+}
+
 func TestStructuredLogin(t *testing.T) {
 	tests := []struct {
 		name      string

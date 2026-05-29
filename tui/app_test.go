@@ -43,8 +43,8 @@ func TestHostFetchThatParsesOpensList(t *testing.T) {
 	if got.state != stateList {
 		t.Fatalf("state = %d, want stateList", got.state)
 	}
-	if got.hostList == nil {
-		t.Fatal("hostList not cached")
+	if len(got.history) != 1 || got.pos != 0 || got.history[0].state != stateList {
+		t.Fatalf("history=%d pos=%d, want one list node", len(got.history), got.pos)
 	}
 	sel, ok := got.list.selected()
 	if !ok || sel.login != "alrs" {
@@ -137,7 +137,8 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	m := newApp(fetch, colorprofile.NoTTY)
 	// Put the app in list state for @tilde.team.
 	host := hostTarget(t, "@tilde.team")
-	m.hostList = &Entry{Target: host, Body: []byte(hostListBody())}
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos = 0
 	users, _ := ParseUsers([]byte(hostListBody()))
 	m.list = newList(m.common, host, users)
 	m.state = stateList
@@ -147,9 +148,6 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 
 	if got.state != stateReader {
 		t.Fatalf("state = %d, want stateReader after drill", got.state)
-	}
-	if !got.fromList {
-		t.Fatal("fromList = false, want true after drill")
 	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
@@ -167,7 +165,8 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	body := []byte("This is the finger ring!\n" +
 		"and now for the list:\n" +
 		"=> 2026-05-25 finger://tilde.team/yalla\n")
-	m.hostList = &Entry{Target: host, Body: body}
+	m.history = []histNode{{entry: Entry{Target: host, Body: body}, state: stateList}}
+	m.pos = 0
 	users, ok := ParseUsers(body)
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
@@ -200,38 +199,39 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 func TestEscInDrilledReaderRestoresList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	users, _ := ParseUsers([]byte(hostListBody()))
-	m.hostList = &Entry{Target: host, Body: []byte(hostListBody())}
-	m.list = newList(m.common, host, users)
+	user := hostTarget(t, "bob@tilde.team")
+	m.history = []histNode{
+		{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList},
+		{entry: Entry{Target: user, Body: []byte("Login: bob\n")}, state: stateReader},
+	}
+	m.pos = 1
 	m.state = stateReader
-	m.fromList = true
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	got := next.(appModel)
 
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList after Esc", got.state)
-	}
-	if got.fromList {
-		t.Fatal("fromList = true, want false after returning to list")
+	if got.state != stateList || got.pos != 0 {
+		t.Fatalf("state=%d pos=%d, want list/0 after Esc", got.state, got.pos)
 	}
 }
 
 func TestEscInListReturnsToReaderHome(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos = 0
+	m.state = stateList
 	users, _ := ParseUsers([]byte(hostListBody()))
 	m.list = newList(m.common, host, users)
-	m.state = stateList
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	got := next.(appModel)
 
-	if got.state != stateReader {
-		t.Fatalf("state = %d, want stateReader", got.state)
+	if got.state != stateReader || got.pos != -1 {
+		t.Fatalf("state=%d pos=%d, want reader/-1 (landing)", got.state, got.pos)
 	}
 	if cmd != nil && isQuit(cmd) {
-		t.Fatal("Esc in list must not quit")
+		t.Fatal("Esc in list must not quit while history is non-empty")
 	}
 }
 
@@ -257,8 +257,7 @@ func TestCtrlCQuitsFromList(t *testing.T) {
 func TestWindowSizePropagatesToBothSubModels(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	// hostList set so the guarded list-resize branch runs (must not panic).
-	m.hostList = &Entry{Target: host}
+	// listReady set so the guarded list-resize branch runs (must not panic).
 	m.listReady = true
 	m.state = stateList
 	m.list = newList(m.common, host, []User{{Login: "alrs"}})
@@ -307,7 +306,8 @@ func TestEscWhileFilteringDelegatesToList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
 	users, _ := ParseUsers([]byte(hostListBody()))
-	m.hostList = &Entry{Target: host, Body: []byte(hostListBody())}
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos = 0
 	m.listReady = true
 	m.list = newList(m.common, host, users)
 	m.state = stateList
@@ -397,14 +397,15 @@ func captureFetch(got *finger.Target) FetchFunc {
 func drillFirstUser(t *testing.T, host finger.Target, users []User, fetch FetchFunc) tea.Cmd {
 	t.Helper()
 	m := newApp(fetch, colorprofile.NoTTY)
-	m.hostList = &Entry{Target: host}
+	m.history = []histNode{{entry: Entry{Target: host}, state: stateList}}
+	m.pos = 0
 	m.listReady = true
 	m.list = newList(m.common, host, users)
 	m.state = stateList
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.fromList || got.state != stateReader {
-		t.Fatalf("expected a drilled reader (fromList=%v state=%d)", got.fromList, got.state)
+	if got.state != stateReader {
+		t.Fatalf("expected a drilled reader (state=%d)", got.state)
 	}
 	if cmd == nil {
 		t.Fatal("expected a fetch command from drilling")
@@ -490,8 +491,8 @@ func TestRViewsRawBodyOnGenericList(t *testing.T) {
 	if got.state != stateReader {
 		t.Fatalf("state = %d, want stateReader after r", got.state)
 	}
-	if !got.fromList {
-		t.Fatal("fromList = false, want true after viewing raw")
+	if !got.showingRaw {
+		t.Fatal("showingRaw = false, want true after viewing raw")
 	}
 	if !strings.Contains(got.reader.viewport.View(), "Melchizedek") {
 		t.Fatalf("reader viewport missing raw body: %q", got.reader.viewport.View())
@@ -515,5 +516,83 @@ func TestRInertOnRecognizedList(t *testing.T) {
 
 	if got.state != stateList {
 		t.Fatalf("state = %d, want stateList (r must be inert on a recognized list)", got.state)
+	}
+}
+
+func TestForwardBackDoNotRefetch(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	userT := hostTarget(t, "bob@tilde.team")
+
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: userT, Body: []byte("Login: bob\n")}})
+	m = step.(appModel)
+
+	if len(m.history) != 2 || m.pos != 1 || m.state != stateReader {
+		t.Fatalf("history=%d pos=%d state=%d, want 2/1/reader", len(m.history), m.pos, m.state)
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	m = step.(appModel)
+	if m.pos != 0 || m.state != stateList {
+		t.Fatalf("after back: pos=%d state=%d, want 0/list", m.pos, m.state)
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt})
+	m = step.(appModel)
+	if m.pos != 1 || m.state != stateReader {
+		t.Fatalf("after forward: pos=%d state=%d, want 1/reader", m.pos, m.state)
+	}
+}
+
+func TestNewNavigationTruncatesForwardTail(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	a := hostTarget(t, "@a.example")
+	b := hostTarget(t, "@b.example")
+	c := hostTarget(t, "@c.example")
+
+	for _, tg := range []finger.Target{a, b} {
+		step, _ := m.Update(fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
+		m = step.(appModel)
+	}
+	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	m = step.(appModel)
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: c, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+
+	if len(m.history) != 2 || m.pos != 1 {
+		t.Fatalf("history=%d pos=%d, want 2/1 (forward tail truncated)", len(m.history), m.pos)
+	}
+	if got := m.history[1].entry.Target.Raw; got != c.Raw {
+		t.Fatalf("head = %q, want %q", got, c.Raw)
+	}
+}
+
+func TestAltLeftAtRootIsNoOp(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("Alt+← on landing must not quit")
+	}
+	if got := step.(appModel); got.pos != -1 {
+		t.Fatalf("pos = %d, want -1 (unchanged)", got.pos)
+	}
+}
+
+func TestRestorePreservesListSelection(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = step.(appModel)
+	wantIdx := m.list.list.Index()
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "x@tilde.team"), Body: []byte("Login: x\n")}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = step.(appModel)
+	if m.list.list.Index() != wantIdx {
+		t.Fatalf("restored list index = %d, want %d", m.list.list.Index(), wantIdx)
 	}
 }

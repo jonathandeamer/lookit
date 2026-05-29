@@ -211,6 +211,20 @@ Recorded here so the rationale and the (low) cost of deferral are on the record.
 - **In-viewport token-selection fallback.** Selecting login-ish tokens in unparsed host output. **Cost of deferring: negligible.** Additive — a third case in `routeFetch` (`host && unrecognized && has tokens`), a token-extraction function alongside `ParseUsers`, and a selection sub-mode on `readerModel`. All data it needs (raw `Entry.Body`, host `Target`) is already retained.
 - **Unicode-aware real-name columns.** plan.cat has names like `わだ`; column-width math is fiddly. Login-only rows are acceptable; names are shown only when trivially extracted.
 
+## Future navigation direction
+
+Recorded so the architecture grows in a known direction; **none of this is built in Phase 2.5.**
+
+Navigation is layered in three nested levels, and the choices at each level are independent:
+
+1. **Top-level tab router** (Phase 3) — switches between feature areas, e.g. `[ Look up ] [ Discover ] [ Subscriptions ]`. This is the soft-serve pattern: a tab bar over a page-router where each tab is a page implementing a common interface (`Init`/`Update`/`View`/`SetSize`).
+2. **Per-tab navigation** — each tab picks the layout that suits its content: a **stacked** drill-down (full width, good for wide ASCII plans) or a **master-detail split** (`lipgloss.JoinHorizontal`, good for graze-and-preview of curated/short content).
+3. **Within-screen components** — `bubbles/v2/list`, viewport, etc.
+
+Mapping: the Phase 2.5 reader + host-list drill-down becomes the **Look up** page (stacked). Phase 3 **Discover** (curated catalog) and **Subscriptions** (watch/diff) are natural master-detail split pages.
+
+Why this is forward-compatible with no rework: the tab router sits *above* today's `appModel`, which becomes the Look up page unchanged; the shared `commonModel` (size/profile/fetch) lifts to become the router's shared context. Adding a page is additive. The formal page-router interface should be introduced only when Phase 3 brings a third screen — abstracting on two screens is premature. Watch for tab-switch key collisions (`Tab` is consumed by text inputs) when the tab bar lands.
+
 ## Known limitations
 
 - A logged-in/online grid block that contains a space-separated display name could mis-split into multiple logins. Cue-block scoping makes this unlikely in practice (logged-in blocks rarely carry display names); accepted for this phase.

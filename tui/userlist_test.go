@@ -319,6 +319,33 @@ func TestDeclineDaemonHelpDebian(t *testing.T) {
 	}
 }
 
+func TestDeclineGraphNoWeatherHelp(t *testing.T) {
+	// graph.no bare-host help: prose + "finger oslo@graph.no" usage example.
+	// Must decline (oslo is a placeholder, not a user); additive-only rule.
+	body := []byte("Weather via finger, graph.no\n\n" +
+		"* Contact: finger@falkp.no\n\n" +
+		"Usage:\n    finger oslo@graph.no\n\n" +
+		"Using imperial units:\n    finger ^oslo@graph.no\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (graph.no usage help)")
+	}
+}
+
+func TestDeclineDebianAttributeLegendFull(t *testing.T) {
+	// Full db.debian.org attribute legend (10 "key : value" lines). Guards the
+	// colon-form exclusion in the generic fallback.
+	body := []byte("userdir-ldap finger daemon\n--------------------------\n" +
+		"finger <uid>[/<attributes>]@db.debian.org\n" +
+		"    The following attributes are currently supported:\n" +
+		"      cn : First name\n      mn : Middle name\n      sn : Last name\n" +
+		"      email : Email\n      labeleduri : URL\n      ircnick : IRC nickname\n" +
+		"      icquin : ICQ UIN\n      jabberjid : Jabber ID\n" +
+		"      keyfingerprint : Fingerprint\n      key : Key block\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (LDAP attribute legend)")
+	}
+}
+
 // The menu/table matchers are gated by a cue; a cue with no parseable entries
 // must still decline rather than open an empty or hallucinated list.
 

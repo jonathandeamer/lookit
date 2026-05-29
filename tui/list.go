@@ -16,8 +16,9 @@ const maxPreambleRows = 12
 
 // userItem is one selectable user in the list.
 type userItem struct {
-	login string
-	name  string
+	login  string
+	name   string
+	target string
 }
 
 // FilterValue lets the list filter by login as the user types "/".
@@ -61,7 +62,7 @@ type listModel struct {
 func newList(common *commonModel, host finger.Target, users []User) listModel {
 	items := make([]list.Item, len(users))
 	for i, u := range users {
-		items[i] = userItem{login: u.Login, name: u.Name}
+		items[i] = userItem{login: u.Login, name: u.Name, target: u.Target}
 	}
 
 	width := common.width
@@ -80,7 +81,11 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 
 func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte) listModel {
 	m := newList(common, host, users)
-	m.preamble = extractListPreamble(body)
+	if parsed, ok := parseUserList(body); ok {
+		m.preamble = parsed.preamble
+	} else {
+		m.preamble = extractListPreamble(body)
+	}
 	m.setSize(common.width, common.height)
 	return m
 }

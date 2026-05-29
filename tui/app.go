@@ -157,10 +157,14 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 	if !ok {
 		return true, m, nil
 	}
-	// Build login@host from the host's original argument (minus the leading
-	// "@"), preserving any explicit :port the user typed.
-	host := strings.TrimPrefix(m.list.host.Raw, "@")
-	target, err := finger.ParseTarget(sel.login + "@" + host)
+	raw := sel.target
+	if raw == "" {
+		// Build login@host from the host's original argument (minus the leading
+		// "@"), preserving any explicit :port the user typed.
+		host := strings.TrimPrefix(m.list.host.Raw, "@")
+		raw = sel.login + "@" + host
+	}
+	target, err := finger.ParseTarget(raw)
 	if err != nil {
 		return true, m, nil
 	}
@@ -175,11 +179,11 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 func (m appModel) routeFetch(entry Entry) appModel {
 	// Any fetch result means loading is done; the list branch never calls setEntry, so clear it here.
 	m.reader.loading = false
-	if entry.Err == nil && entry.Target.User == "" {
-		if users, ok := ParseUsers(entry.Body); ok {
+	if entry.Err == nil && shouldOpenList(entry) {
+		if parsed, ok := parseUserList(entry.Body); ok {
 			cached := entry
 			m.hostList = &cached
-			m.list = newListWithPreamble(m.common, entry.Target, users, entry.Body)
+			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body)
 			m.listReady = true
 			m.state = stateList
 			m.fromList = false
@@ -189,6 +193,11 @@ func (m appModel) routeFetch(entry Entry) appModel {
 	m.reader.setEntry(entry)
 	m.state = stateReader
 	return m
+}
+
+func shouldOpenList(entry Entry) bool {
+	return entry.Target.User == "" ||
+		(entry.Target.User == "ring" && strings.HasPrefix(entry.Target.HostPort, "thebackupbox.net:"))
 }
 
 func (m appModel) View() tea.View {

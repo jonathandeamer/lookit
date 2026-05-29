@@ -131,6 +131,43 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	}
 }
 
+func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
+	fetch, seen := fetchRecorder("Plan: ring entry\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	host := hostTarget(t, "ring@thebackupbox.net")
+	body := []byte("This is the finger ring!\n" +
+		"and now for the list:\n" +
+		"=> 2026-05-25 finger://tilde.team/yalla\n")
+	m.hostList = &Entry{Target: host, Body: body}
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true")
+	}
+	m.list = newListWithPreamble(m.common, host, users, body)
+	m.state = stateList
+
+	view := m.View().Content
+	if !strings.Contains(view, "This is the finger ring!") {
+		t.Fatalf("list view missing preamble: %q", view)
+	}
+	if strings.Contains(view, "=> 2026-05-25") {
+		t.Fatalf("list view duplicated raw ring row: %q", view)
+	}
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if got.state != stateReader {
+		t.Fatalf("state = %d, want stateReader after drill", got.state)
+	}
+	if cmd == nil {
+		t.Fatal("cmd = nil, want fetch command")
+	}
+	cmd()
+	if len(*seen) != 1 || (*seen)[0] != "yalla@tilde.team" {
+		t.Fatalf("fetched targets = %v, want [yalla@tilde.team]", *seen)
+	}
+}
+
 func TestEscInDrilledReaderRestoresList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")

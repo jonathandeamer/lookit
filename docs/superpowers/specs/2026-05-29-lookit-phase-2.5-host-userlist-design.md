@@ -120,14 +120,14 @@ Two levels of back, tracked by `state` + `fromList`. No general stack.
 |---|---|---|
 | any | `Ctrl+C` | quit |
 | reader home (`fromList == false`) | `Esc` | quit (Phase 2 behavior) |
-| reader showing drilled user (`fromList == true`) | `Esc` or `⌫` | restore cached `hostList` → `stateList` (no re-fetch) |
+| reader showing drilled user (`fromList == true`) | `Esc` | restore cached `hostList` → `stateList` (no re-fetch) |
 | list, not filtering | `Esc` | back to reader home (`stateReader`, `fromList = false`) |
 | list, filtering | `Esc` | clear filter (handled by the list component) |
 | list | `Enter` | drill into highlighted user |
 | list | `↑ ↓`, `PgUp/PgDn`, `/`, `?` | handled by the list component (move, paginate, filter, help) |
 | reader | `↑ ↓`, `PgUp/PgDn`, `Home/End`, `Enter` | unchanged from Phase 2 |
 
-`appModel.Update` intercepts `Ctrl+C` always; intercepts `Esc`/`⌫` and `Enter` based on `state`/`fromList`/filter-state; delegates everything else to the active sub-model. Starting a new host fetch from any reader resets `fromList = false`.
+`appModel.Update` intercepts `Ctrl+C` always; intercepts `Esc` and `Enter` based on `state`/`fromList`/filter-state; delegates everything else to the active sub-model. Backspace is left to the focused input (it edits text, so it is not a back key). Starting a new host fetch from any reader resets `fromList = false`.
 
 `WindowSizeMsg` and `ColorProfileMsg` are stored on `commonModel` and applied to both sub-models so a resize or profile change is correct regardless of the active screen.
 

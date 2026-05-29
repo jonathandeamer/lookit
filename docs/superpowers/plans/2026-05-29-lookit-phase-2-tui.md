@@ -81,6 +81,8 @@ go get charm.land/lipgloss/v2@latest
 
 Expected: `go.mod` adds the new v2 modules. Exact versions may differ.
 
+The local `~/bubbletea`, `~/bubbles`, and `~/lipgloss` repositories are reference material only. The versions resolved into this repository's `go.mod` are authoritative for implementation.
+
 - [ ] **Step 2: Tidy and test**
 
 Run:
@@ -96,7 +98,31 @@ Expected: all tests pass.
 
 Do not migrate `render/theme.go` to `charm.land/lipgloss/v2` in this task. Local review of `~/lipgloss/UPGRADE_GUIDE_V2.md` shows v2 removed `Renderer`, and the Phase 1 renderer currently relies on `lipgloss.NewRenderer(io.Discard)` for explicit profile handling. Keep `render/` stable and use Lip Gloss v2 only inside the new `tui/` package.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Verify resolved API shapes**
+
+Run:
+
+```bash
+cd /Users/jonathan/lookit
+go doc charm.land/bubbletea/v2.Program.Run
+go doc charm.land/bubbletea/v2.ColorProfileMsg
+go doc charm.land/bubbletea/v2.NewView
+go doc charm.land/bubbles/v2/textinput.Model.SetWidth
+go doc charm.land/bubbles/v2/viewport.Model.SetWidth
+go doc charm.land/bubbles/v2/viewport.Model.SetHeight
+```
+
+Expected:
+
+- `Program.Run` exists.
+- `ColorProfileMsg` exists.
+- `NewView` exists.
+- `textinput.Model.SetWidth` exists.
+- `viewport.Model.SetWidth` and `SetHeight` exist.
+
+If these resolved APIs differ from the plan, adjust the implementation steps to match the resolved modules, not the local clone contents.
+
+- [ ] **Step 4: Commit**
 
 Run:
 

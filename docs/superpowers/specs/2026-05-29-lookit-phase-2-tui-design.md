@@ -191,7 +191,7 @@ Phase 2 should not migrate `render/` to Lip Gloss v2. Local review of `~/lipglos
 
 Use Lip Gloss v2 only inside `tui/` for TUI chrome, and keep `render/` on its existing Lip Gloss version for this phase. Revisit a full `render/` migration in a separate plan if dependency cleanup becomes important.
 
-After adding Bubble Tea/Bubbles, verify the exact installed APIs locally. Charm examples can drift across versions.
+The local `~/bubbletea`, `~/bubbles`, and `~/lipgloss` checkouts are useful reference material, but the versions resolved into this repository's `go.mod` are authoritative during implementation. After adding Bubble Tea/Bubbles/Lip Gloss v2, verify the exact installed APIs with `go doc` and `go test` before relying on examples or local clone contents.
 
 ## Styling
 

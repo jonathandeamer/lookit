@@ -36,7 +36,8 @@ type appModel struct {
 	list   listModel
 
 	// hostList caches the most recent host response so Back from a drilled
-	// user is instant; fromList is true when the reader shows a drilled user.
+	// user is instant; fromList is true when the reader was opened from the
+	// list (a drilled user, or the raw-body view of a "best guess" list).
 	hostList  *Entry
 	fromList  bool
 	listReady bool

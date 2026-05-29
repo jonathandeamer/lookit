@@ -502,6 +502,7 @@ func structuredLogin(line string) (login, name string, ok bool) {
 // Server-supplied targets are pinned to port 79 later, at drill time, by the
 // existing pinFingerPort path in app.go.
 func appendHarvestedTargets(users []User, lines []string) []User {
+	// Key on Target so a structured login (Target=="") never blocks a harvested cross-host entry.
 	seen := map[string]bool{}
 	for _, u := range users {
 		if u.Target != "" {
@@ -525,6 +526,7 @@ func appendHarvestedTargets(users []User, lines []string) []User {
 		}
 		seen[target] = true
 		login := target
+		// fingerCommandRe guarantees an '@' in the capture; the guard is defensive.
 		if at := strings.IndexByte(target, '@'); at >= 0 {
 			login = target[:at]
 		}

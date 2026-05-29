@@ -435,6 +435,25 @@ func TestGenericHarvestsFingerCommandTarget(t *testing.T) {
 	}
 }
 
+func TestGenericHarvestsFingerURLTarget(t *testing.T) {
+	// A bare-login block opens the list; a finger:// URL elsewhere in the body
+	// is appended as a cross-host drill target (login@host, host as the name).
+	body := []byte("betsy\nMelchizedek\n\nsee also finger://example.org/carol\n")
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true")
+	}
+	if got, want := logins(users), []string{"betsy", "Melchizedek", "carol"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v", got, want)
+	}
+	if users[2].Target != "carol@example.org" {
+		t.Fatalf("users[2].Target = %q, want carol@example.org", users[2].Target)
+	}
+	if users[2].Name != "example.org" {
+		t.Fatalf("users[2].Name = %q, want example.org", users[2].Name)
+	}
+}
+
 func TestGenericTargetsDoNotOpenAlone(t *testing.T) {
 	// No structured-login block: a lone "finger user@host" mention in prose must
 	// NOT open a list (additive-only rule). This is the graph.no shape.

@@ -68,3 +68,36 @@ func TestListNotFilteringByDefault(t *testing.T) {
 		t.Fatal("filtering = true, want false on a fresh list")
 	}
 }
+
+func TestGenericListTitleFlaggedBestGuess(t *testing.T) {
+	users := []User{{Login: "betsy"}, {Login: "oleander"}}
+	body := []byte("betsy\noleander\n")
+	m := newListWithPreamble(testCommon(), hostTarget(t, "@unknown.host"), users, body, false, true)
+	if !strings.Contains(m.list.Title, "(best guess)") {
+		t.Fatalf("title = %q, want it to contain (best guess)", m.list.Title)
+	}
+	if !m.generic {
+		t.Fatal("listModel.generic = false, want true")
+	}
+}
+
+func TestGenericListPreambleHasViewRawNote(t *testing.T) {
+	users := []User{{Login: "betsy"}, {Login: "oleander"}}
+	body := []byte("betsy\noleander\n")
+	m := newListWithPreamble(testCommon(), hostTarget(t, "@unknown.host"), users, body, false, true)
+	if !strings.Contains(m.preamble, "press r") {
+		t.Fatalf("preamble = %q, want it to mention the view-raw key", m.preamble)
+	}
+}
+
+func TestRecognizedListNotFlagged(t *testing.T) {
+	users := []User{{Login: "alrs"}, {Login: "dtracker"}}
+	body := []byte(hostListBody())
+	m := newListWithPreamble(testCommon(), hostTarget(t, "@tilde.team"), users, body, false, false)
+	if strings.Contains(m.list.Title, "(best guess)") {
+		t.Fatalf("title = %q, want no (best guess) for a recognized list", m.list.Title)
+	}
+	if m.generic {
+		t.Fatal("listModel.generic = true, want false for a recognized list")
+	}
+}

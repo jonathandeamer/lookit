@@ -194,7 +194,7 @@ func (m appModel) routeFetch(entry Entry) appModel {
 			cached := entry
 			m.hostList = &cached
 			incomplete := entry.Err != nil || entry.Meta.Truncated
-			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, incomplete)
+			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, incomplete, parsed.generic)
 			m.listReady = true
 			m.state = stateList
 			m.fromList = false

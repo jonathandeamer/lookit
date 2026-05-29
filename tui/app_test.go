@@ -172,7 +172,7 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
-	m.list = newListWithPreamble(m.common, host, users, body, false)
+	m.list = newListWithPreamble(m.common, host, users, body, false, false)
 	m.state = stateList
 
 	view := m.View().Content

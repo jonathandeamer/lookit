@@ -1,0 +1,22 @@
+name: vuln
+
+# Separate from ci so it has its own pass/fail check and — the point of a
+# dedicated workflow — a weekly schedule. New CVEs are disclosed against code
+# you've already shipped and aren't touching; the cron re-scans unchanged main
+# so a fresh advisory on a dependency turns this red without a push.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - name: govulncheck
+        run: make vuln

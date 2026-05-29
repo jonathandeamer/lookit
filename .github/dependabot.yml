@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Keep the GitHub Actions pins current (this is what would have flagged the
+  # checkout/setup-go Node-runtime bump). Grouped into one weekly PR.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Go modules. Security updates always; routine version bumps are grouped
+  # weekly. The charm.land/...v2 deps move fast and want a human eye (run
+  # `go mod tidy` after merging — see CLAUDE.md), so these are intentionally
+  # PRs to review rather than auto-anything.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      gomod:
+        patterns:
+          - "*"

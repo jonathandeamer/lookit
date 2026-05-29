@@ -4,5 +4,8 @@
 # Build artifacts
 /dist/
 
+# Local worktrees
+.worktrees/
+
 # OS junk
 .DS_Store

@@ -416,3 +416,31 @@ func TestGenericDeclinesSingleSpaceProse(t *testing.T) {
 		t.Fatal("ParseUsers ok = true, want false (single-space prose)")
 	}
 }
+
+func TestStructuredLogin(t *testing.T) {
+	tests := []struct {
+		name      string
+		line      string
+		wantLogin string
+		wantName  string
+		wantOK    bool
+	}{
+		{"bare login", "betsy", "betsy", "", true},
+		{"two-space columnar", "alice  Bob Smith", "alice", "Bob Smith", true},
+		{"tab columnar", "alice\tBob Smith", "alice", "Bob Smith", true},
+		{"single space is prose", "alice bob", "", "", false},
+		{"colon form is prose", "cn : First name", "", "", false},
+		{"empty line", "", "", "", false},
+		{"non-login token", "<==", "", "", false},
+		{"leading whitespace bare", "   betsy", "betsy", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			login, name, ok := structuredLogin(tt.line)
+			if ok != tt.wantOK || login != tt.wantLogin || name != tt.wantName {
+				t.Fatalf("structuredLogin(%q) = (%q,%q,%v), want (%q,%q,%v)",
+					tt.line, login, name, ok, tt.wantLogin, tt.wantName, tt.wantOK)
+			}
+		})
+	}
+}

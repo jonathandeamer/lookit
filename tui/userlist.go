@@ -463,10 +463,11 @@ func preambleBeforeMarker(lines []string) string {
 // entry, returning the login and a best-effort name. It accepts only two
 // shapes: a bare login (the whole trimmed line is one loginRe token), or a
 // columnar login (first token is a loginRe token followed by a tab or 2+
-// spaces, then free text taken as the name). A login followed by a single
-// space, and any "login : value" colon form, are treated as prose and rejected
-// — those shapes appear constantly in help text, legends, and glossaries
-// (e.g. db.debian.org's "cn : First name"), where they are not user lists.
+// spaces, then the trimmed remainder is taken as a best-effort name). A login
+// followed by a single space, and any "login : value" colon form, are treated
+// as prose and rejected — those shapes appear constantly in help text, legends,
+// and glossaries (e.g. db.debian.org's "cn : First name"), where they are not
+// user lists.
 func structuredLogin(line string) (login, name string, ok bool) {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
@@ -497,7 +498,9 @@ func structuredLogin(line string) (login, name string, ok bool) {
 // lines and opens a list when that run holds >= 2 distinct logins; otherwise it
 // declines. A blank or non-entry line ends a run.
 func parseGenericList(lines []string) ([]User, string, bool) {
-	bestStart, bestEnd, bestCount := -1, -1, 0
+	bestStart, bestCount := -1, 0
+	var bestUsers []User
+
 	for i := 0; i < len(lines); {
 		if _, _, ok := structuredLogin(lines[i]); !ok {
 			i++
@@ -505,31 +508,24 @@ func parseGenericList(lines []string) ([]User, string, bool) {
 		}
 		start := i
 		seen := map[string]bool{}
+		var runUsers []User
 		for i < len(lines) {
-			login, _, ok := structuredLogin(lines[i])
+			login, name, ok := structuredLogin(lines[i])
 			if !ok {
 				break
 			}
-			seen[login] = true
+			if !seen[login] {
+				seen[login] = true
+				runUsers = append(runUsers, User{Login: login, Name: name})
+			}
 			i++
 		}
 		if len(seen) > bestCount {
-			bestCount, bestStart, bestEnd = len(seen), start, i
+			bestCount, bestStart, bestUsers = len(seen), start, runUsers
 		}
 	}
 	if bestCount < 2 {
 		return nil, "", false
 	}
-
-	var users []User
-	seen := map[string]bool{}
-	for _, ln := range lines[bestStart:bestEnd] {
-		login, name, ok := structuredLogin(ln)
-		if !ok || seen[login] {
-			continue
-		}
-		seen[login] = true
-		users = append(users, User{Login: login, Name: name})
-	}
-	return users, trimPreamble(lines[:bestStart]), true
+	return bestUsers, trimPreamble(lines[:bestStart]), true
 }

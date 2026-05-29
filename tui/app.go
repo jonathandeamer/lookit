@@ -36,8 +36,9 @@ type appModel struct {
 
 	// hostList caches the most recent host response so Back from a drilled
 	// user is instant; fromList is true when the reader shows a drilled user.
-	hostList *Entry
-	fromList bool
+	hostList  *Entry
+	fromList  bool
+	listReady bool
 }
 
 func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
@@ -68,7 +69,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reader.setSize(msg.Width, msg.Height)
 		// Resize the list only once it exists; a freshly-opened list is sized
 		// from common in newList.
-		if m.hostList != nil {
+		if m.listReady {
 			m.list.setSize(msg.Width, msg.Height)
 		}
 		return m, nil
@@ -82,8 +83,8 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// handleKey may mutate the model (e.g. clearing fromList on a fresh
 		// Enter) even when it does not fully handle the key, so adopt its
 		// returned model before deciding whether to delegate.
-		handled, model, cmd := m.handleKey(msg)
-		m = model.(appModel)
+		handled, updated, cmd := m.handleKey(msg)
+		m = updated
 		if handled {
 			return m, cmd
 		}
@@ -105,7 +106,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey processes cross-screen keys (quit, back, drill). It returns
 // handled=false to let the active sub-model handle the key.
-func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
+func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	key := msg.Key()
 
 	// Ctrl+C always quits.
@@ -151,7 +152,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 }
 
 // drill fingers the highlighted user as login@host and switches to the reader.
-func (m appModel) drill() (bool, tea.Model, tea.Cmd) {
+func (m appModel) drill() (bool, appModel, tea.Cmd) {
 	sel, ok := m.list.selected()
 	if !ok {
 		return true, m, nil
@@ -172,12 +173,14 @@ func (m appModel) drill() (bool, tea.Model, tea.Cmd) {
 // routeFetch is the single decision point for a completed fetch: a host
 // response that parses opens the list; everything else renders in the reader.
 func (m appModel) routeFetch(entry Entry) appModel {
+	// Any fetch result means loading is done; the list branch never calls setEntry, so clear it here.
 	m.reader.loading = false
 	if entry.Err == nil && entry.Target.User == "" {
 		if users, ok := ParseUsers(entry.Body); ok {
 			cached := entry
 			m.hostList = &cached
 			m.list = newList(m.common, entry.Target, users)
+			m.listReady = true
 			m.state = stateList
 			m.fromList = false
 			return m

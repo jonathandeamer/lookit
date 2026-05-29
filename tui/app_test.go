@@ -76,7 +76,6 @@ func TestUserFetchStaysInReader(t *testing.T) {
 func TestEnterInListDrillsIntoUser(t *testing.T) {
 	fetch, seen := fetchRecorder("Plan: hi\n")
 	m := newApp(fetch, colorprofile.NoTTY)
-	m.common.fetch = fetch
 	// Put the app in list state for @tilde.team.
 	host := hostTarget(t, "@tilde.team")
 	m.hostList = &Entry{Target: host, Body: []byte(hostListBody())}
@@ -164,6 +163,7 @@ func TestWindowSizePropagatesToBothSubModels(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
 	// hostList set so the guarded list-resize branch runs (must not panic).
 	m.hostList = &Entry{Target: host}
+	m.listReady = true
 	m.state = stateList
 	m.list = newList(m.common, host, []User{{Login: "alrs"}})
 
@@ -185,4 +185,49 @@ func isQuit(cmd tea.Cmd) bool {
 	}
 	_, ok := cmd().(tea.QuitMsg)
 	return ok
+}
+
+func TestCtrlCQuitsFromReader(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil || !isQuit(cmd) {
+		t.Fatal("Ctrl+C should quit from reader state")
+	}
+}
+
+func TestColorProfileMsgPropagates(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	next, _ := m.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
+	got := next.(appModel)
+	if got.common.profile != colorprofile.TrueColor {
+		t.Fatalf("common.profile = %v, want TrueColor", got.common.profile)
+	}
+	if got.reader.profile != colorprofile.TrueColor {
+		t.Fatalf("reader.profile = %v, want TrueColor", got.reader.profile)
+	}
+}
+
+func TestEscWhileFilteringDelegatesToList(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	users, _ := ParseUsers([]byte(hostListBody()))
+	m.hostList = &Entry{Target: host, Body: []byte(hostListBody())}
+	m.listReady = true
+	m.list = newList(m.common, host, users)
+	m.state = stateList
+
+	// Enter filtering mode (the list's default filter key is "/").
+	next, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = next.(appModel)
+	if !m.list.filtering() {
+		t.Fatal("expected list to be filtering after '/'")
+	}
+
+	// Esc while filtering must be delegated to the list (cancels the filter),
+	// NOT intercepted as a back-out to the reader.
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	got := next.(appModel)
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList (Esc while filtering must not back out)", got.state)
+	}
 }

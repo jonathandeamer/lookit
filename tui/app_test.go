@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -48,6 +49,34 @@ func TestHostFetchThatParsesOpensList(t *testing.T) {
 	sel, ok := got.list.selected()
 	if !ok || sel.login != "alrs" {
 		t.Fatalf("list selection = %+v ok=%v, want alrs", sel, ok)
+	}
+}
+
+func TestHostFetchWithBodyAndReadErrorCanOpenList(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "@telehack.com")
+	body := []byte("TELEHACK SYSTEM STATUS  2026-May-29  06:47:34\n" +
+		"112 users  load 0.93  up 87d\n\n" +
+		" port username   status                last what       where\n" +
+		" ---- --------   ------                ---- ----       -----\n" +
+		" 0    operator   System Operator       1m              console\n" +
+		" 69   underwood  AN/FPS-118 OTH-B      0s              Vauxhall Cross, UK\n")
+	entry := Entry{
+		Target: target,
+		Body:   body,
+		Meta:   finger.Meta{Addr: target.HostPort, Bytes: len(body)},
+		Err:    errors.New("read response: connection reset by peer"),
+	}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList", got.state)
+	}
+	sel, ok := got.list.selected()
+	if !ok || sel.login != "operator" {
+		t.Fatalf("list selection = %+v ok=%v, want operator", sel, ok)
 	}
 }
 

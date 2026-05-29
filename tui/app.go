@@ -179,7 +179,7 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 func (m appModel) routeFetch(entry Entry) appModel {
 	// Any fetch result means loading is done; the list branch never calls setEntry, so clear it here.
 	m.reader.loading = false
-	if entry.Err == nil && shouldOpenList(entry) {
+	if len(entry.Body) > 0 && shouldOpenList(entry) {
 		if parsed, ok := parseUserList(entry.Body); ok {
 			cached := entry
 			m.hostList = &cached

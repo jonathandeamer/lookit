@@ -1,0 +1,11 @@
+version: "2"
+
+# Default linter set (errcheck, govet, ineffassign, staticcheck, unused) plus
+# the maintained "std-error-handling" exclusion preset, which drops the
+# conventional unchecked-error cases: fmt.Fprint*/Print* and deferred Close().
+# This keeps the lint signal meaningful without forcing `_ =` noise on writes
+# to stdout/stderr or on deferred resource cleanup.
+linters:
+  exclusions:
+    presets:
+      - std-error-handling

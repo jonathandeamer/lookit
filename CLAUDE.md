@@ -13,9 +13,10 @@ go test ./... -race                          # race build (matches CI)
 go test ./tui/ -run TestEnterInListDrills -count=1 -v   # single test
 go vet ./...                                 # CI gate
 gofmt -l .                                   # CI gate: must print nothing
+golangci-lint run ./...                      # CI gate (config: .golangci.yml)
 ```
 
-CI (`.github/workflows/ci.yml`) runs exactly `go vet ./...`, a `gofmt -l .` emptiness check, and `go test ./... -race`. Run all three locally before committing — `gofmt -w .` to fix formatting. Tests use injected fakes and never hit the network (see below), so they're fast and offline.
+CI (`.github/workflows/ci.yml`) runs four gates: `go vet ./...`, a `gofmt -l .` emptiness check, `golangci-lint run ./...`, and `go test ./... -race`. Run all four locally before committing — `gofmt -w .` to fix formatting. The `golangci-lint` gate uses the default linter set with the `std-error-handling` exclusion preset (see `.golangci.yml`), so unchecked `fmt.Fprint*`/deferred `Close` don't fail it; pin the same version as CI (`@v2.12.2`) via `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2`. Tests use injected fakes and never hit the network (see below), so they're fast and offline.
 
 Run the app: `./lookit` (TUI), `./lookit user@host[:port]` or `./lookit @host[:port]` (one-shot), `./lookit version`. The TUI requires a real TTY and can't be smoke-tested headlessly. Release version info is injected via `-ldflags "-X main.version=… -X main.builtAt=…"`.
 

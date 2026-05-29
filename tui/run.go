@@ -14,7 +14,7 @@ import (
 // this implementation does not yet use it.
 func Run(ctx context.Context, profile colorprofile.Profile) error {
 	_ = ctx
-	program := tea.NewProgram(New(defaultFetch, profile))
+	program := tea.NewProgram(newApp(defaultFetch, profile))
 	_, err := program.Run()
 	return err
 }

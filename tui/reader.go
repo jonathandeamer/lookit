@@ -14,10 +14,15 @@ import (
 
 const initialStatus = "enter a finger target, then press Enter"
 
-// chromeRows counts the non-viewport lines in View: title, input, status, hint.
+// chromeRows counts the non-viewport lines in the reader view: title, input,
+// status, hint.
 const chromeRows = 4
 
-type Model struct {
+// readerModel is the query reader: a target input, a status line, and a
+// scrollable viewport showing one rendered finger response. It owns typing,
+// scrolling, and starting a fetch on Enter. It does NOT route fetch results,
+// quit, or declare terminal modes — appModel owns those.
+type readerModel struct {
 	input    textinput.Model
 	viewport viewport.Model
 	current  *Entry
@@ -25,13 +30,12 @@ type Model struct {
 	status   string
 	profile  colorprofile.Profile
 	fetch    FetchFunc
-	ready    bool
+	styles   styles
 	width    int
 	height   int
-	styles   styles
 }
 
-func New(fetch FetchFunc, profile colorprofile.Profile) Model {
+func newReader(fetch FetchFunc, profile colorprofile.Profile) readerModel {
 	if fetch == nil {
 		fetch = defaultFetch
 	}
@@ -46,7 +50,7 @@ func New(fetch FetchFunc, profile colorprofile.Profile) Model {
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(10))
 	vp.SetContent("No response yet.")
 
-	return Model{
+	return readerModel{
 		input:    input,
 		viewport: vp,
 		status:   initialStatus,
@@ -56,22 +60,19 @@ func New(fetch FetchFunc, profile colorprofile.Profile) Model {
 	}
 }
 
-func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		textinput.Blink,
-		tea.RequestCapability("RGB"),
-		tea.RequestCapability("Tc"),
-	)
+// Init returns the input blink command.
+func (m readerModel) Init() tea.Cmd {
+	return textinput.Blink
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// update handles reader-local messages: typing, scrolling, and Enter to start
+// a fetch. Enter returns a fetch command (the result is routed by appModel).
+// It never quits and never handles fetchResultMsg.
+func (m readerModel) update(msg tea.Msg) (readerModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		key := msg.Key()
-		switch {
-		case key.Code == tea.KeyEsc || (key.Code == 'c' && key.Mod == tea.ModCtrl):
-			return m, tea.Quit
-		case key.Code == tea.KeyEnter:
+		if key.Code == tea.KeyEnter {
 			if m.loading {
 				return m, nil
 			}
@@ -80,26 +81,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "error: " + err.Error()
 				return m, nil
 			}
-			m.loading = true
-			m.status = "loading " + target.Raw + "..."
+			m.setLoading(target)
 			return m, fetchCmd(context.Background(), m.fetch, target)
 		}
-	case tea.WindowSizeMsg:
-		m.ready = true
-		m.width = msg.Width
-		m.height = msg.Height
-		m.resize()
-	case tea.ColorProfileMsg:
-		m.profile = msg.Profile
-		if m.current != nil {
-			m.viewport.SetContent(renderEntry(m.profile, *m.current))
-		}
-	case fetchResultMsg:
-		m.loading = false
-		m.current = &msg.entry
-		m.status = statusForEntry(msg.entry)
-		m.viewport.SetContent(renderEntry(m.profile, msg.entry))
-		return m, nil
 	}
 
 	var cmds []tea.Cmd
@@ -111,7 +95,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() tea.View {
+// View renders the reader as a plain string. appModel wraps it in a tea.View.
+func (m readerModel) View() string {
 	var b strings.Builder
 	b.WriteString(m.styles.title.Render("lookit"))
 	b.WriteByte('\n')
@@ -125,31 +110,50 @@ func (m Model) View() tea.View {
 	b.WriteByte('\n')
 	b.WriteString(m.viewport.View())
 	b.WriteByte('\n')
-	b.WriteString(m.styles.hint.Render("Enter fetches - arrows/PageUp/PageDown scroll - Esc quits"))
-
-	v := tea.NewView(b.String())
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	return v
+	b.WriteString(m.styles.hint.Render("Enter fetches - arrows/PageUp/PageDown scroll - Esc back/quit"))
+	return b.String()
 }
 
-func (m *Model) resize() {
-	if m.width <= 0 || m.height <= 0 {
+// setSize lays out the input and viewport for the given terminal size.
+func (m *readerModel) setSize(width, height int) {
+	m.width = width
+	m.height = height
+	if width <= 0 || height <= 0 {
 		return
 	}
-
-	inputWidth := m.width - len(m.input.Prompt)
+	inputWidth := width - len(m.input.Prompt)
 	if inputWidth < 20 {
 		inputWidth = 20
 	}
 	m.input.SetWidth(inputWidth)
-	m.viewport.SetWidth(m.width)
-
-	viewportHeight := m.height - chromeRows
-	if viewportHeight < 1 {
-		viewportHeight = 1
+	m.viewport.SetWidth(width)
+	vh := height - chromeRows
+	if vh < 1 {
+		vh = 1
 	}
-	m.viewport.SetHeight(viewportHeight)
+	m.viewport.SetHeight(vh)
+}
+
+// setProfile updates the color profile and re-renders the current entry.
+func (m *readerModel) setProfile(p colorprofile.Profile) {
+	m.profile = p
+	if m.current != nil {
+		m.viewport.SetContent(renderEntry(m.profile, *m.current))
+	}
+}
+
+// setLoading marks a fetch in progress for the given target.
+func (m *readerModel) setLoading(target finger.Target) {
+	m.loading = true
+	m.status = "loading " + target.Raw + "..."
+}
+
+// setEntry displays a fetched result, clearing the loading state.
+func (m *readerModel) setEntry(entry Entry) {
+	m.loading = false
+	m.current = &entry
+	m.status = statusForEntry(entry)
+	m.viewport.SetContent(renderEntry(m.profile, entry))
 }
 
 func statusForEntry(entry Entry) string {

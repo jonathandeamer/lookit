@@ -7,8 +7,9 @@ import (
 
 // User is one entry in a host's finger user list.
 type User struct {
-	Login string
-	Name  string // "" when unknown
+	Login  string
+	Name   string // "" when unknown
+	Target string // optional explicit target, e.g. "user@other.host"
 }
 
 // loginRe matches a plausible Unix login: leading alphanumeric/underscore,
@@ -28,6 +29,13 @@ var gridCueRe = regexp.MustCompile(`(?i)logged[\s-]?in|online`)
 
 // markerRe matches Format 3 marker rows: "> login" with a single login token.
 var markerRe = regexp.MustCompile(`^\s*>\s+(\S+)\s*$`)
+var fingerURLRe = regexp.MustCompile(`finger://([^/\s]+)/([A-Za-z0-9_][A-Za-z0-9_.-]{0,31})`)
+var fingerCommandRe = regexp.MustCompile(`\bfinger\s+([A-Za-z0-9_][A-Za-z0-9_.-]{0,31}@[A-Za-z0-9_.:-]+)\b`)
+
+type parsedUserList struct {
+	users    []User
+	preamble string
+}
 
 // ParseUsers extracts a host's logged-in / listed users from a finger response
 // body. It returns (users, true) only when a format is confidently recognized;
@@ -36,18 +44,38 @@ var markerRe = regexp.MustCompile(`^\s*>\s+(\S+)\s*$`)
 // Three gated matchers are tried in order: columnar (Login header), grid
 // (cue line), marker ("> login"). Results are deduplicated, order preserved.
 func ParseUsers(body []byte) ([]User, bool) {
+	parsed, ok := parseUserList(body)
+	return parsed.users, ok
+}
+
+func parseUserList(body []byte) (parsedUserList, bool) {
 	lines := strings.Split(string(body), "\n")
 
 	if users, ok := parseColumnar(lines); ok {
-		return users, true
+		return parsedUserList{users: users, preamble: preambleBeforeColumnar(lines)}, true
 	}
 	if users, ok := parseGrid(lines); ok {
-		return users, true
+		return parsedUserList{users: users, preamble: preambleBeforeGrid(lines)}, true
 	}
 	if users, ok := parseMarker(lines); ok {
-		return users, true
+		return parsedUserList{users: users, preamble: preambleBeforeMarker(lines)}, true
 	}
-	return nil, false
+	if users, preamble, ok := parseTypedHoleMenu(lines); ok {
+		return parsedUserList{users: users, preamble: preamble}, true
+	}
+	if users, preamble, ok := parseSavaTable(lines); ok {
+		return parsedUserList{users: users, preamble: preamble}, true
+	}
+	if users, preamble, ok := parseRedterminalMenu(lines); ok {
+		return parsedUserList{users: users, preamble: preamble}, true
+	}
+	if users, preamble, ok := parseFingerRing(lines); ok {
+		return parsedUserList{users: users, preamble: preamble}, true
+	}
+	if users, preamble, ok := parseTelehackStatus(lines); ok {
+		return parsedUserList{users: users, preamble: preamble}, true
+	}
+	return parsedUserList{}, false
 }
 
 // parseColumnar handles classic fingerd output: a "Login ... Name ..." header
@@ -188,4 +216,239 @@ func parseMarker(lines []string) ([]User, bool) {
 		return nil, false
 	}
 	return users, true
+}
+
+func parseTypedHoleMenu(lines []string) ([]User, string, bool) {
+	start := -1
+	for i, ln := range lines {
+		if strings.EqualFold(strings.TrimSpace(ln), "Available fingers:") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return nil, "", false
+	}
+
+	var users []User
+	seen := map[string]bool{}
+	for _, ln := range lines[start+1:] {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		login, desc, ok := splitColonEntry(ln)
+		if !ok {
+			if len(users) > 0 {
+				break
+			}
+			continue
+		}
+		if seen[login] {
+			continue
+		}
+		seen[login] = true
+		users = append(users, User{Login: login, Name: desc})
+	}
+	if len(users) == 0 {
+		return nil, "", false
+	}
+	return users, trimPreamble(lines[:start+1]), true
+}
+
+func splitColonEntry(ln string) (string, string, bool) {
+	before, after, ok := strings.Cut(ln, ":")
+	if !ok {
+		return "", "", false
+	}
+	login := strings.TrimSpace(before)
+	if !loginRe.MatchString(login) {
+		return "", "", false
+	}
+	desc := strings.TrimSpace(after)
+	return login, desc, true
+}
+
+func parseSavaTable(lines []string) ([]User, string, bool) {
+	title := -1
+	for i, ln := range lines {
+		if strings.Contains(ln, "Users on this finger server") {
+			title = i
+			break
+		}
+	}
+	if title < 0 {
+		return nil, "", false
+	}
+
+	var users []User
+	seen := map[string]bool{}
+	for _, ln := range lines[title+1:] {
+		trimmed := strings.TrimSpace(ln)
+		if strings.HasPrefix(trimmed, "+") {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "|") {
+			if len(users) > 0 {
+				break
+			}
+			continue
+		}
+		cells := tableCells(ln)
+		if len(cells) < 3 {
+			continue
+		}
+		m := fingerCommandRe.FindStringSubmatch(cells[2])
+		if m == nil {
+			continue
+		}
+		login := cells[0]
+		if !loginRe.MatchString(login) || seen[login] {
+			continue
+		}
+		seen[login] = true
+		users = append(users, User{Login: login, Name: cells[1], Target: m[1]})
+	}
+	if len(users) == 0 {
+		return nil, "", false
+	}
+	return users, trimPreamble(lines[:title+1]), true
+}
+
+func tableCells(ln string) []string {
+	parts := strings.Split(strings.Trim(ln, "|"), "|")
+	cells := make([]string, 0, len(parts))
+	for _, p := range parts {
+		cells = append(cells, strings.TrimSpace(p))
+	}
+	return cells
+}
+
+func parseRedterminalMenu(lines []string) ([]User, string, bool) {
+	start := -1
+	for i, ln := range lines {
+		if strings.Contains(ln, "Available Fingers") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return nil, "", false
+	}
+
+	var users []User
+	seen := map[string]bool{}
+	for _, ln := range lines[start+1:] {
+		fields := strings.Fields(ln)
+		if len(fields) == 0 {
+			continue
+		}
+		login := fields[0]
+		if !loginRe.MatchString(login) {
+			if len(users) > 0 {
+				break
+			}
+			continue
+		}
+		if seen[login] {
+			continue
+		}
+		seen[login] = true
+		desc := strings.TrimSpace(strings.TrimPrefix(ln, login))
+		users = append(users, User{Login: login, Name: desc})
+	}
+	if len(users) == 0 {
+		return nil, "", false
+	}
+	return users, trimPreamble(lines[:start+1]), true
+}
+
+func parseFingerRing(lines []string) ([]User, string, bool) {
+	start := -1
+	for i, ln := range lines {
+		if strings.Contains(strings.ToLower(ln), "and now for the list") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return nil, "", false
+	}
+
+	var users []User
+	seen := map[string]bool{}
+	for _, ln := range lines[start+1:] {
+		m := fingerURLRe.FindStringSubmatch(ln)
+		if m == nil {
+			if len(users) > 0 {
+				break
+			}
+			continue
+		}
+		host, login := m[1], m[2]
+		target := login + "@" + host
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		users = append(users, User{Login: login, Name: host, Target: target})
+	}
+	if len(users) == 0 {
+		return nil, "", false
+	}
+	return users, trimPreamble(lines[:start+1]), true
+}
+
+func parseTelehackStatus(lines []string) ([]User, string, bool) {
+	header := -1
+	for i, ln := range lines {
+		fields := strings.Fields(ln)
+		if len(fields) >= 2 && fields[0] == "port" && fields[1] == "username" {
+			header = i
+			break
+		}
+	}
+	if header < 0 || header+1 >= len(lines) {
+		return nil, "", false
+	}
+
+	var users []User
+	seen := map[string]bool{}
+	for _, ln := range lines[header+2:] {
+		fields := strings.Fields(ln)
+		if len(fields) < 2 {
+			if len(users) > 0 {
+				break
+			}
+			continue
+		}
+		login := fields[1]
+		if login == "-" || !loginRe.MatchString(login) || seen[login] {
+			continue
+		}
+		seen[login] = true
+		desc := ""
+		if len(fields) >= 3 {
+			desc = fields[2]
+		}
+		users = append(users, User{Login: login, Name: desc})
+	}
+	if len(users) == 0 {
+		return nil, "", false
+	}
+	return users, trimPreamble(lines[:header+2]), true
+}
+
+func preambleBeforeColumnar(lines []string) string {
+	preamble, _ := columnarPreamble(lines)
+	return preamble
+}
+
+func preambleBeforeGrid(lines []string) string {
+	preamble, _ := gridPreamble(lines)
+	return preamble
+}
+
+func preambleBeforeMarker(lines []string) string {
+	preamble, _ := markerPreamble(lines)
+	return preamble
 }

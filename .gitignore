@@ -9,3 +9,6 @@
 
 # OS junk
 .DS_Store
+
+# Visual brainstorm companion artifacts
+.superpowers/

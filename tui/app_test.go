@@ -385,3 +385,70 @@ func TestCompleteHostFetchListNotMarkedIncomplete(t *testing.T) {
 		t.Fatalf("list title = %q, should not contain (incomplete)", got.list.list.Title)
 	}
 }
+
+// captureFetch returns a fetch func that records the target it was called with.
+func captureFetch(got *finger.Target) FetchFunc {
+	return func(_ context.Context, tg finger.Target) ([]byte, finger.Meta, error) {
+		*got = tg
+		return []byte("x\n"), finger.Meta{}, nil
+	}
+}
+
+func drillFirstUser(t *testing.T, host finger.Target, users []User, fetch FetchFunc) tea.Cmd {
+	t.Helper()
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.hostList = &Entry{Target: host}
+	m.listReady = true
+	m.list = newList(m.common, host, users)
+	m.state = stateList
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if !got.fromList || got.state != stateReader {
+		t.Fatalf("expected a drilled reader (fromList=%v state=%d)", got.fromList, got.state)
+	}
+	if cmd == nil {
+		t.Fatal("expected a fetch command from drilling")
+	}
+	return cmd
+}
+
+func TestDrillServerSuppliedTargetPinnedToPort79(t *testing.T) {
+	var got finger.Target
+	host := hostTarget(t, "@thebackupbox.net")
+	// A ring-style entry whose server-supplied target carries a hostile port.
+	users := []User{{Login: "evil", Target: "evil@example.com:22"}}
+
+	cmd := drillFirstUser(t, host, users, captureFetch(&got))
+	cmd()
+
+	if got.HostPort != "example.com:79" {
+		t.Fatalf("HostPort = %q, want example.com:79 (server-supplied port must be pinned to 79)", got.HostPort)
+	}
+}
+
+func TestDrillServerSuppliedTargetKeepsCrossHost(t *testing.T) {
+	var got finger.Target
+	host := hostTarget(t, "@thebackupbox.net")
+	// A legitimate Finger Ring entry points at another host on port 79.
+	users := []User{{Login: "yalla", Target: "yalla@tilde.team"}}
+
+	cmd := drillFirstUser(t, host, users, captureFetch(&got))
+	cmd()
+
+	if got.HostPort != "tilde.team:79" {
+		t.Fatalf("HostPort = %q, want tilde.team:79 (cross-host drilling must be preserved)", got.HostPort)
+	}
+}
+
+func TestDrillSameHostKeepsUserTypedPort(t *testing.T) {
+	var got finger.Target
+	host := hostTarget(t, "@plan.cat:7979") // user typed an explicit port
+	users := []User{{Login: "alice"}}       // no server-supplied target
+
+	cmd := drillFirstUser(t, host, users, captureFetch(&got))
+	cmd()
+
+	if got.HostPort != "plan.cat:7979" {
+		t.Fatalf("HostPort = %q, want plan.cat:7979 (user-typed port must be preserved)", got.HostPort)
+	}
+}

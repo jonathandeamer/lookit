@@ -318,3 +318,37 @@ func TestDeclineDaemonHelpDebian(t *testing.T) {
 		t.Fatal("ParseUsers ok = true, want false (daemon help)")
 	}
 }
+
+// The menu/table matchers are gated by a cue; a cue with no parseable entries
+// must still decline rather than open an empty or hallucinated list.
+
+func TestDeclineAvailableFingersCueWithoutEntries(t *testing.T) {
+	body := []byte("Welcome.\n\n<== Available Fingers ==>\n\n" +
+		"(the service list is temporarily unavailable)\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (Available Fingers cue, no entries)")
+	}
+}
+
+func TestDeclineTelehackHeaderWithoutRows(t *testing.T) {
+	body := []byte("TELEHACK SYSTEM STATUS\n\n" +
+		" port username   status\n ---- --------   ------\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (telehack header, no data rows)")
+	}
+}
+
+func TestDeclineRingCueWithoutURLs(t *testing.T) {
+	body := []byte("This is the finger ring!\nand now for the list:\n" +
+		"the ring is empty today, check back soon\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (ring cue, no finger:// URLs)")
+	}
+}
+
+func TestDeclineSavaTitleWithoutTableRows(t *testing.T) {
+	body := []byte("Users on this finger server\n\n(none connected right now)\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (sava title, no | table rows)")
+	}
+}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"net"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
@@ -158,7 +159,8 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 		return true, m, nil
 	}
 	raw := sel.target
-	if raw == "" {
+	serverSupplied := raw != ""
+	if !serverSupplied {
 		// Build login@host from the host's original argument (minus the leading
 		// "@"), preserving any explicit :port the user typed.
 		host := strings.TrimPrefix(m.list.host.Raw, "@")
@@ -167,6 +169,14 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 	target, err := finger.ParseTarget(raw)
 	if err != nil {
 		return true, m, nil
+	}
+	if serverSupplied {
+		// A target extracted from the server's own response (a finger:// link
+		// or "finger user@host" command) could point at an arbitrary host:port.
+		// Finger always lives on port 79; pin server-supplied targets to it so a
+		// malicious response can't steer lookit at another service (e.g.
+		// host:22). User-typed targets keep their explicit port.
+		target = pinFingerPort(target)
 	}
 	m.reader.setLoading(target)
 	m.state = stateReader
@@ -203,6 +213,17 @@ func (m appModel) routeFetch(entry Entry) appModel {
 func shouldOpenList(entry Entry) bool {
 	return entry.Target.User == "" ||
 		(entry.Target.User == "ring" && strings.HasPrefix(entry.Target.HostPort, "thebackupbox.net:"))
+}
+
+// pinFingerPort rewrites a target's port to 79, the finger well-known port.
+// It is applied to targets lifted from a server's response so a hostile entry
+// cannot direct lookit at a non-finger service. The host is preserved (the
+// Finger Ring is legitimately cross-host).
+func pinFingerPort(t finger.Target) finger.Target {
+	if host, _, err := net.SplitHostPort(t.HostPort); err == nil {
+		t.HostPort = net.JoinHostPort(host, "79")
+	}
+	return t
 }
 
 func (m appModel) View() tea.View {

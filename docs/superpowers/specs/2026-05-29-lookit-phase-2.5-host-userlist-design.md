@@ -218,7 +218,7 @@ The plan and the two items above describe Phase 2.5 as approved. Work merged
 the code:
 
 - **The in-viewport token-selection fallback was effectively delivered, in a different shape.** Instead of highlighting arbitrary tokens in unparsed output, the parser gained **service-specific menu/table matchers** — typed-hole `Available fingers:`, sava.rocks, redterminal, the Finger Ring (`thebackupbox.net`), and telehack status — plus recognition of embedded `finger://host/user` URLs and `finger user@host` commands.
-- **Cross-host drilling.** A `User.Target` field lets a selected entry finger a *different* host (e.g. a `finger://` link or a `user@otherhost` command), not just `login@host`.
+- **Cross-host drilling.** A `User.Target` field lets a selected entry finger a *different* host (e.g. a `finger://` link or a `user@otherhost` command), not just `login@host` — this is required by the Finger Ring, whose entries are all cross-host. **Safety constraint:** because such targets come from the (untrusted) server response, drilling a server-supplied target pins the port to 79 (`pinFingerPort`), so a hostile response cannot steer lookit at another service (e.g. `host:22`). User-typed targets keep any explicit port.
 - **Host preamble.** Banner/intro text above the recognized list is shown above the list (excluding the selectable rows).
 - **Errored/truncated list-bearing responses still open the list,** flagged `(incomplete)`; the finger client marks `Truncated` when a reset cuts the body mid-line.
 

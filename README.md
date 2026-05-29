@@ -52,7 +52,7 @@ Output styling adapts to your terminal's color capabilities. When stdout is pipe
 
 ## Roadmap
 
-Phase 1 (CLI MVP) and Phase 2 (TUI reader) are done. Planned next:
+Phase 1 (CLI MVP), Phase 2 (TUI reader), and Phase 2.5 (server user-list drill-down — finger a `@host`, browse and select a user, including fingerverse menu formats) are done. Planned next:
 
 - **Phase 3** — subscriptions (`lookit subscribe` + `lookit refresh` for watch-and-diff) and a curated catalog (`lookit discover`).
 - **Phase 4** — polish: VHS demo gif, Homebrew tap.

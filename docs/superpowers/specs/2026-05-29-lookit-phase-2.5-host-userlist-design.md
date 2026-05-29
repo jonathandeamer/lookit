@@ -188,7 +188,7 @@ Returns `(users, true)` only when a format is confidently recognized; otherwise 
 
 **`userlist_test.go` — golden corpus** from live captures (stored as fixtures):
 - *Parses:* plan.cat & tilde.institute & tilde.pink (columnar; tilde.pink asserts dedup), tilde.team & envs.net & zaibatsu & cosmic.voyage-online-block (grid), happynetbox (marker). Assert logins and order; assert cosmic.voyage yields exactly `klu`, `tomasino`.
-- *Correctly declines (`ok == false`):* tilde.town (banner), tilde.club (empty), typed-hole (services menu + inline cue), db.debian.org (daemon help).
+- *Correctly declines (`ok == false`):* tilde.town (banner), tilde.club (empty), db.debian.org (daemon help). (typed-hole's plain inline cue still declines, but its `Available fingers:` menu now parses — see the post-plan addendum.)
 
 **`app_test.go` — transitions with an injected `FetchFunc`:**
 - Host fetch that parses → `stateList`, host entry cached.
@@ -210,6 +210,22 @@ Recorded here so the rationale and the (low) cost of deferral are on the record.
 - **No-arg landing screen (idea 1).** `lookit` with no args probing `@localhost` and falling back to a curated catalog. Deferred to keep this increment small. **Cost of deferring: negligible.** It is additive — a new branch in the no-arg path plus reuse of `listModel`; it needs no change to `routeFetch`, `ParseUsers`, or the data model.
 - **In-viewport token-selection fallback.** Selecting login-ish tokens in unparsed host output. **Cost of deferring: negligible.** Additive — a third case in `routeFetch` (`host && unrecognized && has tokens`), a token-extraction function alongside `ParseUsers`, and a selection sub-mode on `readerModel`. All data it needs (raw `Entry.Body`, host `Target`) is already retained.
 - **Unicode-aware real-name columns.** plan.cat has names like `わだ`; column-width math is fiddly. Login-only rows are acceptable; names are shown only when trivially extracted.
+
+## Post-plan addendum (shipped after Phase 2.5 merged)
+
+The plan and the two items above describe Phase 2.5 as approved. Work merged
+*after* the plan deliberately expanded scope; recorded here so the docs match
+the code:
+
+- **The in-viewport token-selection fallback was effectively delivered, in a different shape.** Instead of highlighting arbitrary tokens in unparsed output, the parser gained **service-specific menu/table matchers** — typed-hole `Available fingers:`, sava.rocks, redterminal, the Finger Ring (`thebackupbox.net`), and telehack status — plus recognition of embedded `finger://host/user` URLs and `finger user@host` commands.
+- **Cross-host drilling.** A `User.Target` field lets a selected entry finger a *different* host (e.g. a `finger://` link or a `user@otherhost` command), not just `login@host`.
+- **Host preamble.** Banner/intro text above the recognized list is shown above the list (excluding the selectable rows).
+- **Errored/truncated list-bearing responses still open the list,** flagged `(incomplete)`; the finger client marks `Truncated` when a reset cuts the body mid-line.
+
+This is a deliberate scope expansion. Trade-off: the bespoke parsers track real
+fingerverse output formats that can change, so they carry ongoing maintenance
+cost, mitigated by the golden-corpus tests. **Still deferred:** the no-arg
+landing screen (idea 1) and unicode-aware name columns.
 
 ## Future navigation direction
 

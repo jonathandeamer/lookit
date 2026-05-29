@@ -42,6 +42,6 @@ Networking and the TUI program are injected, never real: `tui` uses `FetchFunc`/
 
 ## Conventions
 
-- **Commit messages: Conventional Commits, and do NOT add `Co-Authored-By` or Codex trailers** — this project deliberately omits them (overrides the usual default).
+- **Commit messages: Conventional Commits, and do NOT add `Co-Authored-By` or Codex trailers** — this project deliberately omits them (overrides the usual default). A `commit-msg` hook (`.githooks/commit-msg`) enforces the `type(optional-scope): description` format; install it once per clone with `make hooks` (sets `core.hooksPath`). It's local-only (not a CI gate) and bypassable with `git commit --no-verify`.
 - The local `~/bubbletea`, `~/bubbles`, `~/lipgloss` clones are reference material only; the versions resolved in `go.mod` are authoritative. After adding a Charm dependency, run `go mod tidy`.
 - Design rationale lives in `docs/superpowers/specs/` (specs) and `docs/superpowers/plans/` (implementation plans), phase by phase — consult them for the "why" behind a decision before changing behavior.

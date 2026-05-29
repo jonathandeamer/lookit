@@ -5,7 +5,7 @@
 BINARY := lookit
 GOLANGCI_LINT_VERSION := v2.12.2
 
-.PHONY: build test race vet fmt fmt-check lint vuln check tidy clean
+.PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean
 
 build: ## build the binary
 	go build -o $(BINARY) .
@@ -37,6 +37,10 @@ vuln: ## scan dependencies for known vulnerabilities
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 check: vet fmt-check lint race ## run the full CI gate set
+
+hooks: ## install git hooks (commit-msg: Conventional Commits); run once per clone
+	git config core.hooksPath .githooks
+	@echo "git hooks installed (core.hooksPath -> .githooks)"
 
 tidy: ## tidy go.mod/go.sum
 	go mod tidy

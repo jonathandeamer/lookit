@@ -1,0 +1,42 @@
+#!/bin/sh
+# commit-msg hook: enforce Conventional Commits on the subject line.
+#
+#   <type>(<optional-scope>)<optional !>: <description>
+#
+# Scope is optional (feat(tui): ... and ci: ... are both fine). Auto-generated
+# merge/revert/fixup subjects are skipped. This is local-only: install once per
+# clone with `make hooks` (sets core.hooksPath to .githooks). Bypass a single
+# commit with `git commit --no-verify`.
+
+msg_file="$1"
+
+# The subject = first non-comment, non-blank line (git strips '#' lines later).
+subject=$(grep -v '^#' "$msg_file" | sed '/^[[:space:]]*$/d' | head -n 1)
+
+# Skip messages git generates that aren't authored subjects.
+case "$subject" in
+	"Merge "* | "Revert "* | "fixup! "* | "squash! "* | "amend! "*)
+		exit 0
+		;;
+esac
+
+types='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
+
+if printf '%s\n' "$subject" | grep -Eq "^($types)(\([a-z0-9._/-]+\))?!?: .+"; then
+	exit 0
+fi
+
+cat >&2 <<EOF
+✗ Commit message does not follow Conventional Commits.
+
+  Subject: $subject
+
+  Expected: <type>(<optional-scope>): <description>
+  Types:    feat fix docs style refactor perf test build ci chore revert
+  Examples: feat(tui): add raw-body view to the best-guess list
+            fix(finger): pin server-supplied targets to :79
+            ci: bump actions to v6
+
+  Scope is optional. Bypass once with: git commit --no-verify
+EOF
+exit 1

@@ -14,6 +14,9 @@ import (
 
 const initialStatus = "enter a finger target, then press Enter"
 
+// chromeRows counts the non-viewport lines in View: title, input, status, hint.
+const chromeRows = 4
+
 type Model struct {
 	input    textinput.Model
 	viewport viewport.Model
@@ -142,7 +145,7 @@ func (m *Model) resize() {
 	m.input.SetWidth(inputWidth)
 	m.viewport.SetWidth(m.width)
 
-	viewportHeight := m.height - 5
+	viewportHeight := m.height - chromeRows
 	if viewportHeight < 1 {
 		viewportHeight = 1
 	}

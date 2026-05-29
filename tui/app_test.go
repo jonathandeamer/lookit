@@ -172,7 +172,7 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
-	m.list = newListWithPreamble(m.common, host, users, body)
+	m.list = newListWithPreamble(m.common, host, users, body, false)
 	m.state = stateList
 
 	view := m.View().Content
@@ -325,5 +325,130 @@ func TestEscWhileFilteringDelegatesToList(t *testing.T) {
 	got := next.(appModel)
 	if got.state != stateList {
 		t.Fatalf("state = %d, want stateList (Esc while filtering must not back out)", got.state)
+	}
+}
+
+func TestTruncatedHostFetchMarksListIncomplete(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	entry := Entry{
+		Target: host,
+		Body:   []byte(hostListBody()),
+		Meta:   finger.Meta{Addr: host.HostPort, Truncated: true},
+	}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList", got.state)
+	}
+	if !strings.Contains(got.list.list.Title, "(incomplete)") {
+		t.Fatalf("list title = %q, want it to contain (incomplete)", got.list.list.Title)
+	}
+}
+
+func TestErroredHostFetchWithBodyMarksListIncomplete(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	entry := Entry{
+		Target: host,
+		Body:   []byte(hostListBody()),
+		Meta:   finger.Meta{Addr: host.HostPort},
+		Err:    errors.New("connection reset"),
+	}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList (errored body that parses opens the list)", got.state)
+	}
+	if !strings.Contains(got.list.list.Title, "(incomplete)") {
+		t.Fatalf("list title = %q, want it to contain (incomplete)", got.list.list.Title)
+	}
+}
+
+func TestCompleteHostFetchListNotMarkedIncomplete(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	entry := Entry{
+		Target: host,
+		Body:   []byte(hostListBody()),
+		Meta:   finger.Meta{Addr: host.HostPort},
+	}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if strings.Contains(got.list.list.Title, "(incomplete)") {
+		t.Fatalf("list title = %q, should not contain (incomplete)", got.list.list.Title)
+	}
+}
+
+// captureFetch returns a fetch func that records the target it was called with.
+func captureFetch(got *finger.Target) FetchFunc {
+	return func(_ context.Context, tg finger.Target) ([]byte, finger.Meta, error) {
+		*got = tg
+		return []byte("x\n"), finger.Meta{}, nil
+	}
+}
+
+func drillFirstUser(t *testing.T, host finger.Target, users []User, fetch FetchFunc) tea.Cmd {
+	t.Helper()
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.hostList = &Entry{Target: host}
+	m.listReady = true
+	m.list = newList(m.common, host, users)
+	m.state = stateList
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if !got.fromList || got.state != stateReader {
+		t.Fatalf("expected a drilled reader (fromList=%v state=%d)", got.fromList, got.state)
+	}
+	if cmd == nil {
+		t.Fatal("expected a fetch command from drilling")
+	}
+	return cmd
+}
+
+func TestDrillServerSuppliedTargetPinnedToPort79(t *testing.T) {
+	var got finger.Target
+	host := hostTarget(t, "@thebackupbox.net")
+	// A ring-style entry whose server-supplied target carries a hostile port.
+	users := []User{{Login: "evil", Target: "evil@example.com:22"}}
+
+	cmd := drillFirstUser(t, host, users, captureFetch(&got))
+	cmd()
+
+	if got.HostPort != "example.com:79" {
+		t.Fatalf("HostPort = %q, want example.com:79 (server-supplied port must be pinned to 79)", got.HostPort)
+	}
+}
+
+func TestDrillServerSuppliedTargetKeepsCrossHost(t *testing.T) {
+	var got finger.Target
+	host := hostTarget(t, "@thebackupbox.net")
+	// A legitimate Finger Ring entry points at another host on port 79.
+	users := []User{{Login: "yalla", Target: "yalla@tilde.team"}}
+
+	cmd := drillFirstUser(t, host, users, captureFetch(&got))
+	cmd()
+
+	if got.HostPort != "tilde.team:79" {
+		t.Fatalf("HostPort = %q, want tilde.team:79 (cross-host drilling must be preserved)", got.HostPort)
+	}
+}
+
+func TestDrillSameHostKeepsUserTypedPort(t *testing.T) {
+	var got finger.Target
+	host := hostTarget(t, "@plan.cat:7979") // user typed an explicit port
+	users := []User{{Login: "alice"}}       // no server-supplied target
+
+	cmd := drillFirstUser(t, host, users, captureFetch(&got))
+	cmd()
+
+	if got.HostPort != "plan.cat:7979" {
+		t.Fatalf("HostPort = %q, want plan.cat:7979 (user-typed port must be preserved)", got.HostPort)
 	}
 }

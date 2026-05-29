@@ -37,12 +37,14 @@ type parsedUserList struct {
 	preamble string
 }
 
-// ParseUsers extracts a host's logged-in / listed users from a finger response
+// ParseUsers extracts a host's listed users/entries from a finger response
 // body. It returns (users, true) only when a format is confidently recognized;
 // otherwise (nil, false). The caller guarantees this is a host query.
 //
-// Three gated matchers are tried in order: columnar (Login header), grid
-// (cue line), marker ("> login"). Results are deduplicated, order preserved.
+// Several gated matchers are tried in order: the generic columnar (Login
+// header), grid (cue line), and marker ("> login") formats, then service-
+// specific menu/table formats (typed-hole, sava, redterminal, the Finger Ring,
+// telehack). Results are deduplicated, order preserved.
 func ParseUsers(body []byte) ([]User, bool) {
 	parsed, ok := parseUserList(body)
 	return parsed.users, ok

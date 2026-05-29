@@ -104,6 +104,9 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 			meta.Truncated = true
 			return body, meta, fmt.Errorf("read response timed out after %s: %w", opts.readTimeout, readErr)
 		}
+		if len(body) > 0 {
+			return body, meta, nil
+		}
 		return body, meta, fmt.Errorf("read response: %w", readErr)
 	}
 	return body, meta, nil

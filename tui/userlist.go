@@ -16,8 +16,14 @@ type User struct {
 // over-long tokens.
 var loginRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$`)
 
-// gridCueRe gates Format 1 (token grid). Only a recognized "who is here" cue
-// turns following lines into a login block.
+// dateNoiseRe matches login-time / idle column tokens (weekday/month
+// abbreviations and durations like "207d") that can land in fields[1] when a
+// columnar row has no real name.
+var dateNoiseRe = regexp.MustCompile(`^(?:\d+[dhms]?|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$`)
+
+// gridCueRe gates Format 1 (token grid). It is tried after the columnar
+// matcher because a "Login" header is a stronger signal. Only a recognized
+// "who is here" cue turns the following lines into a login block.
 var gridCueRe = regexp.MustCompile(`(?i)logged[\s-]?in|online`)
 
 // markerRe matches Format 3 marker rows: "> login" with a single login token.
@@ -94,17 +100,18 @@ func parseColumnar(lines []string) ([]User, bool) {
 	return users, true
 }
 
-// looksLikeColumnNoise rejects obvious non-name second tokens (tty/idle/date
-// fragments) so a bare login row does not get a junk name. Best-effort only.
+// looksLikeColumnNoise reports whether a second-column token is clearly not a
+// real name — a tty/idle column ("pts/15", "*p1") or a login-time/idle token
+// ("Fri", "May", "207d") — so a nameless row does not get a junk name.
+// Best-effort only.
 func looksLikeColumnNoise(s string) bool {
 	if s == "" {
 		return true
 	}
-	// Tty/idle columns like "pts/15", "*p1", "t6", or dates "Fri"/"May".
 	if strings.ContainsAny(s, "/*:") {
 		return true
 	}
-	return false
+	return dateNoiseRe.MatchString(s)
 }
 
 // parseGrid handles a whitespace/tab grid of bare logins that appears after a

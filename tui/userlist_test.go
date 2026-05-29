@@ -30,6 +30,9 @@ func TestParseColumnarPlanCat(t *testing.T) {
 	if users[1].Name != "Geurimja" {
 		t.Fatalf("users[1].Name = %q, want %q", users[1].Name, "Geurimja")
 	}
+	if users[0].Name != "" {
+		t.Fatalf("users[0].Name = %q, want empty (jss has no name)", users[0].Name)
+	}
 }
 
 func TestParseColumnarDedupTildePink(t *testing.T) {

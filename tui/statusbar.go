@@ -75,8 +75,8 @@ func (b statusBar) render() string {
 	leftW := lipgloss.Width(left)
 
 	gap := b.width - leftW - rightW
-	if gap < 1 {
-		gap = 1
+	if gap < 0 {
+		gap = 0
 	}
 	line := left + st.barFill.Render(strings.Repeat(" ", gap)) + st.barDim.Render(rightText)
 	return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)

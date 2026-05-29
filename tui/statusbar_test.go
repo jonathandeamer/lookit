@@ -68,3 +68,18 @@ func TestStatusBarWarnFlagRendered(t *testing.T) {
 		t.Fatalf("bar missing warn flag")
 	}
 }
+
+func TestStatusBarNeverWrapsAtNarrowWidth(t *testing.T) {
+	// At a width too small for any gap, the bar must clip to one line, not wrap.
+	for w := 1; w <= 30; w++ {
+		b := statusBar{host: "@tilde.team", user: "jonathan", escTarget: "@tilde.team",
+			meta: "1.2 KB", hints: "esc back · ? help", width: w, styles: newStyles()}
+		out := b.render()
+		if strings.Contains(out, "\n") {
+			t.Fatalf("width %d: bar wrapped to multiple lines:\n%q", w, out)
+		}
+		if lipgloss.Width(out) > w {
+			t.Fatalf("width %d: bar width = %d, exceeds limit", w, lipgloss.Width(out))
+		}
+	}
+}

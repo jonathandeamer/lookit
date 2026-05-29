@@ -6,7 +6,7 @@
 
 **Architecture:** Add a new `tui/` package that consumes `finger/` and `render/` without moving networking or rendering responsibilities. Keep `main.go` as process routing: no args opens the TUI, one target arg uses the existing one-shot path, `version` prints build info, and help flags print usage.
 
-**Tech Stack:** Go, Bubble Tea v2 (`charm.land/bubbletea/v2`), Bubbles v2 (`charm.land/bubbles/v2` textinput/viewport/key), Lip Gloss v2 (`charm.land/lipgloss/v2`), existing `github.com/charmbracelet/colorprofile`.
+**Tech Stack:** Go, Bubble Tea v2 (`charm.land/bubbletea/v2`), Bubbles v2 (`charm.land/bubbles/v2` textinput/viewport/key), Lip Gloss v2 (`charm.land/lipgloss/v2`) for TUI chrome only, existing `github.com/charmbracelet/colorprofile`, existing Phase 1 Lip Gloss dependency for `render/`.
 
 ---
 
@@ -19,7 +19,7 @@ lookit/
 ├── finger/
 │   └── ... existing unchanged
 ├── render/
-│   ├── theme.go                 # migrate lipgloss import to v2
+│   ├── theme.go                 # unchanged in Phase 2
 │   └── ... existing unchanged
 └── tui/
     ├── fetch.go                 # FetchFunc, Entry, fetch command/result message
@@ -62,12 +62,11 @@ Do not add history, persistence, subscriptions, `get`, `--tui`, or a command fra
 
 ---
 
-## Task 1: Add Bubble Tea/Bubbles v2 and migrate Lip Gloss import
+## Task 1: Add Bubble Tea/Bubbles v2 dependencies
 
 **Files:**
 - Modify: `/Users/jonathan/lookit/go.mod`
 - Modify: `/Users/jonathan/lookit/go.sum`
-- Modify: `/Users/jonathan/lookit/render/theme.go`
 
 - [ ] **Step 1: Add the v2 Charm dependencies**
 
@@ -82,18 +81,7 @@ go get charm.land/lipgloss/v2@latest
 
 Expected: `go.mod` adds the new v2 modules. Exact versions may differ.
 
-- [ ] **Step 2: Migrate `render/theme.go` to Lip Gloss v2**
-
-In `/Users/jonathan/lookit/render/theme.go`, change the Lip Gloss import only:
-
-```diff
--	"github.com/charmbracelet/lipgloss"
-+	"charm.land/lipgloss/v2"
-```
-
-Do not otherwise change render behavior in this task.
-
-- [ ] **Step 3: Tidy and test**
+- [ ] **Step 2: Tidy and test**
 
 Run:
 
@@ -104,15 +92,17 @@ go test ./render/... -count=1
 go test ./... -count=1
 ```
 
-Expected: all tests pass. If Lip Gloss v2 requires a small API adjustment, make only the minimal change needed in `render/theme.go`, then rerun both commands.
+Expected: all tests pass.
 
-- [ ] **Step 4: Commit**
+Do not migrate `render/theme.go` to `charm.land/lipgloss/v2` in this task. Local review of `~/lipgloss/UPGRADE_GUIDE_V2.md` shows v2 removed `Renderer`, and the Phase 1 renderer currently relies on `lipgloss.NewRenderer(io.Discard)` for explicit profile handling. Keep `render/` stable and use Lip Gloss v2 only inside the new `tui/` package.
+
+- [ ] **Step 3: Commit**
 
 Run:
 
 ```bash
 cd /Users/jonathan/lookit
-git add go.mod go.sum render/theme.go
+git add go.mod go.sum
 git commit -m "chore: adopt Charm v2 TUI dependencies"
 ```
 
@@ -579,7 +569,11 @@ func New(fetch FetchFunc, profile colorprofile.Profile) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(
+		textinput.Blink,
+		tea.RequestCapability("RGB"),
+		tea.RequestCapability("Tc"),
+	)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -634,7 +628,10 @@ func (m Model) View() tea.View {
 	b.WriteString(m.viewport.View())
 	b.WriteByte('\n')
 	b.WriteString(m.styles.hint.Render("Enter fetches · arrows/PageUp/PageDown scroll · Esc quits · ? help"))
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
 
 func statusForEntry(entry Entry) string {
@@ -967,11 +964,14 @@ func (m Model) View() tea.View {
 	b.WriteString(m.viewport.View())
 	b.WriteByte('\n')
 	b.WriteString(m.styles.hint.Render("Enter fetches · arrows/PageUp/PageDown scroll · Esc quits · ? help"))
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
 ```
 
-No full-screen border, panels, or sidebar should be added.
+No full-screen border, panels, or sidebar should be added. `AltScreen` and `MouseModeCellMotion` are Bubble Tea terminal-mode declarations, not visual chrome. The alt screen keeps the shell clean on exit, and cell-motion mouse mode lets the Bubbles viewport receive mouse-wheel events.
 
 - [ ] **Step 5: Run all tests**
 

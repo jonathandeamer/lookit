@@ -157,6 +157,7 @@ Phase 2 should add only the Charm tools that carry their weight:
 - Bubbles `textinput` for target entry.
 - Bubbles `viewport` for response scrolling.
 - Bubbles `key` for centralized key bindings.
+- Bubble Tea `tea.View` fields for terminal mode declarations.
 - Optional Bubbles `spinner` only if loading text feels too static during implementation.
 
 Skip for now:
@@ -186,7 +187,9 @@ Other Bubble Tea apps reinforce these choices:
 
 The current Phase 1 renderer uses `github.com/charmbracelet/lipgloss`. Bubbles v2 uses `charm.land/lipgloss/v2`.
 
-Phase 2 should migrate `render/` to `charm.land/lipgloss/v2` if the API changes are small. Keeping both Lip Gloss v1 and v2 in the same binary is avoidable dependency churn. If migration proves larger than expected, keep the existing renderer stable and use Lip Gloss v2 only inside `tui/`, but document that as a temporary compromise in the implementation plan.
+Phase 2 should not migrate `render/` to Lip Gloss v2. Local review of `~/lipgloss/UPGRADE_GUIDE_V2.md` shows v2 removed `Renderer`; the current renderer relies on `lipgloss.NewRenderer(io.Discard)` and explicit color-profile conversion. Migrating `render/` would be a real renderer rewrite, not a small import-path update.
+
+Use Lip Gloss v2 only inside `tui/` for TUI chrome, and keep `render/` on its existing Lip Gloss version for this phase. Revisit a full `render/` migration in a separate plan if dependency cleanup becomes important.
 
 After adding Bubble Tea/Bubbles, verify the exact installed APIs locally. Charm examples can drift across versions.
 
@@ -199,6 +202,10 @@ Use plain compact chrome:
 - No card-like boxes.
 - Fixed-height input and status rows.
 - Viewport uses the remaining terminal height.
+
+The TUI should use Bubble Tea's alternate screen buffer. That makes the reader feel like an app, gives viewport sizing predictable semantics, and leaves the shell clean when the user quits. This is terminal mode, not visual chrome; it does not conflict with the no-border/no-panel design.
+
+Enable Bubble Tea cell-motion mouse mode so the Bubbles viewport can receive mouse-wheel events. Do not build mouse-specific UI controls in Phase 2.
 
 Palette:
 
@@ -224,7 +231,9 @@ The TUI should:
 - handle Bubble Tea color profile messages when available,
 - pass the current profile into `render.Render`.
 
-If Bubble Tea emits `tea.ColorProfileMsg`, update the model's profile from that message. If that message is unavailable in the installed version, fall back to startup detection with `colorprofile.Detect`.
+Bubble Tea v2 emits `tea.ColorProfileMsg`. Update the model's profile from that message.
+
+The TUI `Init` command should request color capabilities with `tea.RequestCapability("RGB")` and `tea.RequestCapability("Tc")`, alongside the text input blink command. This lets Bubble Tea upgrade the terminal color profile when supported.
 
 ## Error handling
 

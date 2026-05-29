@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 
@@ -20,28 +21,55 @@ const (
 	exitUsage   = 64 // EX_USAGE
 )
 
+var (
+	version        = "dev"
+	builtAt        = "unknown"
+	runOneShotFunc = runOneShot
+)
+
 func main() {
-	if len(os.Args) != 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
-		fmt.Fprintln(os.Stderr, "usage: lookit user@host[:port]")
-		fmt.Fprintln(os.Stderr, "       lookit @host[:port]")
-		os.Exit(exitUsage)
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" {
+		printUsage(stderr)
+		return exitUsage
 	}
 
-	target, err := finger.ParseTarget(os.Args[1])
+	if args[0] == "version" {
+		fmt.Fprintln(stdout, versionString())
+		return exitOK
+	}
+
+	target, err := finger.ParseTarget(args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "lookit: %v\n", err)
-		os.Exit(exitUsage)
+		fmt.Fprintf(stderr, "lookit: %v\n", err)
+		return exitUsage
 	}
 
+	return runOneShotFunc(context.Background(), target, stdout)
+}
+
+func printUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  lookit user@host[:port]")
+	fmt.Fprintln(w, "  lookit @host[:port]")
+	fmt.Fprintln(w, "  lookit version")
+}
+
+func versionString() string {
+	return fmt.Sprintf("lookit %s (built %s)", version, builtAt)
+}
+
+func runOneShot(ctx context.Context, target finger.Target, stdout io.Writer) int {
 	profile := colorprofile.Detect(os.Stdout, os.Environ())
-
-	body, meta, queryErr := finger.Query(context.Background(), target)
-	fmt.Print(render.Render(target, body, meta, queryErr, profile))
-
+	body, meta, queryErr := finger.Query(ctx, target)
+	fmt.Fprint(stdout, render.Render(target, body, meta, queryErr, profile))
 	if queryErr != nil {
-		os.Exit(exitCodeFor(queryErr))
+		return exitCodeFor(queryErr)
 	}
-	os.Exit(exitOK)
+	return exitOK
 }
 
 // exitCodeFor maps Query errors to process exit codes. Network failures

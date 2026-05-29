@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -11,6 +12,7 @@ import (
 
 // listChromeRows reserves space for the list title and footer when sizing.
 const listChromeRows = 4
+const maxPreambleRows = 12
 
 // userItem is one selectable user in the list.
 type userItem struct {
@@ -50,9 +52,10 @@ func (d userDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 // listModel wraps a bubbles list of a host's users.
 type listModel struct {
-	common *commonModel
-	list   list.Model
-	host   finger.Target
+	common   *commonModel
+	list     list.Model
+	host     finger.Target
+	preamble string
 }
 
 func newList(common *commonModel, host finger.Target, users []User) listModel {
@@ -75,6 +78,13 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 	return listModel{common: common, list: l, host: host}
 }
 
+func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte) listModel {
+	m := newList(common, host, users)
+	m.preamble = extractListPreamble(body)
+	m.setSize(common.width, common.height)
+	return m
+}
+
 func (m listModel) update(msg tea.Msg) (listModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
@@ -82,15 +92,45 @@ func (m listModel) update(msg tea.Msg) (listModel, tea.Cmd) {
 }
 
 func (m listModel) View() string {
+	if m.preamble != "" {
+		return m.visiblePreamble() + "\n\n" + m.list.View()
+	}
 	return m.list.View()
 }
 
 func (m *listModel) setSize(width, height int) {
-	h := height - listChromeRows
+	h := height - listChromeRows - m.preambleHeight()
 	if h < 1 {
 		h = 1
 	}
 	m.list.SetSize(width, h)
+}
+
+func (m listModel) visiblePreamble() string {
+	lines := strings.Split(m.preamble, "\n")
+	limit := maxPreambleRows
+	if m.common != nil && m.common.height > 0 {
+		limit = m.common.height / 2
+		if limit < 3 {
+			limit = 3
+		}
+		if limit > maxPreambleRows {
+			limit = maxPreambleRows
+		}
+	}
+	if len(lines) <= limit {
+		return m.preamble
+	}
+	out := append([]string{}, lines[:limit-1]...)
+	out = append(out, "...")
+	return strings.Join(out, "\n")
+}
+
+func (m listModel) preambleHeight() int {
+	if m.preamble == "" {
+		return 0
+	}
+	return len(strings.Split(m.visiblePreamble(), "\n")) + 1
 }
 
 // selected returns the highlighted user, if any.
@@ -102,4 +142,56 @@ func (m listModel) selected() (userItem, bool) {
 // filtering reports whether the user is actively typing a filter.
 func (m listModel) filtering() bool {
 	return m.list.FilterState() == list.Filtering
+}
+
+func extractListPreamble(body []byte) string {
+	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
+	if preamble, ok := columnarPreamble(lines); ok {
+		return preamble
+	}
+	if preamble, ok := gridPreamble(lines); ok {
+		return preamble
+	}
+	if preamble, ok := markerPreamble(lines); ok {
+		return preamble
+	}
+	return ""
+}
+
+func columnarPreamble(lines []string) (string, bool) {
+	for i, ln := range lines {
+		fields := strings.Fields(ln)
+		if len(fields) > 0 && strings.EqualFold(fields[0], "Login") {
+			return trimPreamble(lines[:i]), true
+		}
+	}
+	return "", false
+}
+
+func gridPreamble(lines []string) (string, bool) {
+	for i, ln := range lines {
+		if !gridCueRe.MatchString(ln) {
+			continue
+		}
+		end := i + 1
+		if end < len(lines) && strings.TrimSpace(lines[end]) == "" {
+			end++
+		}
+		return trimPreamble(lines[:end]), true
+	}
+	return "", false
+}
+
+func markerPreamble(lines []string) (string, bool) {
+	for i, ln := range lines {
+		if markerRe.MatchString(ln) {
+			return trimPreamble(lines[:i]), true
+		}
+	}
+	return "", false
+}
+
+func trimPreamble(lines []string) string {
+	text := strings.TrimRight(strings.Join(lines, "\n"), "\n")
+	return strings.TrimSpace(text)
 }

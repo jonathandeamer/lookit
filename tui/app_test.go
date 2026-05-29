@@ -24,6 +24,13 @@ func hostListBody() string {
 	return "users currently logged in are:\n\nalrs\tdtracker\tkapad\n"
 }
 
+func hostListBodyWithPreamble() string {
+	return "welcome to tilde.team\n\n" +
+		"hello example.net,\n" +
+		"users currently logged in are:\n\n" +
+		"alrs\tdtracker\tkapad\n"
+}
+
 func TestHostFetchThatParsesOpensList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@tilde.team")
@@ -41,6 +48,29 @@ func TestHostFetchThatParsesOpensList(t *testing.T) {
 	sel, ok := got.list.selected()
 	if !ok || sel.login != "alrs" {
 		t.Fatalf("list selection = %+v ok=%v, want alrs", sel, ok)
+	}
+}
+
+func TestHostListViewKeepsPreambleWithoutRawUserGrid(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "@tilde.team")
+	entry := Entry{Target: target, Body: []byte(hostListBodyWithPreamble()), Meta: finger.Meta{Addr: target.HostPort}}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+	view := got.View().Content
+
+	if !strings.Contains(view, "welcome to tilde.team") {
+		t.Fatalf("list view missing preamble: %q", view)
+	}
+	if !strings.Contains(view, "hello example.net") {
+		t.Fatalf("list view missing host greeting: %q", view)
+	}
+	if strings.Contains(view, "alrs\tdtracker\tkapad") {
+		t.Fatalf("list view duplicated raw user grid: %q", view)
+	}
+	if !strings.Contains(view, "alrs") {
+		t.Fatalf("list view missing selectable user: %q", view)
 	}
 }
 

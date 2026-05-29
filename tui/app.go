@@ -179,7 +179,7 @@ func (m appModel) routeFetch(entry Entry) appModel {
 		if users, ok := ParseUsers(entry.Body); ok {
 			cached := entry
 			m.hostList = &cached
-			m.list = newList(m.common, entry.Target, users)
+			m.list = newListWithPreamble(m.common, entry.Target, users, entry.Body)
 			m.listReady = true
 			m.state = stateList
 			m.fromList = false

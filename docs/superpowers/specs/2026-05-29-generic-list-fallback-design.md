@@ -120,17 +120,25 @@ structured logins, no list opens and the help renders in the reader. Correct.
 
 ## Flagging
 
-A generic list is heuristic by construction, so the user is told:
+A generic list is heuristic by construction, so the user is told, and is given
+an escape hatch back to the unparsed text:
 
-1. **Title suffix.** `routeFetch` appends a marker (e.g. `(detected)`) to the
-   list title, composing with the existing `(incomplete)` flag when both apply.
+1. **Title suffix.** `routeFetch` appends `(best guess)` to the list title,
+   composing with the existing `(incomplete)` flag when both apply.
 2. **Preamble note.** A short line above the list (in the preamble the list
    screen already renders) explains the entries were auto-detected from an
-   unrecognized response.
+   unrecognized response, and names the "view raw" key.
+3. **"View raw" escape hatch.** On a generic list only, a key (proposed `r`)
+   renders the **cached raw host body** in the reader, so a user who sees the
+   guess went wrong can read the actual response. The body is already cached in
+   `appModel.hostList`; the key sets the reader entry to that cached `Entry`,
+   switches to `stateReader`, and sets `fromList = true` so `Esc` returns to the
+   generic list. Recognized (non-generic) lists do **not** bind this key — the
+   affordance is scoped to the case where the parse is a guess.
 
-The mechanism reuses the existing title/preamble plumbing in
+The flag/note mechanism reuses the existing title/preamble plumbing in
 `newListWithPreamble`; the `generic` flag from `parsedUserList` is threaded
-through `routeFetch` to choose the suffix and note.
+through `routeFetch` to choose the suffix, the note, and whether `r` is bound.
 
 ## Accepted residual risk
 
@@ -138,7 +146,8 @@ through `routeFetch` to choose the suffix and note.
   of ≥2 single-word lines that are not really logins (a short-line poem, a
   single-word menu, a tag list) can register as a generic list. Mitigations: the
   ≥2 gate, the prose-guard (multi-word single-space lines never qualify), dead-
-  last ordering, and the `(detected)` flag + preamble note. We accept this as the
+  last ordering, the `(best guess)` flag + preamble note, and the "view raw"
+  escape hatch. We accept this as the
   inherent cost of a fallback rather than adding fuzzy dictionary heuristics.
 - **Placeholder target appended to a real list.** A genuine structured list whose
   preamble also contains a `finger example@host` usage hint will get a phantom
@@ -168,6 +177,12 @@ golden-corpus style, with both parse and decline cases.
 - A headerless columnar block (login + 2-space/tab gap + name).
 - A bare-login block **plus** a `finger user@host` line in the same body —
   asserts the harvested target is appended and pinned to `:79`.
+
+**Escape-hatch / model tests (`app_test.go`-style, stub fetch):**
+
+- Pressing `r` on a generic list switches to `stateReader` showing the cached
+  host body, with `fromList = true`; `Esc` then returns to the generic list.
+- `r` is inert on a recognized (non-generic) list.
 
 **Preemption guard (regression):** re-running the full existing corpus must show
 that every currently list-bearing host is still claimed by its earlier parser

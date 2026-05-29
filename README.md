@@ -30,10 +30,14 @@ go install github.com/jonathandeamer/lookit@latest
 ## Usage
 
 ```bash
-lookit alice@plan.cat        # finger a user
-lookit @tilde.team           # finger a server (banner + user list)
+lookit                       # open the TUI reader
+lookit alice@plan.cat        # finger a user once
+lookit @tilde.team           # finger a server once (banner + user list)
 lookit alice@example.com:79  # explicit port
+lookit version               # print version/build info
 ```
+
+In the TUI, type a target and press Enter to fetch it. Use arrows or PageUp/PageDown to scroll the response. Press Esc or Ctrl+C to quit.
 
 Output styling adapts to your terminal's color capabilities. When stdout is piped or `NO_COLOR` is set, lookit emits plain text — `lookit user@host | grep` works as expected.
 
@@ -46,9 +50,8 @@ Output styling adapts to your terminal's color capabilities. When stdout is pipe
 
 ## Roadmap
 
-This is Phase 1 (CLI MVP). Planned next:
+Phase 1 (CLI MVP) and Phase 2 (TUI reader) are done. Planned next:
 
-- **Phase 2** — a TUI reader (Bubble Tea) for browsing.
 - **Phase 3** — subscriptions (`lookit subscribe` + `lookit refresh` for watch-and-diff) and a curated catalog (`lookit discover`).
 - **Phase 4** — polish: VHS demo gif, Homebrew tap.
 

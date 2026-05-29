@@ -183,7 +183,8 @@ func (m appModel) routeFetch(entry Entry) appModel {
 		if parsed, ok := parseUserList(entry.Body); ok {
 			cached := entry
 			m.hostList = &cached
-			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body)
+			incomplete := entry.Err != nil || entry.Meta.Truncated
+			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, incomplete)
 			m.listReady = true
 			m.state = stateList
 			m.fromList = false
@@ -195,6 +196,10 @@ func (m appModel) routeFetch(entry Entry) appModel {
 	return m
 }
 
+// shouldOpenList reports whether a fetch result is a host-style listing that
+// should open the selectable list rather than the plain reader. Host queries
+// (no user) qualify; "ring@thebackupbox.net" is special-cased because that
+// pseudo-user returns the Finger Ring directory rather than a single profile.
 func shouldOpenList(entry Entry) bool {
 	return entry.Target.User == "" ||
 		(entry.Target.User == "ring" && strings.HasPrefix(entry.Target.HostPort, "thebackupbox.net:"))

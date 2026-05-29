@@ -79,8 +79,13 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 	return listModel{common: common, list: l, host: host}
 }
 
-func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte) listModel {
+func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, incomplete bool) listModel {
 	m := newList(common, host, users)
+	if incomplete {
+		// The response errored or was truncated; flag it so a partial list is
+		// not presented as if it were complete.
+		m.list.Title += " (incomplete)"
+	}
 	if parsed, ok := parseUserList(body); ok {
 		m.preamble = parsed.preamble
 	} else {

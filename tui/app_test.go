@@ -172,7 +172,7 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
-	m.list = newListWithPreamble(m.common, host, users, body)
+	m.list = newListWithPreamble(m.common, host, users, body, false)
 	m.state = stateList
 
 	view := m.View().Content
@@ -325,5 +325,63 @@ func TestEscWhileFilteringDelegatesToList(t *testing.T) {
 	got := next.(appModel)
 	if got.state != stateList {
 		t.Fatalf("state = %d, want stateList (Esc while filtering must not back out)", got.state)
+	}
+}
+
+func TestTruncatedHostFetchMarksListIncomplete(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	entry := Entry{
+		Target: host,
+		Body:   []byte(hostListBody()),
+		Meta:   finger.Meta{Addr: host.HostPort, Truncated: true},
+	}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList", got.state)
+	}
+	if !strings.Contains(got.list.list.Title, "(incomplete)") {
+		t.Fatalf("list title = %q, want it to contain (incomplete)", got.list.list.Title)
+	}
+}
+
+func TestErroredHostFetchWithBodyMarksListIncomplete(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	entry := Entry{
+		Target: host,
+		Body:   []byte(hostListBody()),
+		Meta:   finger.Meta{Addr: host.HostPort},
+		Err:    errors.New("connection reset"),
+	}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList (errored body that parses opens the list)", got.state)
+	}
+	if !strings.Contains(got.list.list.Title, "(incomplete)") {
+		t.Fatalf("list title = %q, want it to contain (incomplete)", got.list.list.Title)
+	}
+}
+
+func TestCompleteHostFetchListNotMarkedIncomplete(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	entry := Entry{
+		Target: host,
+		Body:   []byte(hostListBody()),
+		Meta:   finger.Meta{Addr: host.HostPort},
+	}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if strings.Contains(got.list.list.Title, "(incomplete)") {
+		t.Fatalf("list title = %q, should not contain (incomplete)", got.list.list.Title)
 	}
 }

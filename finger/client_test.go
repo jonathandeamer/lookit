@@ -164,6 +164,40 @@ func TestQuery_BodyThenResetIsSuccess(t *testing.T) {
 	}
 }
 
+func TestQuery_MidLineResetIsTruncated(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = bufio.NewReader(conn).ReadString('\n')
+		// Body cut mid-line: no trailing newline before the reset.
+		_, _ = conn.Write([]byte("Login     Name\r\nalice     Alice cut off here"))
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			_ = tcp.SetLinger(0)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	body, meta, err := Query(ctx, Target{HostPort: ln.Addr().String()})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if !meta.Truncated {
+		t.Fatalf("Truncated = false, want true for a body cut mid-line by reset")
+	}
+	if len(body) == 0 {
+		t.Fatalf("body is empty, want the partial body preserved")
+	}
+}
+
 func TestQuery_SizeCap(t *testing.T) {
 	// Server streams a body larger than maxBodyBytes (1 MiB).
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

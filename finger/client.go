@@ -105,6 +105,15 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 			return body, meta, fmt.Errorf("read response timed out after %s: %w", opts.readTimeout, readErr)
 		}
 		if len(body) > 0 {
+			// Finger servers commonly reset the connection right after sending
+			// their body instead of closing cleanly. We can't be certain the
+			// body was complete, but one cut mid-line (no trailing newline) was
+			// almost certainly truncated; a newline-terminated body is treated
+			// as complete to avoid false "truncated" flags on the common
+			// reset-after-body case.
+			if body[len(body)-1] != '\n' {
+				meta.Truncated = true
+			}
 			return body, meta, nil
 		}
 		return body, meta, fmt.Errorf("read response: %w", readErr)

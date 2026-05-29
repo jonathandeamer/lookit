@@ -319,6 +319,33 @@ func TestDeclineDaemonHelpDebian(t *testing.T) {
 	}
 }
 
+func TestDeclineGraphNoWeatherHelp(t *testing.T) {
+	// graph.no bare-host help: prose + "finger oslo@graph.no" usage example.
+	// Must decline (oslo is a placeholder, not a user); additive-only rule.
+	body := []byte("Weather via finger, graph.no\n\n" +
+		"* Contact: finger@falkp.no\n\n" +
+		"Usage:\n    finger oslo@graph.no\n\n" +
+		"Using imperial units:\n    finger ^oslo@graph.no\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (graph.no usage help)")
+	}
+}
+
+func TestDeclineDebianAttributeLegendFull(t *testing.T) {
+	// Full db.debian.org attribute legend (10 "key : value" lines). Guards the
+	// colon-form exclusion in the generic fallback.
+	body := []byte("userdir-ldap finger daemon\n--------------------------\n" +
+		"finger <uid>[/<attributes>]@db.debian.org\n" +
+		"    The following attributes are currently supported:\n" +
+		"      cn : First name\n      mn : Middle name\n      sn : Last name\n" +
+		"      email : Email\n      labeleduri : URL\n      ircnick : IRC nickname\n" +
+		"      icquin : ICQ UIN\n      jabberjid : Jabber ID\n" +
+		"      keyfingerprint : Fingerprint\n      key : Key block\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (LDAP attribute legend)")
+	}
+}
+
 // The menu/table matchers are gated by a cue; a cue with no parseable entries
 // must still decline rather than open an empty or hallucinated list.
 
@@ -350,5 +377,143 @@ func TestDeclineSavaTitleWithoutTableRows(t *testing.T) {
 	body := []byte("Users on this finger server\n\n(none connected right now)\n")
 	if _, ok := ParseUsers(body); ok {
 		t.Fatal("ParseUsers ok = true, want false (sava title, no | table rows)")
+	}
+}
+
+// --- Generic fallback: structured-login gate ---
+
+func TestParseGenericBareLoginBlock(t *testing.T) {
+	// No Login header, no online/logged-in cue, no "> " marker, no named menu:
+	// every earlier matcher declines, so the generic fallback must open this.
+	body := []byte("the crew:\nbetsy\nMelchizedek\nOleander\nStarbloom\n")
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true (bare-login block)")
+	}
+	want := []string{"betsy", "Melchizedek", "Oleander", "Starbloom"}
+	if got := logins(users); !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v", got, want)
+	}
+}
+
+func TestParseGenericColumnarNoHeader(t *testing.T) {
+	// login + 2-space gap + name, but no "Login" header so parseColumnar declines.
+	body := []byte("klu      pilot\ntomasino  navigator\n")
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true (headerless columnar)")
+	}
+	if got, want := logins(users), []string{"klu", "tomasino"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v", got, want)
+	}
+	if users[0].Name != "pilot" || users[1].Name != "navigator" {
+		t.Fatalf("names = %q,%q want pilot,navigator", users[0].Name, users[1].Name)
+	}
+}
+
+func TestGenericRequiresTwoLogins(t *testing.T) {
+	// A single bare-login line is not enough to open a list.
+	if _, ok := ParseUsers([]byte("Welcome.\n\nbetsy\n")); ok {
+		t.Fatal("ParseUsers ok = true, want false (only one structured login)")
+	}
+}
+
+func TestGenericDeclinesColonLegendDebian(t *testing.T) {
+	// db.debian.org daemon help: a "key : value" attribute legend must NOT be
+	// read as a user list. This is the headline guard for excluding the colon
+	// (and single-space) form from the generic fallback.
+	body := []byte("userdir-ldap finger daemon\n" +
+		"--------------------------\n" +
+		"finger <uid>[/<attributes>]@db.debian.org\n" +
+		"    The following attributes are currently supported:\n" +
+		"      cn : First name\n" +
+		"      mn : Middle name\n" +
+		"      sn : Last name\n" +
+		"      email : Email\n" +
+		"      key : Key block\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (colon attribute legend)")
+	}
+}
+
+func TestGenericDeclinesSingleSpaceProse(t *testing.T) {
+	// "login value" with a single space is prose, not a columnar entry.
+	body := []byte("must provide username\nplease try again later\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (single-space prose)")
+	}
+}
+
+// --- Generic fallback: additive strong-context targets ---
+
+func TestGenericHarvestsFingerCommandTarget(t *testing.T) {
+	// A bare-login block opens the list; a "finger user@host" mention elsewhere
+	// in the body is appended as a cross-host drill target.
+	body := []byte("betsy\nMelchizedek\n\nContact me: finger bob@example.org\n")
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true")
+	}
+	if got, want := logins(users), []string{"betsy", "Melchizedek", "bob"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v (harvested target appended last)", got, want)
+	}
+	if users[2].Target != "bob@example.org" {
+		t.Fatalf("users[2].Target = %q, want bob@example.org", users[2].Target)
+	}
+}
+
+func TestGenericHarvestsFingerURLTarget(t *testing.T) {
+	// A bare-login block opens the list; a finger:// URL elsewhere in the body
+	// is appended as a cross-host drill target (login@host, host as the name).
+	body := []byte("betsy\nMelchizedek\n\nsee also finger://example.org/carol\n")
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatal("ParseUsers ok = false, want true")
+	}
+	if got, want := logins(users), []string{"betsy", "Melchizedek", "carol"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v", got, want)
+	}
+	if users[2].Target != "carol@example.org" {
+		t.Fatalf("users[2].Target = %q, want carol@example.org", users[2].Target)
+	}
+	if users[2].Name != "example.org" {
+		t.Fatalf("users[2].Name = %q, want example.org", users[2].Name)
+	}
+}
+
+func TestGenericTargetsDoNotOpenAlone(t *testing.T) {
+	// No structured-login block: a lone "finger user@host" mention in prose must
+	// NOT open a list (additive-only rule). This is the graph.no shape.
+	body := []byte("Weather via finger.\nUsage:\n    finger oslo@graph.no\n")
+	if _, ok := ParseUsers(body); ok {
+		t.Fatal("ParseUsers ok = true, want false (targets are additive-only)")
+	}
+}
+
+func TestStructuredLogin(t *testing.T) {
+	tests := []struct {
+		name      string
+		line      string
+		wantLogin string
+		wantName  string
+		wantOK    bool
+	}{
+		{"bare login", "betsy", "betsy", "", true},
+		{"two-space columnar", "alice  Bob Smith", "alice", "Bob Smith", true},
+		{"tab columnar", "alice\tBob Smith", "alice", "Bob Smith", true},
+		{"single space is prose", "alice bob", "", "", false},
+		{"colon form is prose", "cn : First name", "", "", false},
+		{"empty line", "", "", "", false},
+		{"non-login token", "<==", "", "", false},
+		{"leading whitespace bare", "   betsy", "betsy", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			login, name, ok := structuredLogin(tt.line)
+			if ok != tt.wantOK || login != tt.wantLogin || name != tt.wantName {
+				t.Fatalf("structuredLogin(%q) = (%q,%q,%v), want (%q,%q,%v)",
+					tt.line, login, name, ok, tt.wantLogin, tt.wantName, tt.wantOK)
+			}
+		})
 	}
 }

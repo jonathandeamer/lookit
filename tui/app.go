@@ -36,7 +36,8 @@ type appModel struct {
 	list   listModel
 
 	// hostList caches the most recent host response so Back from a drilled
-	// user is instant; fromList is true when the reader shows a drilled user.
+	// user is instant; fromList is true when the reader was opened from the
+	// list (a drilled user, or the raw-body view of a "best guess" list).
 	hostList  *Entry
 	fromList  bool
 	listReady bool
@@ -132,6 +133,16 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			return true, m, nil
 		case tea.KeyEnter:
 			return m.drill()
+		case 'r':
+			// On a generic ("best guess") list only, show the cached raw host
+			// body so the user can read the actual response when the heuristic
+			// parse looks wrong. fromList=true so Esc returns to the list.
+			if m.list.generic && m.hostList != nil {
+				m.reader.setEntry(*m.hostList)
+				m.state = stateReader
+				m.fromList = true
+				return true, m, nil
+			}
 		}
 
 	case stateReader:
@@ -185,7 +196,8 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 }
 
 // routeFetch is the single decision point for a completed fetch: a host
-// response that parses opens the list; everything else renders in the reader.
+// response that parses opens the list (flagged "(best guess)" when only the
+// generic fallback recognized it); everything else renders in the reader.
 func (m appModel) routeFetch(entry Entry) appModel {
 	// Any fetch result means loading is done; the list branch never calls setEntry, so clear it here.
 	m.reader.loading = false
@@ -194,7 +206,7 @@ func (m appModel) routeFetch(entry Entry) appModel {
 			cached := entry
 			m.hostList = &cached
 			incomplete := entry.Err != nil || entry.Meta.Truncated
-			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, incomplete)
+			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, incomplete, parsed.generic)
 			m.listReady = true
 			m.state = stateList
 			m.fromList = false

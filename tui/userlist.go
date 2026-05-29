@@ -35,6 +35,7 @@ var fingerCommandRe = regexp.MustCompile(`\bfinger\s+([A-Za-z0-9_][A-Za-z0-9_.-]
 type parsedUserList struct {
 	users    []User
 	preamble string
+	generic  bool
 }
 
 // ParseUsers extracts a host's listed users/entries from a finger response
@@ -76,6 +77,9 @@ func parseUserList(body []byte) (parsedUserList, bool) {
 	}
 	if users, preamble, ok := parseTelehackStatus(lines); ok {
 		return parsedUserList{users: users, preamble: preamble}, true
+	}
+	if users, preamble, ok := parseGenericList(lines); ok {
+		return parsedUserList{users: users, preamble: preamble, generic: true}, true
 	}
 	return parsedUserList{}, false
 }
@@ -453,4 +457,118 @@ func preambleBeforeGrid(lines []string) string {
 func preambleBeforeMarker(lines []string) string {
 	preamble, _ := markerPreamble(lines)
 	return preamble
+}
+
+// structuredLogin reports whether a single line is a generic structured login
+// entry, returning the login and a best-effort name. It accepts only two
+// shapes: a bare login (the whole trimmed line is one loginRe token), or a
+// columnar login (first token is a loginRe token followed by a tab or 2+
+// spaces, then the trimmed remainder is taken as a best-effort name). A login
+// followed by a single space, and any "login : value" colon form, are treated
+// as prose and rejected — those shapes appear constantly in help text, legends,
+// and glossaries (e.g. db.debian.org's "cn : First name"), where they are not
+// user lists.
+func structuredLogin(line string) (login, name string, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", "", false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 1 {
+		if loginRe.MatchString(fields[0]) {
+			return fields[0], "", true
+		}
+		return "", "", false
+	}
+	first := fields[0]
+	if !loginRe.MatchString(first) {
+		return "", "", false
+	}
+	// trimmed begins with first (leading space already removed); the gap that
+	// follows must be a tab or 2+ spaces to count as a deliberate column layout.
+	rest := trimmed[len(first):]
+	if strings.HasPrefix(rest, "\t") || strings.HasPrefix(rest, "  ") {
+		return first, strings.TrimSpace(rest), true
+	}
+	return "", "", false
+}
+
+// appendHarvestedTargets adds cross-host drill targets found anywhere in the
+// body via the existing strong-signal regexes (finger:// URLs and
+// "finger user@host" commands) — the same contexts parseFingerRing and
+// parseSavaTable already trust. Targets are additive: this is called only after
+// the structured-login gate has already opened the list, so a stray mention
+// can never open a list on its own. Bare emails and @handles are not harvested.
+// Server-supplied targets are pinned to port 79 later, at drill time, by the
+// existing pinFingerPort path in app.go.
+func appendHarvestedTargets(users []User, lines []string) []User {
+	// Key on Target so a structured login (Target=="") never blocks a harvested cross-host entry.
+	seen := map[string]bool{}
+	for _, u := range users {
+		if u.Target != "" {
+			seen[u.Target] = true
+		}
+	}
+	body := strings.Join(lines, "\n")
+	for _, m := range fingerURLRe.FindAllStringSubmatch(body, -1) {
+		host, login := m[1], m[2]
+		target := login + "@" + host
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		users = append(users, User{Login: login, Name: host, Target: target})
+	}
+	for _, m := range fingerCommandRe.FindAllStringSubmatch(body, -1) {
+		target := m[1] // already in login@host form
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		login := target
+		// fingerCommandRe guarantees an '@' in the capture; the guard is defensive.
+		if at := strings.IndexByte(target, '@'); at >= 0 {
+			login = target[:at]
+		}
+		users = append(users, User{Login: login, Target: target})
+	}
+	return users
+}
+
+// parseGenericList is the last-resort matcher, tried only after every named
+// parser declines. It finds the longest contiguous run of structuredLogin
+// lines and opens a list when that run holds >= 2 distinct logins; otherwise it
+// declines. A blank or non-entry line ends a run.
+func parseGenericList(lines []string) ([]User, string, bool) {
+	bestStart, bestCount := -1, 0
+	var bestUsers []User
+
+	for i := 0; i < len(lines); {
+		if _, _, ok := structuredLogin(lines[i]); !ok {
+			i++
+			continue
+		}
+		start := i
+		seen := map[string]bool{}
+		var runUsers []User
+		for i < len(lines) {
+			login, name, ok := structuredLogin(lines[i])
+			if !ok {
+				break
+			}
+			if !seen[login] {
+				seen[login] = true
+				runUsers = append(runUsers, User{Login: login, Name: name})
+			}
+			i++
+		}
+		if len(seen) > bestCount {
+			bestCount, bestStart, bestUsers = len(seen), start, runUsers
+		}
+	}
+	if bestCount < 2 {
+		return nil, "", false
+	}
+	bestUsers = appendHarvestedTargets(bestUsers, lines)
+	return bestUsers, trimPreamble(lines[:bestStart]), true
 }

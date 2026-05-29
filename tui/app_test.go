@@ -172,7 +172,7 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
-	m.list = newListWithPreamble(m.common, host, users, body, false)
+	m.list = newListWithPreamble(m.common, host, users, body, false, false)
 	m.state = stateList
 
 	view := m.View().Content
@@ -450,5 +450,70 @@ func TestDrillSameHostKeepsUserTypedPort(t *testing.T) {
 
 	if got.HostPort != "plan.cat:7979" {
 		t.Fatalf("HostPort = %q, want plan.cat:7979 (user-typed port must be preserved)", got.HostPort)
+	}
+}
+
+func genericListBody() string {
+	// No Login header / online cue / "> " marker: forces the generic fallback.
+	return "the crew:\nbetsy\nMelchizedek\nOleander\nStarbloom\n"
+}
+
+func TestGenericHostFetchOpensFlaggedList(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "@unknown.host")
+	entry := Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}
+
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList", got.state)
+	}
+	if !got.list.generic {
+		t.Fatal("list.generic = false, want true")
+	}
+	if !strings.Contains(got.list.list.Title, "(best guess)") {
+		t.Fatalf("title = %q, want (best guess)", got.list.list.Title)
+	}
+}
+
+func TestRViewsRawBodyOnGenericList(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "@unknown.host")
+	entry := Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}
+	opened, _ := m.Update(fetchResultMsg{entry: entry})
+	m = opened.(appModel)
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	got := next.(appModel)
+
+	if got.state != stateReader {
+		t.Fatalf("state = %d, want stateReader after r", got.state)
+	}
+	if !got.fromList {
+		t.Fatal("fromList = false, want true after viewing raw")
+	}
+	if !strings.Contains(got.reader.viewport.View(), "Melchizedek") {
+		t.Fatalf("reader viewport missing raw body: %q", got.reader.viewport.View())
+	}
+
+	back, _ := got.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if back.(appModel).state != stateList {
+		t.Fatalf("state = %d, want stateList after Esc", back.(appModel).state)
+	}
+}
+
+func TestRInertOnRecognizedList(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "@tilde.team")
+	entry := Entry{Target: target, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: target.HostPort}}
+	opened, _ := m.Update(fetchResultMsg{entry: entry})
+	m = opened.(appModel)
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	got := next.(appModel)
+
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList (r must be inert on a recognized list)", got.state)
 	}
 }

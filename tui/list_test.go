@@ -40,7 +40,10 @@ func TestListMoveDownChangesSelection(t *testing.T) {
 
 	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyDown})
 
-	sel, _ := m.selected()
+	sel, ok := m.selected()
+	if !ok {
+		t.Fatal("selected ok = false after move, want true")
+	}
 	if sel.login != "dtracker" {
 		t.Fatalf("after down, selected = %q, want dtracker", sel.login)
 	}

@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -36,17 +35,15 @@ func (d userDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	if !ok {
 		return
 	}
-	line := it.login
-	if it.name != "" {
-		line += "  " + d.styles.listName.Render(it.name)
-	}
 	cursor := "  "
+	login := it.login
 	if index == m.Index() {
 		cursor = "> "
-		line = d.styles.selected.Render(it.login)
-		if it.name != "" {
-			line += "  " + d.styles.listName.Render(it.name)
-		}
+		login = d.styles.selected.Render(it.login)
+	}
+	line := login
+	if it.name != "" {
+		line += "  " + d.styles.listName.Render(it.name)
 	}
 	fmt.Fprint(w, cursor+line)
 }
@@ -85,9 +82,7 @@ func (m listModel) update(msg tea.Msg) (listModel, tea.Cmd) {
 }
 
 func (m listModel) View() string {
-	var b strings.Builder
-	b.WriteString(m.list.View())
-	return b.String()
+	return m.list.View()
 }
 
 func (m *listModel) setSize(width, height int) {

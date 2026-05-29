@@ -149,3 +149,50 @@ func TestRunOneShotTarget(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 }
+
+func TestRunNoArgsStartsTUI(t *testing.T) {
+	oldStartTUI := startTUI
+	t.Cleanup(func() {
+		startTUI = oldStartTUI
+	})
+
+	called := false
+	startTUI = func() error {
+		called = true
+		return nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(nil, &stdout, &stderr)
+
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	if !called {
+		t.Fatalf("startTUI was not called")
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunNoArgsTUIFailure(t *testing.T) {
+	oldStartTUI := startTUI
+	t.Cleanup(func() {
+		startTUI = oldStartTUI
+	})
+
+	startTUI = func() error {
+		return errors.New("terminal unavailable")
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(nil, &stdout, &stderr)
+
+	if code != exitNetwork {
+		t.Fatalf("exit code = %d, want %d", code, exitNetwork)
+	}
+	if !strings.Contains(stderr.String(), "terminal unavailable") {
+		t.Fatalf("stderr = %q, want TUI error", stderr.String())
+	}
+}

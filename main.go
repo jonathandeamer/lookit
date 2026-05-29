@@ -12,6 +12,7 @@ import (
 
 	"github.com/jonathandeamer/lookit/finger"
 	"github.com/jonathandeamer/lookit/render"
+	"github.com/jonathandeamer/lookit/tui"
 )
 
 // Exit codes per sysexits.h-ish conventions.
@@ -25,6 +26,10 @@ var (
 	version        = "dev"
 	builtAt        = "unknown"
 	runOneShotFunc = runOneShot
+	startTUI       = func() error {
+		profile := colorprofile.Detect(os.Stdout, os.Environ())
+		return tui.Run(context.Background(), profile)
+	}
 )
 
 func main() {
@@ -32,6 +37,14 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		if err := startTUI(); err != nil {
+			fmt.Fprintf(stderr, "lookit: %v\n", err)
+			return exitNetwork
+		}
+		return exitOK
+	}
+
 	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" {
 		printUsage(stderr)
 		return exitUsage
@@ -53,6 +66,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  lookit")
 	fmt.Fprintln(w, "  lookit user@host[:port]")
 	fmt.Fprintln(w, "  lookit @host[:port]")
 	fmt.Fprintln(w, "  lookit version")

@@ -91,7 +91,7 @@ is an in-place toggle, and Esc/back returns to the list as before.
 
 | Action | Keys | Notes |
 |---|---|---|
-| Back | `Esc`, `Alt+←` | `Esc` works everywhere; from the top-level (`pos == 0`) reader, `Esc` quits (unchanged). |
+| Back | `Esc`, `Alt+←` | `Esc` steps back one history entry everywhere; from `pos == 0` it returns to the landing (`pos == -1`), and `Esc` at the landing quits. |
 | Forward | `Alt+→` | No-op at the head of the stack. |
 | Quit | `Ctrl+C` | Always. |
 | Edit target | `Backspace` et al. | Reader input is always focused; Backspace must stay an editor key, so it is **not** overloaded for navigation. |
@@ -205,8 +205,9 @@ Consistent with the project's injected-fakes, offline, no-TTY discipline:
 - **History stack (unit, on `appModel`).** Using the existing stub-`FetchFunc`
   pattern, drive: push on fetch; back restores the prior node without a new
   fetch (assert the stub's call count does not increase); forward re-applies;
-  navigating after a back truncates the forward tail; back at `pos == 0` from
-  the top reader quits; restore re-applies `scrollY`/`listIdx`/`listFltr`.
+  navigating after a back truncates the forward tail; back at `pos == 0`
+  returns to the landing and a further `Esc` at the landing quits; restore
+  re-applies `scrollY`/`listIdx`/`listFltr`.
 - **Status bar (unit, pure).** `statusBar.render()` across states: profile,
   cross-host (where `escTarget` ≠ structural parent), directory/list (no `user`
   half), each flag, landing, and narrow-width truncation of the breadcrumb and

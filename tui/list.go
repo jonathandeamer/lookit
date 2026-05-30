@@ -10,8 +10,8 @@ import (
 	"github.com/jonathandeamer/lookit/finger"
 )
 
-// listChromeRows reserves space for the list title and footer when sizing.
-const listChromeRows = 4
+// listChromeRows reserves space for list internals after title/help are hidden.
+const listChromeRows = 1
 const maxPreambleRows = 12
 
 // userItem is one selectable user in the list.
@@ -67,7 +67,7 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 	}
 
 	width := common.width
-	height := common.height - listChromeRows
+	height := common.bodyHeight() - listChromeRows
 	if height < 1 {
 		height = 1
 	}
@@ -75,38 +75,29 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 	l := list.New(items, userDelegate{styles: newStyles()}, width, height)
 	l.Title = fmt.Sprintf("%s — %d users", host.Raw, len(users))
 	l.SetShowStatusBar(false)
-	l.SetShowHelp(true)
+	l.SetShowTitle(false)
+	l.SetShowHelp(false)
 
 	return listModel{common: common, list: l, host: host}
 }
 
-func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, incomplete, generic bool) listModel {
+func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, generic bool) listModel {
 	m := newList(common, host, users)
 	m.generic = generic
-	if generic {
-		// Heuristic list: tell the user this was a best-effort parse, not a
-		// recognized format. Composes with the "(incomplete)" flag below.
-		m.list.Title += " (best guess)"
-	}
-	if incomplete {
-		// The response errored or was truncated; flag it so a partial list is
-		// not presented as if it were complete.
-		m.list.Title += " (incomplete)"
-	}
 	if parsed, ok := parseUserList(body); ok {
 		m.preamble = parsed.preamble
 	} else {
 		m.preamble = extractListPreamble(body)
 	}
 	if generic {
-		note := "Auto-detected from an unrecognized response — press r to view the raw text."
+		note := "Auto-detected user list from an unrecognized response — press r to view raw."
 		if m.preamble != "" {
 			m.preamble = note + "\n\n" + m.preamble
 		} else {
 			m.preamble = note
 		}
 	}
-	m.setSize(common.width, common.height)
+	m.setSize(common.width, common.bodyHeight())
 	return m
 }
 

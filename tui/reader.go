@@ -14,9 +14,9 @@ import (
 
 const initialStatus = "enter a finger target, then press Enter"
 
-// chromeRows counts the non-viewport lines in the reader view: title, input,
-// status, hint.
-const chromeRows = 4
+// chromeRows counts the non-viewport lines in the reader view: title + input.
+// (The status and hint lines moved to appModel's bottom bar.)
+const chromeRows = 2
 
 // readerModel is the query reader: a target input, a status line, and a
 // scrollable viewport showing one rendered finger response. It owns typing,
@@ -102,15 +102,7 @@ func (m readerModel) View() string {
 	b.WriteByte('\n')
 	b.WriteString(m.input.View())
 	b.WriteByte('\n')
-	if strings.HasPrefix(m.status, "error:") {
-		b.WriteString(m.styles.error.Render(m.status))
-	} else {
-		b.WriteString(m.styles.status.Render(m.status))
-	}
-	b.WriteByte('\n')
 	b.WriteString(m.viewport.View())
-	b.WriteByte('\n')
-	b.WriteString(m.styles.hint.Render("Enter fetches - arrows/PageUp/PageDown scroll - Esc back/quit"))
 	return b.String()
 }
 

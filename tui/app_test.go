@@ -43,8 +43,8 @@ func TestHostFetchThatParsesOpensList(t *testing.T) {
 	if got.state != stateList {
 		t.Fatalf("state = %d, want stateList", got.state)
 	}
-	if got.hostList == nil {
-		t.Fatal("hostList not cached")
+	if len(got.history) != 1 || got.pos != 0 || got.history[0].state != stateList {
+		t.Fatalf("history=%d pos=%d, want one list node", len(got.history), got.pos)
 	}
 	sel, ok := got.list.selected()
 	if !ok || sel.login != "alrs" {
@@ -137,7 +137,8 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	m := newApp(fetch, colorprofile.NoTTY)
 	// Put the app in list state for @tilde.team.
 	host := hostTarget(t, "@tilde.team")
-	m.hostList = &Entry{Target: host, Body: []byte(hostListBody())}
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos = 0
 	users, _ := ParseUsers([]byte(hostListBody()))
 	m.list = newList(m.common, host, users)
 	m.state = stateList
@@ -147,9 +148,6 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 
 	if got.state != stateReader {
 		t.Fatalf("state = %d, want stateReader after drill", got.state)
-	}
-	if !got.fromList {
-		t.Fatal("fromList = false, want true after drill")
 	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
@@ -167,12 +165,13 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	body := []byte("This is the finger ring!\n" +
 		"and now for the list:\n" +
 		"=> 2026-05-25 finger://tilde.team/yalla\n")
-	m.hostList = &Entry{Target: host, Body: body}
+	m.history = []histNode{{entry: Entry{Target: host, Body: body}, state: stateList}}
+	m.pos = 0
 	users, ok := ParseUsers(body)
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
-	m.list = newListWithPreamble(m.common, host, users, body, false, false)
+	m.list = newListWithPreamble(m.common, host, users, body, false)
 	m.state = stateList
 
 	view := m.View().Content
@@ -200,38 +199,39 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 func TestEscInDrilledReaderRestoresList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	users, _ := ParseUsers([]byte(hostListBody()))
-	m.hostList = &Entry{Target: host, Body: []byte(hostListBody())}
-	m.list = newList(m.common, host, users)
+	user := hostTarget(t, "bob@tilde.team")
+	m.history = []histNode{
+		{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList},
+		{entry: Entry{Target: user, Body: []byte("Login: bob\n")}, state: stateReader},
+	}
+	m.pos = 1
 	m.state = stateReader
-	m.fromList = true
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	got := next.(appModel)
 
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList after Esc", got.state)
-	}
-	if got.fromList {
-		t.Fatal("fromList = true, want false after returning to list")
+	if got.state != stateList || got.pos != 0 {
+		t.Fatalf("state=%d pos=%d, want list/0 after Esc", got.state, got.pos)
 	}
 }
 
 func TestEscInListReturnsToReaderHome(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos = 0
+	m.state = stateList
 	users, _ := ParseUsers([]byte(hostListBody()))
 	m.list = newList(m.common, host, users)
-	m.state = stateList
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	got := next.(appModel)
 
-	if got.state != stateReader {
-		t.Fatalf("state = %d, want stateReader", got.state)
+	if got.state != stateReader || got.pos != -1 {
+		t.Fatalf("state=%d pos=%d, want reader/-1 (landing)", got.state, got.pos)
 	}
 	if cmd != nil && isQuit(cmd) {
-		t.Fatal("Esc in list must not quit")
+		t.Fatal("Esc in list must not quit while history is non-empty")
 	}
 }
 
@@ -257,8 +257,7 @@ func TestCtrlCQuitsFromList(t *testing.T) {
 func TestWindowSizePropagatesToBothSubModels(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	// hostList set so the guarded list-resize branch runs (must not panic).
-	m.hostList = &Entry{Target: host}
+	// listReady set so the guarded list-resize branch runs (must not panic).
 	m.listReady = true
 	m.state = stateList
 	m.list = newList(m.common, host, []User{{Login: "alrs"}})
@@ -271,6 +270,16 @@ func TestWindowSizePropagatesToBothSubModels(t *testing.T) {
 	}
 	if got.reader.viewport.Width() != 100 {
 		t.Fatalf("reader viewport width = %d, want 100", got.reader.viewport.Width())
+	}
+}
+
+func TestWindowSizeReservesBarRow(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+	// bodyHeight = 24 - 1 (bar) = 23; reader viewport = 23 - chromeRows(2) = 21.
+	if m.reader.viewport.Height() != 21 {
+		t.Fatalf("viewport height = %d, want 21 (one row reserved for the bar)", m.reader.viewport.Height())
 	}
 }
 
@@ -307,7 +316,8 @@ func TestEscWhileFilteringDelegatesToList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
 	users, _ := ParseUsers([]byte(hostListBody()))
-	m.hostList = &Entry{Target: host, Body: []byte(hostListBody())}
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos = 0
 	m.listReady = true
 	m.list = newList(m.common, host, users)
 	m.state = stateList
@@ -328,61 +338,37 @@ func TestEscWhileFilteringDelegatesToList(t *testing.T) {
 	}
 }
 
-func TestTruncatedHostFetchMarksListIncomplete(t *testing.T) {
+func barFor(t *testing.T, entry Entry) string {
+	t.Helper()
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 100, 24
+	step, _ := m.Update(fetchResultMsg{entry: entry})
+	return step.(appModel).statusBarModel().render()
+}
+
+func TestTruncatedHostFetchMarksListIncomplete(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
-	entry := Entry{
-		Target: host,
-		Body:   []byte(hostListBody()),
-		Meta:   finger.Meta{Addr: host.HostPort, Truncated: true},
-	}
-
-	next, _ := m.Update(fetchResultMsg{entry: entry})
-	got := next.(appModel)
-
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList", got.state)
-	}
-	if !strings.Contains(got.list.list.Title, "(incomplete)") {
-		t.Fatalf("list title = %q, want it to contain (incomplete)", got.list.list.Title)
+	bar := barFor(t, Entry{Target: host, Body: []byte(hostListBody()),
+		Meta: finger.Meta{Addr: host.HostPort, Truncated: true}})
+	if !strings.Contains(bar, "partial (truncated)") {
+		t.Fatalf("bar = %q, want partial (truncated)", bar)
 	}
 }
 
 func TestErroredHostFetchWithBodyMarksListIncomplete(t *testing.T) {
-	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	entry := Entry{
-		Target: host,
-		Body:   []byte(hostListBody()),
-		Meta:   finger.Meta{Addr: host.HostPort},
-		Err:    errors.New("connection reset"),
-	}
-
-	next, _ := m.Update(fetchResultMsg{entry: entry})
-	got := next.(appModel)
-
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList (errored body that parses opens the list)", got.state)
-	}
-	if !strings.Contains(got.list.list.Title, "(incomplete)") {
-		t.Fatalf("list title = %q, want it to contain (incomplete)", got.list.list.Title)
+	bar := barFor(t, Entry{Target: host, Body: []byte(hostListBody()),
+		Meta: finger.Meta{Addr: host.HostPort}, Err: errors.New("connection reset")})
+	if !strings.Contains(bar, "partial (error)") {
+		t.Fatalf("bar = %q, want partial (error)", bar)
 	}
 }
 
 func TestCompleteHostFetchListNotMarkedIncomplete(t *testing.T) {
-	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	entry := Entry{
-		Target: host,
-		Body:   []byte(hostListBody()),
-		Meta:   finger.Meta{Addr: host.HostPort},
-	}
-
-	next, _ := m.Update(fetchResultMsg{entry: entry})
-	got := next.(appModel)
-
-	if strings.Contains(got.list.list.Title, "(incomplete)") {
-		t.Fatalf("list title = %q, should not contain (incomplete)", got.list.list.Title)
+	bar := barFor(t, Entry{Target: host, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: host.HostPort}})
+	if strings.Contains(bar, "partial") {
+		t.Fatalf("bar = %q, should not flag partial", bar)
 	}
 }
 
@@ -397,14 +383,15 @@ func captureFetch(got *finger.Target) FetchFunc {
 func drillFirstUser(t *testing.T, host finger.Target, users []User, fetch FetchFunc) tea.Cmd {
 	t.Helper()
 	m := newApp(fetch, colorprofile.NoTTY)
-	m.hostList = &Entry{Target: host}
+	m.history = []histNode{{entry: Entry{Target: host}, state: stateList}}
+	m.pos = 0
 	m.listReady = true
 	m.list = newList(m.common, host, users)
 	m.state = stateList
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.fromList || got.state != stateReader {
-		t.Fatalf("expected a drilled reader (fromList=%v state=%d)", got.fromList, got.state)
+	if got.state != stateReader {
+		t.Fatalf("expected a drilled reader (state=%d)", got.state)
 	}
 	if cmd == nil {
 		t.Fatal("expected a fetch command from drilling")
@@ -458,22 +445,29 @@ func genericListBody() string {
 	return "the crew:\nbetsy\nMelchizedek\nOleander\nStarbloom\n"
 }
 
+func TestGenericTruncatedListShowsBothFlags(t *testing.T) {
+	host := hostTarget(t, "@unknown.host")
+	bar := barFor(t, Entry{Target: host, Body: []byte(genericListBody()),
+		Meta: finger.Meta{Addr: host.HostPort, Truncated: true}})
+	if !strings.Contains(bar, "auto-detected") {
+		t.Fatalf("bar = %q, want auto-detected flag", bar)
+	}
+	if !strings.Contains(bar, "partial (truncated)") {
+		t.Fatalf("bar = %q, want partial (truncated) flag", bar)
+	}
+}
+
 func TestGenericHostFetchOpensFlaggedList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 100, 24
 	target := hostTarget(t, "@unknown.host")
-	entry := Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}
-
-	next, _ := m.Update(fetchResultMsg{entry: entry})
-	got := next.(appModel)
-
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList", got.state)
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
+	got := step.(appModel)
+	if got.state != stateList || !got.list.generic {
+		t.Fatalf("state=%d generic=%v, want list/true", got.state, got.list.generic)
 	}
-	if !got.list.generic {
-		t.Fatal("list.generic = false, want true")
-	}
-	if !strings.Contains(got.list.list.Title, "(best guess)") {
-		t.Fatalf("title = %q, want (best guess)", got.list.list.Title)
+	if !strings.Contains(got.statusBarModel().render(), "auto-detected") {
+		t.Fatalf("bar missing auto-detected flag")
 	}
 }
 
@@ -490,8 +484,8 @@ func TestRViewsRawBodyOnGenericList(t *testing.T) {
 	if got.state != stateReader {
 		t.Fatalf("state = %d, want stateReader after r", got.state)
 	}
-	if !got.fromList {
-		t.Fatal("fromList = false, want true after viewing raw")
+	if !got.showingRaw {
+		t.Fatal("showingRaw = false, want true after viewing raw")
 	}
 	if !strings.Contains(got.reader.viewport.View(), "Melchizedek") {
 		t.Fatalf("reader viewport missing raw body: %q", got.reader.viewport.View())
@@ -515,5 +509,185 @@ func TestRInertOnRecognizedList(t *testing.T) {
 
 	if got.state != stateList {
 		t.Fatalf("state = %d, want stateList (r must be inert on a recognized list)", got.state)
+	}
+}
+
+func TestForwardBackDoNotRefetch(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	userT := hostTarget(t, "bob@tilde.team")
+
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: userT, Body: []byte("Login: bob\n")}})
+	m = step.(appModel)
+
+	if len(m.history) != 2 || m.pos != 1 || m.state != stateReader {
+		t.Fatalf("history=%d pos=%d state=%d, want 2/1/reader", len(m.history), m.pos, m.state)
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	m = step.(appModel)
+	if m.pos != 0 || m.state != stateList {
+		t.Fatalf("after back: pos=%d state=%d, want 0/list", m.pos, m.state)
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt})
+	m = step.(appModel)
+	if m.pos != 1 || m.state != stateReader {
+		t.Fatalf("after forward: pos=%d state=%d, want 1/reader", m.pos, m.state)
+	}
+}
+
+func TestNewNavigationTruncatesForwardTail(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	a := hostTarget(t, "@a.example")
+	b := hostTarget(t, "@b.example")
+	c := hostTarget(t, "@c.example")
+
+	for _, tg := range []finger.Target{a, b} {
+		step, _ := m.Update(fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
+		m = step.(appModel)
+	}
+	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	m = step.(appModel)
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: c, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+
+	if len(m.history) != 2 || m.pos != 1 {
+		t.Fatalf("history=%d pos=%d, want 2/1 (forward tail truncated)", len(m.history), m.pos)
+	}
+	if got := m.history[1].entry.Target.Raw; got != c.Raw {
+		t.Fatalf("head = %q, want %q", got, c.Raw)
+	}
+}
+
+func TestAltLeftAtRootIsNoOp(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("Alt+← on landing must not quit")
+	}
+	if got := step.(appModel); got.pos != -1 {
+		t.Fatalf("pos = %d, want -1 (unchanged)", got.pos)
+	}
+}
+
+func TestViewIncludesBreadcrumbBar(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+
+	view := m.View().Content
+	if !strings.Contains(view, "@tilde.team") {
+		t.Fatalf("view missing breadcrumb host:\n%s", view)
+	}
+	if !strings.Contains(view, "? help") {
+		t.Fatalf("view missing help hint:\n%s", view)
+	}
+}
+
+func TestLandingViewShowsLandingBar(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	if !strings.Contains(m.View().Content, "type a target") {
+		t.Fatalf("landing view missing landing hint:\n%s", m.View().Content)
+	}
+}
+
+func TestQuestionMarkTogglesHelpOverlay(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+	if !m.help {
+		t.Fatal("help should be open after '?'")
+	}
+	if !strings.Contains(m.View().Content, "Alt+←") {
+		t.Fatalf("help overlay missing keymap:\n%s", m.View().Content)
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if step.(appModel).help {
+		t.Fatal("any key should close the help overlay")
+	}
+}
+
+func TestQuestionMarkWhileFilteringDoesNotOpenHelp(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	users, _ := ParseUsers([]byte(hostListBody()))
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos = 0
+	m.listReady = true
+	m.list = newList(m.common, host, users)
+	m.state = stateList
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	if step.(appModel).help {
+		t.Fatal("'?' must be a literal filter character while filtering, not open help")
+	}
+}
+
+func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	// pos == -1, stateReader (landing state).
+	step, _ := m.Update(tea.KeyPressMsg{Code: '?'})
+	if !step.(appModel).help {
+		t.Fatal("'?' should open help from reader state")
+	}
+}
+
+func TestAltLeftFromRawViewClearsRawState(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "@unknown.host")
+	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
+	m = opened.(appModel)
+
+	raw, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	m = raw.(appModel)
+	if !m.showingRaw {
+		t.Fatal("precondition: r should enter raw view on a generic list")
+	}
+
+	// Alt+← must exit raw view (not leave it stuck) and go back to landing.
+	back, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	m = back.(appModel)
+	if m.showingRaw {
+		t.Fatal("Alt+← must clear showingRaw")
+	}
+	if m.pos != -1 {
+		t.Fatalf("pos = %d, want -1 (landing) after backing out of the only node", m.pos)
+	}
+
+	// With raw state cleared, Esc at the landing must quit (not be swallowed).
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if cmd == nil || !isQuit(cmd) {
+		t.Fatal("Esc at landing should quit after raw view was cleared by Alt+←")
+	}
+}
+
+func TestRestorePreservesListSelection(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = step.(appModel)
+	wantIdx := m.list.list.Index()
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "x@tilde.team"), Body: []byte("Login: x\n")}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = step.(appModel)
+	if m.list.list.Index() != wantIdx {
+		t.Fatalf("restored list index = %d, want %d", m.list.list.Index(), wantIdx)
 	}
 }

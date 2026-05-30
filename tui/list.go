@@ -81,7 +81,7 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 	return listModel{common: common, list: l, host: host}
 }
 
-func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, incomplete, generic bool) listModel {
+func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, generic bool) listModel {
 	m := newList(common, host, users)
 	m.generic = generic
 	if parsed, ok := parseUserList(body); ok {

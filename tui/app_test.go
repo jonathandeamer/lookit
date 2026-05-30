@@ -171,7 +171,7 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
-	m.list = newListWithPreamble(m.common, host, users, body, false, false)
+	m.list = newListWithPreamble(m.common, host, users, body, false)
 	m.state = stateList
 
 	view := m.View().Content
@@ -443,6 +443,18 @@ func TestDrillSameHostKeepsUserTypedPort(t *testing.T) {
 func genericListBody() string {
 	// No Login header / online cue / "> " marker: forces the generic fallback.
 	return "the crew:\nbetsy\nMelchizedek\nOleander\nStarbloom\n"
+}
+
+func TestGenericTruncatedListShowsBothFlags(t *testing.T) {
+	host := hostTarget(t, "@unknown.host")
+	bar := barFor(t, Entry{Target: host, Body: []byte(genericListBody()),
+		Meta: finger.Meta{Addr: host.HostPort, Truncated: true}})
+	if !strings.Contains(bar, "auto-detected") {
+		t.Fatalf("bar = %q, want auto-detected flag", bar)
+	}
+	if !strings.Contains(bar, "partial (truncated)") {
+		t.Fatalf("bar = %q, want partial (truncated) flag", bar)
+	}
 }
 
 func TestGenericHostFetchOpensFlaggedList(t *testing.T) {

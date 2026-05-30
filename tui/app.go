@@ -111,8 +111,7 @@ func (m *appModel) restore(n histNode) {
 	}
 	if parsed, ok := parseUserList(n.entry.Body); ok {
 		m.state = stateList
-		incomplete := n.entry.Err != nil || n.entry.Meta.Truncated
-		m.list = newListWithPreamble(m.common, n.entry.Target, parsed.users, n.entry.Body, incomplete, parsed.generic)
+		m.list = newListWithPreamble(m.common, n.entry.Target, parsed.users, n.entry.Body, parsed.generic)
 		m.listReady = true
 		m.list.list.Select(n.listIdx)
 		if n.listFltr != "" {
@@ -321,8 +320,7 @@ func (m appModel) routeFetch(entry Entry) appModel {
 	node := histNode{entry: entry, state: stateReader}
 	if len(entry.Body) > 0 && shouldOpenList(entry) {
 		if parsed, ok := parseUserList(entry.Body); ok {
-			incomplete := entry.Err != nil || entry.Meta.Truncated
-			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, incomplete, parsed.generic)
+			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, parsed.generic)
 			m.listReady = true
 			node.state = stateList
 			node.listUsers = len(parsed.users)

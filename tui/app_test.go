@@ -839,3 +839,23 @@ func TestAltArrowsNoLongerNavigate(t *testing.T) {
 		t.Fatalf("pos = %d, want 1 (Alt+Left must not navigate)", step.(appModel).pos)
 	}
 }
+
+func TestHelpExpandsAtBottomNotFullScreen(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+	host := hostTarget(t, "@tilde.team")
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+	view := m.View().Content
+	if !strings.Contains(view, "move") || !strings.Contains(view, "page") {
+		t.Fatalf("expanded help missing move/page keys:\n%s", view)
+	}
+	// Not a full-screen takeover: a list user is still visible alongside help.
+	if !strings.Contains(view, "alrs") {
+		t.Fatalf("help should not blank the content:\n%s", view)
+	}
+}

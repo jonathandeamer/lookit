@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 
+	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
@@ -72,7 +73,8 @@ type appModel struct {
 	history    []histNode
 	pos        int  // -1 == landing (nothing fetched yet)
 	showingRaw bool // r-toggled raw view of the current generic list node
-	help       bool // help overlay open
+	help       bool // help panel open
+	helpModel  help.Model
 	listReady  bool
 }
 
@@ -94,6 +96,7 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		input:        in,
 		inputFocused: true,
 		keys:         newKeyMap(),
+		helpModel:    help.New(),
 		pos:          -1,
 	}
 }
@@ -229,12 +232,8 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			iw = 20
 		}
 		m.input.SetWidth(iw)
-		m.reader.setSize(msg.Width, m.common.bodyHeight())
-		// Resize the list only once it exists; a freshly-opened list is sized
-		// from common in newList.
-		if m.listReady {
-			m.list.setSize(msg.Width, m.common.bodyHeight())
-		}
+		m.helpModel.SetWidth(msg.Width)
+		m.resizeForHelp()
 		return m, nil
 
 	case tea.ColorProfileMsg:
@@ -277,9 +276,11 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		return true, m, tea.Quit
 	}
 
-	// Help overlay: any key closes it (Task 3 swaps the rendering).
+	// Help panel: any key closes it.
 	if m.help {
 		m.help = false
+		m.helpModel.ShowAll = false
+		m.resizeForHelp()
 		return true, m, nil
 	}
 
@@ -306,6 +307,8 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Help):
 		m.help = true
+		m.helpModel.ShowAll = true
+		m.resizeForHelp()
 		return true, m, nil
 	case key.Matches(msg, m.keys.Quit):
 		return true, m, tea.Quit
@@ -458,33 +461,41 @@ func (m appModel) statusBarModel() statusBar {
 	return bar
 }
 
-func (m appModel) helpView() string {
-	st := newStyles()
-	lines := []string{
-		st.title.Render("lookit — keys"),
-		"",
-		"  i            focus the target input      ↵   open / fetch",
-		"  esc          back (quit at the top)      q   quit",
-		"  ←/→  h/l     page        ↑/↓  j/k  move  g/G  top/bottom",
-		"  /            filter a list      r   raw view (auto-detected lists)",
-		"  y            copy address       ?   toggle this help   ctrl+c quit",
-		"",
-		st.hint.Render("press any key to close"),
+// helpHeight returns the number of rows the help panel occupies when open,
+// or 0 when the panel is closed.
+func (m *appModel) helpHeight() int {
+	if !m.help {
+		return 0
 	}
-	return strings.Join(lines, "\n")
+	return lipgloss.Height(m.helpModel.View(m.keys))
+}
+
+// resizeForHelp re-sizes the active sub-model to leave room for the help block.
+// Called after toggling m.help so sub-models can fill the available height.
+func (m *appModel) resizeForHelp() {
+	h := m.common.bodyHeight() - m.helpHeight()
+	if h < 1 {
+		h = 1
+	}
+	m.reader.setSize(m.common.width, h)
+	if m.listReady {
+		m.list.setSize(m.common.width, h)
+	}
 }
 
 func (m appModel) View() tea.View {
 	var content string
-	switch {
-	case m.help:
-		content = m.helpView()
-	case m.state == stateList:
+	switch m.state {
+	case stateList:
 		content = m.list.View()
 	default:
 		content = m.reader.View()
 	}
-	full := m.input.View() + "\n" + content + "\n" + m.statusBarModel().render()
+	bottom := m.statusBarModel().render()
+	if m.help {
+		bottom = m.helpModel.View(m.keys) + "\n" + bottom
+	}
+	full := m.input.View() + "\n" + content + "\n" + bottom
 
 	v := tea.NewView(full)
 	v.AltScreen = true

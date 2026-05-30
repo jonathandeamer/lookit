@@ -159,8 +159,10 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
 
-	if got.state != stateReader {
-		t.Fatalf("state = %d, want stateReader after drill", got.state)
+	// Drilling keeps the list on screen while loading (no eager switch to the
+	// reader, which used to flash the previous profile for a frame).
+	if !got.loading || got.state != stateList {
+		t.Fatalf("after drill: loading=%v state=%d, want loading=true state=stateList", got.loading, got.state)
 	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
@@ -168,6 +170,11 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	runCmds(cmd) // run the fetch command (may be batched with spinner tick)
 	if len(*seen) != 1 || (*seen)[0] != "alrs@tilde.team" {
 		t.Fatalf("fetched targets = %v, want [alrs@tilde.team]", *seen)
+	}
+	// When the result lands it routes to the reader.
+	landed, _ := got.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alrs@tilde.team"), Body: []byte("Plan: hi\n")}})
+	if landed.(appModel).state != stateReader {
+		t.Fatalf("after the drilled result lands, state = %d, want stateReader", landed.(appModel).state)
 	}
 }
 
@@ -198,8 +205,8 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if got.state != stateReader {
-		t.Fatalf("state = %d, want stateReader after drill", got.state)
+	if !got.loading || got.state != stateList {
+		t.Fatalf("after drill: loading=%v state=%d, want loading=true state=stateList", got.loading, got.state)
 	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
@@ -426,8 +433,11 @@ func drillFirstUser(t *testing.T, host finger.Target, users []User, fetch FetchF
 	m.inputFocused = false // Enter must reach the list, not the input
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if got.state != stateReader {
-		t.Fatalf("expected a drilled reader (state=%d)", got.state)
+	if !got.loading {
+		t.Fatal("expected drilling to start loading")
+	}
+	if got.state != stateList {
+		t.Fatalf("drill should keep the list on screen while loading (state=%d)", got.state)
 	}
 	if cmd == nil {
 		t.Fatal("expected a fetch command from drilling")
@@ -686,6 +696,23 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	if !step.(appModel).help {
 		t.Fatal("'?' should open help from content-focused reader state")
+	}
+}
+
+func TestQuestionMarkOpensHelpWhileInputFocused(t *testing.T) {
+	// On the landing the input is focused; '?' (never valid in a finger address)
+	// should still open help rather than typing a literal '?'.
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if !m.inputFocused {
+		t.Fatal("precondition: landing should focus the input")
+	}
+	step, _ := m.Update(tea.KeyPressMsg{Code: '?'})
+	got := step.(appModel)
+	if !got.help {
+		t.Fatal("'?' should open help while the input is focused")
+	}
+	if got.input.Value() != "" {
+		t.Fatalf("'?' must not be typed into the input; value = %q", got.input.Value())
 	}
 }
 

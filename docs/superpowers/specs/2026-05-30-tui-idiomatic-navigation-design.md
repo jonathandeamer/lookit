@@ -48,6 +48,10 @@ reach smallnet's `b`/`f`, which are anyway taken by paging).
   - **Spinner colour.** The loading spinner now uses the `MiniDot` glyph but is
     still un-themed (no foreground); give it an adaptive foreground here for
     palette consistency rather than hardcoding.
+  - **Help-panel contrast.** The `bubbles/help` panel uses its default dim
+    key/desc styles, which read as low-contrast on a dark terminal. Theme
+    `helpModel.Styles` (the `help.Styles` short/full key+desc + separator) with
+    adaptive values as part of this pass.
 - **A `--mouse` opt-in flag / runtime mouse toggle.** This spec only *removes*
   the current always-on capture. Re-introducing mouse as glow does (behind a
   flag) is a separate, optional follow-up.

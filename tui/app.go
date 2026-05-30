@@ -305,9 +305,16 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		return true, m, nil
 	}
 
-	// Input focused: only Enter/Esc are commands; everything else types.
+	// Input focused: Enter/Esc/? are commands; everything else types. '?' opens
+	// help (it can't appear in a finger address, and the landing — input focused
+	// — is exactly where a first-time user reaches for help).
 	if m.inputFocused {
 		switch {
+		case key.Matches(msg, m.keys.Help): // ?
+			m.help = true
+			m.helpModel.ShowAll = true
+			m.resizeForHelp()
+			return true, m, nil
 		case key.Matches(msg, m.keys.Open): // Enter
 			cmd := m.submit()
 			return true, m, cmd
@@ -391,7 +398,9 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 	}
 	m.loading = true
 	m.loadingTarget = target
-	m.state = stateReader
+	// Keep the current view (the list) on screen while loading; routeFetch sets
+	// the final state when the result lands. Switching to the reader eagerly here
+	// flashed the previous profile for a frame before the new one arrived.
 	return true, m, tea.Batch(fetchCmd(context.Background(), m.common.fetch, target), m.spin.Tick)
 }
 

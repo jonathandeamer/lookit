@@ -73,6 +73,7 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 		Foreground(lipgloss.Color("#8affc1")).BorderForeground(lipgloss.Color("#8affc1"))
 	d.Styles.SelectedDesc = d.Styles.SelectedDesc.Foreground(lipgloss.Color("#8fb7ff"))
 	d.Styles.NormalDesc = d.Styles.NormalDesc.Foreground(lipgloss.Color("#808080"))
+	d.SetSpacing(0) // drop the blank line between items: 3 rows/item -> 2 (tighter)
 	l := list.New(items, d, width, height)
 	l.Title = fmt.Sprintf("%s — %d users", host.Raw, len(users))
 	l.SetShowStatusBar(false)

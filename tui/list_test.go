@@ -105,3 +105,61 @@ func TestRecognizedListNotFlagged(t *testing.T) {
 		t.Fatal("listModel.generic = true, want false for a recognized list")
 	}
 }
+
+func TestUserItemImplementsDefaultItem(t *testing.T) {
+	it := userItem{login: "alrs", name: "Alvaro", target: "alrs@tilde.team"}
+	if it.Title() != "alrs" {
+		t.Fatalf("Title = %q, want alrs", it.Title())
+	}
+	desc := it.Description()
+	if !strings.Contains(desc, "Alvaro") || !strings.Contains(desc, "alrs@tilde.team") {
+		t.Fatalf("Description = %q, want name + target", desc)
+	}
+}
+
+func TestUserItemDescription(t *testing.T) {
+	tests := []struct {
+		name string
+		item userItem
+		want string
+	}{
+		{
+			name: "name and target",
+			item: userItem{login: "alrs", name: "Alvaro", target: "alrs@tilde.team"},
+			want: "Alvaro · alrs@tilde.team",
+		},
+		{
+			name: "name only",
+			item: userItem{login: "alrs", name: "Alvaro"},
+			want: "Alvaro",
+		},
+		{
+			name: "target only",
+			item: userItem{login: "alrs", target: "alrs@tilde.team"},
+			want: "alrs@tilde.team",
+		},
+		{
+			name: "neither",
+			item: userItem{login: "alrs"},
+			want: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.item.Description()
+			if got != tc.want {
+				t.Fatalf("Description() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultDelegateRendersLoginAndName(t *testing.T) {
+	common := &commonModel{width: 80, height: 20}
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
+	m.setSize(80, 18)
+	view := m.View()
+	if !strings.Contains(view, "alrs") || !strings.Contains(view, "Alvaro") {
+		t.Fatalf("list view missing login/name:\n%s", view)
+	}
+}

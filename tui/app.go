@@ -3,14 +3,24 @@ package tui
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"strings"
+	"time"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/jonathandeamer/lookit/finger"
 )
+
+// setClipboard is a seam for testing: it defaults to tea.SetClipboard.
+var setClipboard = tea.SetClipboard
 
 // appState selects which sub-model is active.
 type appState int
@@ -28,17 +38,17 @@ type commonModel struct {
 	fetch   FetchFunc
 }
 
-// bodyHeight is the height available to a sub-model after reserving one row
-// for the bottom status bar.
+// bodyHeight is the height available to a sub-model after reserving the top
+// input row and the bottom status-bar row.
 func (c *commonModel) bodyHeight() int {
-	if c.height > 1 {
-		return c.height - 1
+	if c.height > 2 {
+		return c.height - 2
 	}
 	return 1
 }
 
-// histNode snapshots a landed screen so back/forward restore instead of
-// re-fetching. listUsers/listGeneric are cached so View needn't re-parse.
+// histNode snapshots a landed screen so back restores instead of re-fetching.
+// listUsers/listGeneric are cached so View needn't re-parse.
 type histNode struct {
 	entry       Entry
 	state       appState
@@ -57,10 +67,21 @@ type appModel struct {
 	reader readerModel
 	list   listModel
 
+	input        textinput.Model
+	inputFocused bool
+	keys         keyMap
+
+	loading       bool
+	loadingTarget finger.Target
+	spin          spinner.Model
+
+	flash string
+
 	history    []histNode
 	pos        int  // -1 == landing (nothing fetched yet)
 	showingRaw bool // r-toggled raw view of the current generic list node
-	help       bool // help overlay open
+	help       bool // help panel open
+	helpModel  help.Model
 	listReady  bool
 }
 
@@ -69,11 +90,22 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		fetch = defaultFetch
 	}
 	common := &commonModel{profile: profile, fetch: fetch}
+	in := textinput.New()
+	in.Placeholder = "alice@plan.cat"
+	in.Prompt = "target: "
+	in.CharLimit = 256
+	in.SetWidth(40)
+	in.Focus() // landing starts focused
 	return appModel{
-		common: common,
-		state:  stateReader,
-		reader: newReader(fetch, profile),
-		pos:    -1,
+		common:       common,
+		state:        stateReader,
+		reader:       newReader(profile),
+		input:        in,
+		inputFocused: true,
+		keys:         newKeyMap(),
+		helpModel:    help.New(),
+		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		pos:          -1,
 	}
 }
 
@@ -129,8 +161,10 @@ func (m *appModel) restore(n histNode) {
 func (m *appModel) gotoLanding() {
 	m.state = stateReader
 	m.reader.current = nil
-	m.reader.loading = false
 	m.reader.viewport.SetContent("No response yet.")
+	m.inputFocused = true
+	m.input.SetValue("")
+	m.input.Focus() // discard the blink cmd; the cursor still shows
 }
 
 // stepBack moves one step toward history root, or to the landing from pos 0.
@@ -157,20 +191,41 @@ func (m *appModel) back() tea.Cmd {
 	return nil
 }
 
-// forward re-applies a previously-popped node.
-func (m *appModel) forward() {
-	m.showingRaw = false
-	if m.pos >= len(m.history)-1 {
-		return
+// focusInput gives the keyboard to the target input, pre-filled with the
+// current target for browser-style editing.
+func (m *appModel) focusInput() tea.Cmd {
+	if m.pos >= 0 {
+		m.input.SetValue(m.history[m.pos].entry.Target.Raw)
 	}
-	m.snapshot()
-	m.pos++
-	m.restore(m.history[m.pos])
+	m.inputFocused = true
+	m.input.CursorEnd()
+	return m.input.Focus()
+}
+
+// blurInput returns the keyboard to the content.
+func (m *appModel) blurInput() {
+	m.inputFocused = false
+	m.input.Blur()
+}
+
+// submit parses the input and starts a fetch, blurring to content. On a parse
+// error it keeps the input focused and flashes the error.
+func (m *appModel) submit() tea.Cmd {
+	target, err := finger.ParseTarget(strings.TrimSpace(m.input.Value()))
+	if err != nil {
+		m.flash = "error: " + err.Error()
+		return nil
+	}
+	m.flash = "" // clear any stale parse-error flash from a prior failed submit
+	m.blurInput()
+	m.loading = true
+	m.loadingTarget = target
+	return tea.Batch(fetchCmd(context.Background(), m.common.fetch, target), m.spin.Tick)
 }
 
 func (m appModel) Init() tea.Cmd {
 	return tea.Batch(
-		m.reader.Init(),
+		textinput.Blink,
 		tea.RequestCapability("RGB"),
 		tea.RequestCapability("Tc"),
 	)
@@ -181,12 +236,13 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.common.width = msg.Width
 		m.common.height = msg.Height
-		m.reader.setSize(msg.Width, m.common.bodyHeight())
-		// Resize the list only once it exists; a freshly-opened list is sized
-		// from common in newList.
-		if m.listReady {
-			m.list.setSize(msg.Width, m.common.bodyHeight())
+		iw := msg.Width - lipgloss.Width(m.input.Prompt)
+		if iw < 20 {
+			iw = 20
 		}
+		m.input.SetWidth(iw)
+		m.helpModel.SetWidth(msg.Width)
+		m.resizeForHelp()
 		return m, nil
 
 	case tea.ColorProfileMsg:
@@ -205,10 +261,26 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fetchResultMsg:
 		return m.routeFetch(msg.entry), nil
+
+	case clearFlashMsg:
+		m.flash = ""
+		return m, nil
+
+	case spinner.TickMsg:
+		if m.loading {
+			var cmd tea.Cmd
+			m.spin, cmd = m.spin.Update(msg)
+			return m, cmd
+		}
+		return m, nil
 	}
 
-	// Delegate to the active sub-model.
+	// Delegate unhandled messages: to the input when focused, else to content.
 	var cmd tea.Cmd
+	if m.inputFocused {
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
 	switch m.state {
 	case stateList:
 		m.list, cmd = m.list.update(msg)
@@ -218,75 +290,76 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// handleKey processes cross-screen keys (quit, back, drill). It returns
-// handled=false to let the active sub-model handle the key.
+// handleKey processes app-level keys and focus routing. handled=false lets the
+// caller delegate the key to the active sub-model (content) or the input.
 func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
-	key := msg.Key()
-
-	// Ctrl+C always quits.
-	if key.Code == 'c' && key.Mod == tea.ModCtrl {
+	if key.Matches(msg, m.keys.ForceQuit) {
 		return true, m, tea.Quit
 	}
 
-	// Help overlay: any key closes it; '?' opens it (except while filtering).
+	// Help panel: any key closes it.
 	if m.help {
 		m.help = false
-		return true, m, nil
-	}
-	if key.Code == '?' && (m.state != stateList || !m.list.filtering()) {
-		m.help = true
+		m.helpModel.ShowAll = false
+		m.resizeForHelp()
 		return true, m, nil
 	}
 
-	switch m.state {
-	case stateList:
-		if m.list.filtering() {
-			return false, m, nil
-		}
+	// Input focused: only Enter/Esc are commands; everything else types.
+	if m.inputFocused {
 		switch {
-		case key.Code == tea.KeyEsc:
-			// Let the list clear an active or applied filter before backing out.
-			if m.list.list.FilterState() != list.Unfiltered {
-				return false, m, nil
-			}
-			cmd := m.back()
+		case key.Matches(msg, m.keys.Open): // Enter
+			cmd := m.submit()
 			return true, m, cmd
-		case key.Code == tea.KeyLeft && key.Mod == tea.ModAlt:
-			m.stepBack()
-			return true, m, nil
-		case key.Code == tea.KeyRight && key.Mod == tea.ModAlt:
-			m.forward()
-			return true, m, nil
-		case key.Code == tea.KeyEnter:
-			return m.drill()
-		case key.Code == 'r':
-			if m.list.generic && m.pos >= 0 {
-				m.reader.setEntry(m.history[m.pos].entry)
-				m.state = stateReader
-				m.showingRaw = true
-				return true, m, nil
+		case key.Matches(msg, m.keys.Back): // Esc
+			if m.pos < 0 {
+				return true, m, tea.Quit
 			}
+			m.blurInput()
+			return true, m, nil
 		}
+		return false, m, nil // fall through: type into the input
+	}
 
-	case stateReader:
-		if m.showingRaw && key.Code == tea.KeyEsc {
+	// Content focused.
+	if m.state == stateList && m.list.filtering() {
+		return false, m, nil // list owns its filter keys
+	}
+	switch {
+	case key.Matches(msg, m.keys.Help):
+		m.help = true
+		m.helpModel.ShowAll = true
+		m.resizeForHelp()
+		return true, m, nil
+	case key.Matches(msg, m.keys.Quit):
+		return true, m, tea.Quit
+	case key.Matches(msg, m.keys.FocusInput):
+		cmd := m.focusInput()
+		return true, m, cmd
+	case key.Matches(msg, m.keys.Back):
+		if m.state == stateList && m.list.list.FilterState() != list.Unfiltered {
+			return false, m, nil // clear an applied filter first
+		}
+		if m.showingRaw {
 			m.showingRaw = false
 			m.state = stateList
 			return true, m, nil
 		}
-		switch {
-		case key.Code == tea.KeyEsc:
-			cmd := m.back()
-			return true, m, cmd
-		case key.Code == tea.KeyLeft && key.Mod == tea.ModAlt:
-			m.stepBack()
-			return true, m, nil
-		case key.Code == tea.KeyRight && key.Mod == tea.ModAlt:
-			m.forward()
+		cmd := m.back()
+		return true, m, cmd
+	case key.Matches(msg, m.keys.Copy):
+		cmd := m.copyAddress()
+		return true, m, cmd
+	case key.Matches(msg, m.keys.Open) && m.state == stateList:
+		return m.drill()
+	case key.Matches(msg, m.keys.Raw) && m.state == stateList:
+		if m.list.generic && m.pos >= 0 {
+			m.reader.setEntry(m.history[m.pos].entry)
+			m.state = stateReader
+			m.showingRaw = true
 			return true, m, nil
 		}
 	}
-
 	return false, m, nil
 }
 
@@ -316,17 +389,20 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 		// host:22). User-typed targets keep their explicit port.
 		target = pinFingerPort(target)
 	}
-	m.reader.setLoading(target)
+	m.loading = true
+	m.loadingTarget = target
 	m.state = stateReader
-	return true, m, fetchCmd(context.Background(), m.common.fetch, target)
+	return true, m, tea.Batch(fetchCmd(context.Background(), m.common.fetch, target), m.spin.Tick)
 }
 
 // routeFetch is the single decision point for a completed fetch: a host
 // response that parses opens the list; everything else renders in the reader.
 // Either way it pushes a history node.
 func (m appModel) routeFetch(entry Entry) appModel {
-	m.reader.loading = false
+	m.loading = false
 	m.showingRaw = false
+	m.inputFocused = false
+	m.input.Blur()
 	node := histNode{entry: entry, state: stateReader}
 	if len(entry.Body) > 0 && shouldOpenList(entry) {
 		if parsed, ok := parseUserList(entry.Body); ok {
@@ -366,12 +442,49 @@ func pinFingerPort(t finger.Target) finger.Target {
 	return t
 }
 
+// clearFlashMsg is sent after a flash timer fires to clear m.flash.
+type clearFlashMsg struct{}
+
+// clearFlashCmd returns a command that fires clearFlashMsg after 2 seconds.
+func (m *appModel) clearFlashCmd() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearFlashMsg{} })
+}
+
+// copyAddress copies the relevant address to the clipboard and flashes it.
+func (m *appModel) copyAddress() tea.Cmd {
+	var addr string
+	if m.state == stateList {
+		if sel, ok := m.list.selected(); ok {
+			addr = sel.target
+			if addr == "" {
+				addr = sel.login + "@" + strings.TrimPrefix(m.list.host.Raw, "@")
+			}
+		}
+	} else if m.pos >= 0 {
+		addr = m.history[m.pos].entry.Target.Raw
+	}
+	if addr == "" {
+		return nil
+	}
+	m.flash = "copied " + addr
+	return tea.Batch(setClipboard(addr), m.clearFlashCmd())
+}
+
 // statusBarModel assembles the bottom bar from the current node + history.
 func (m appModel) statusBarModel() statusBar {
 	st := newStyles()
 	w := m.common.width
+	if m.loading {
+		bar := statusBar{width: w, styles: st}
+		bar.hints = m.spin.View() + " loading " + m.loadingTarget.Raw
+		return bar
+	}
 	if m.pos < 0 {
-		return landingBar(w, st)
+		bar := landingBar(w, st)
+		if m.flash != "" {
+			bar.hints = m.flash
+		}
+		return bar
 	}
 	node := m.history[m.pos]
 	bar := statusBar{width: w, styles: st}
@@ -386,6 +499,9 @@ func (m appModel) statusBarModel() statusBar {
 		bar.escTarget = ""
 		bar.meta = formatBytes(len(node.entry.Body))
 		bar.hints = "esc back · ? help"
+		if m.flash != "" {
+			bar.hints = m.flash
+		}
 		return bar
 	}
 
@@ -402,44 +518,59 @@ func (m appModel) statusBarModel() statusBar {
 		} else if node.entry.Meta.Truncated {
 			bar.flags = append(bar.flags, "partial (truncated)")
 		}
+		if tp := m.list.list.Paginator.TotalPages; tp > 1 {
+			bar.page = fmt.Sprintf("page %d/%d", m.list.list.Paginator.Page+1, tp)
+		}
 	default: // stateReader
 		bar.meta = formatBytes(len(node.entry.Body))
 		bar.hints = "↑↓ scroll · esc back · ? help"
+		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
+			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))
+		}
+	}
+	if m.flash != "" {
+		bar.hints = m.flash
 	}
 	return bar
 }
 
-func (m appModel) helpView() string {
-	st := newStyles()
-	lines := []string{
-		st.title.Render("lookit — keys"),
-		"",
-		"  Enter        open / fetch the highlighted target",
-		"  Esc          back (quit at the top)",
-		"  Alt+←        back        Alt+→   forward",
-		"  ↑ ↓          scroll / move selection",
-		"  /            filter a list      r   raw view (auto-detected lists)",
-		"  ?            toggle this help    Ctrl+C   quit",
-		"",
-		st.hint.Render("press any key to close"),
+// helpHeight returns the number of rows the help panel occupies when open,
+// or 0 when the panel is closed.
+func (m *appModel) helpHeight() int {
+	if !m.help {
+		return 0
 	}
-	return strings.Join(lines, "\n")
+	return lipgloss.Height(m.helpModel.View(m.keys))
+}
+
+// resizeForHelp re-sizes the active sub-model to leave room for the help block.
+// Called after toggling m.help so sub-models can fill the available height.
+func (m *appModel) resizeForHelp() {
+	h := m.common.bodyHeight() - m.helpHeight()
+	if h < 1 {
+		h = 1
+	}
+	m.reader.setSize(m.common.width, h)
+	if m.listReady {
+		m.list.setSize(m.common.width, h)
+	}
 }
 
 func (m appModel) View() tea.View {
 	var content string
-	switch {
-	case m.help:
-		content = m.helpView()
-	case m.state == stateList:
+	switch m.state {
+	case stateList:
 		content = m.list.View()
 	default:
 		content = m.reader.View()
 	}
-	content += "\n" + m.statusBarModel().render()
+	bottom := m.statusBarModel().render()
+	if m.help {
+		bottom = m.helpModel.View(m.keys) + "\n" + bottom
+	}
+	full := m.input.View() + "\n" + content + "\n" + bottom
 
-	v := tea.NewView(content)
+	v := tea.NewView(full)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }

@@ -3,13 +3,6 @@ package tui
 import "charm.land/lipgloss/v2"
 
 type styles struct {
-	title    lipgloss.Style
-	status   lipgloss.Style
-	error    lipgloss.Style
-	hint     lipgloss.Style
-	listName lipgloss.Style // dim real-name column in list rows
-	selected lipgloss.Style // highlighted list row
-
 	// bottom status bar
 	barFill lipgloss.Style // full-width background
 	barHost lipgloss.Style // "@host" (dim)
@@ -24,13 +17,6 @@ func newStyles() styles {
 	barBg := lipgloss.Color("#242424")
 	seg := lipgloss.NewStyle().Background(barBg)
 	return styles{
-		title:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ff6fd5")),
-		status:   lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
-		error:    lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b6b")),
-		hint:     lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
-		listName: lipgloss.NewStyle().Foreground(lipgloss.Color("#8fb7ff")),
-		selected: lipgloss.NewStyle().Foreground(lipgloss.Color("#8affc1")).Bold(true),
-
 		barFill: seg,
 		barHost: seg.Foreground(lipgloss.Color("#9a9a9a")),
 		barSep:  seg.Foreground(lipgloss.Color("#6a6a6a")),

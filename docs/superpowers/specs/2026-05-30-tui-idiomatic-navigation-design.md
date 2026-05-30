@@ -92,6 +92,7 @@ for them only so `help` can display them.
 | Filter a list | `/` | bubbles list default (list owns it) |
 | Open / drill | `Enter` | existing |
 | Raw view (auto-detected list) | `r` | existing lookit affordance |
+| **Copy address** | **`y`** | vim yank (wishlist does this) |
 | **Focus input** | **`i`** | vim insert |
 | **Back** (history) | **`Esc`** | bubbles list backs out on esc |
 | Help | `?` | bubbles default |
@@ -181,6 +182,33 @@ whose content is text people quote (emails, `finger://` links) — and matches
 glow, which leaves mouse off unless explicitly enabled. Keyboard scrolling
 (`j/k`, arrows, `PgUp/Dn`, `u/d`, `g/G`) is the scroll path.
 
+## Clipboard yank
+
+Complementing the mouse-drop, **`y` (content focused) copies the relevant
+address to the system clipboard** — the vim "yank" idiom, exactly as wishlist
+does. In the reader it copies the current node's `target.Raw`
+(`user@host`); in a list it copies the highlighted user's address (the
+server-supplied `target` if present, else `login@host`). Copy is via **OSC 52**
+(the terminal-clipboard escape `wishlist` uses, which also works over SSH);
+where the terminal doesn't honour OSC 52, native drag-to-select remains the
+fallback. A **transient bottom-bar flash** (`copied user@host`) confirms the
+action and clears after a short `tea.Tick` timeout. `appModel` owns the flash
+string + its clear timer; while the list filter is being typed, `y` is literal.
+
+## List rendering
+
+The hand-rolled one-line `userDelegate` is **replaced by
+`list.NewDefaultDelegate()`** (the stock Title+Description delegate, as wishlist
+uses). `userItem` implements `Title()` → the login and `Description()` → the
+real name, plus the cross-host `user@host` target when the entry carries one
+(Finger Ring / `finger://` rows), so directory entries show where they point.
+The default delegate brings idiomatic selection styling, filter-match
+highlighting, and help for free; its styles are themed to lookit's palette
+(replacing the bespoke `selected`/`listName` styles). Items are now taller
+(~2 lines each) — `setSize`/`bodyHeight` already drive the list height
+dynamically, and the new `page X/Y` indicator (above) covers the denser
+paging this implies.
+
 ## Architecture summary
 
 ```
@@ -189,13 +217,15 @@ appModel (app.go)
 ├── inputFocused bool             ← NEW
 ├── spinner spinner.Model         ← NEW (bubbles/spinner)
 ├── help help.Model               ← NEW (bubbles/help)
-├── keys keyMap                   ← NEW (key.Binding; key.Matches; help source)
+├── keys keyMap                   ← NEW (key.Binding; key.Matches; help source; incl. Copy=y)
+├── flash string + clear timer    ← NEW (transient "copied …" message)
 ├── history/pos/state/showingRaw/list  (unchanged; forward() removed)
-├── Update: focus routing; submit→fetch; spinner tick; help toggle; Esc/i/q
+├── Update: focus routing; submit→fetch; spinner tick; help toggle; y-copy+flash; Esc/i/q
 ├── View: input row + [help block] + content + status bar; NO mouse mode
 │
 ├── readerModel (reader.go)       ← shrinks to viewport + entry (input removed)
-└── statusBar (statusbar.go)      ← gains scroll-% + focus-aware/loading hints
+├── list (list.go)                ← list.NewDefaultDelegate(); userItem gets Title()/Description()
+└── statusBar (statusbar.go)      ← gains scroll-% + page X/Y + focus-aware/loading/flash
 ```
 
 `finger/` → `render/` → `tui/` dependency direction unchanged. New imports:
@@ -228,6 +258,14 @@ Consistent with the project's injected-fakes, offline, no-TTY discipline:
   and width-clamped (existing `statusBar` tests extended).
 - **Mouse:** `View()` sets no mouse mode (assert the `tea.View` has the default
   `MouseMode`).
+- **Yank (`y`):** in the reader, copies the current node's `target.Raw`; in a
+  list, copies the highlighted user's address (server `target` else
+  `login@host`); a flash message is set and clears on the timer's
+  `tea.Msg`; `y` is literal while the list filter is being typed. (Clipboard
+  side effect is verified via the seam used for OSC 52, not a real terminal.)
+- **List delegate:** `userItem.Title()`/`Description()` return the expected
+  login / real-name (+ cross-host target) strings; the rendered list view
+  contains a user's login and name.
 - **Regression:** history-stack, drill + port-79 pinning, honesty-flag, and
   `ParseUsers` golden tests stay green.
 

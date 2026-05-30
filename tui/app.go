@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -67,6 +68,7 @@ type appModel struct {
 
 	loading       bool
 	loadingTarget finger.Target
+	spin          spinner.Model
 
 	flash string
 
@@ -97,6 +99,7 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		inputFocused: true,
 		keys:         newKeyMap(),
 		helpModel:    help.New(),
+		spin:         spinner.New(),
 		pos:          -1,
 	}
 }
@@ -211,7 +214,7 @@ func (m *appModel) submit() tea.Cmd {
 	m.blurInput()
 	m.loading = true
 	m.loadingTarget = target
-	return fetchCmd(context.Background(), m.common.fetch, target)
+	return tea.Batch(fetchCmd(context.Background(), m.common.fetch, target), m.spin.Tick)
 }
 
 func (m appModel) Init() tea.Cmd {
@@ -252,6 +255,14 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fetchResultMsg:
 		return m.routeFetch(msg.entry), nil
+
+	case spinner.TickMsg:
+		if m.loading {
+			var cmd tea.Cmd
+			m.spin, cmd = m.spin.Update(msg)
+			return m, cmd
+		}
+		return m, nil
 	}
 
 	// Delegate unhandled messages: to the input when focused, else to content.
@@ -368,7 +379,7 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 	m.loading = true
 	m.loadingTarget = target
 	m.state = stateReader
-	return true, m, fetchCmd(context.Background(), m.common.fetch, target)
+	return true, m, tea.Batch(fetchCmd(context.Background(), m.common.fetch, target), m.spin.Tick)
 }
 
 // routeFetch is the single decision point for a completed fetch: a host
@@ -422,6 +433,11 @@ func pinFingerPort(t finger.Target) finger.Target {
 func (m appModel) statusBarModel() statusBar {
 	st := newStyles()
 	w := m.common.width
+	if m.loading {
+		bar := statusBar{width: w, styles: st}
+		bar.hints = m.spin.View() + " loading " + m.loadingTarget.Raw
+		return bar
+	}
 	if m.pos < 0 {
 		return landingBar(w, st)
 	}

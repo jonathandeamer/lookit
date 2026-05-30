@@ -162,7 +162,7 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
 	}
-	cmd() // run the fetch command
+	runCmds(cmd) // run the fetch command (may be batched with spinner tick)
 	if len(*seen) != 1 || (*seen)[0] != "alrs@tilde.team" {
 		t.Fatalf("fetched targets = %v, want [alrs@tilde.team]", *seen)
 	}
@@ -201,7 +201,7 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
 	}
-	cmd()
+	runCmds(cmd)
 	if len(*seen) != 1 || (*seen)[0] != "yalla@tilde.team" {
 		t.Fatalf("fetched targets = %v, want [yalla@tilde.team]", *seen)
 	}
@@ -303,6 +303,24 @@ func isQuit(cmd tea.Cmd) bool {
 	}
 	_, ok := cmd().(tea.QuitMsg)
 	return ok
+}
+
+// runCmds executes all leaf commands in a potentially batched tea.Cmd,
+// unwrapping tea.BatchMsg recursively. This is needed in tests that call
+// cmd() directly to trigger side effects (e.g. populating a fetchRecorder),
+// because submit/drill now batch the fetch with the spinner tick.
+func runCmds(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			runCmds(c)
+		}
+		return
+	}
+	// non-batch: side effects already executed
 }
 
 func TestCtrlCQuitsFromReader(t *testing.T) {
@@ -421,7 +439,7 @@ func TestDrillServerSuppliedTargetPinnedToPort79(t *testing.T) {
 	users := []User{{Login: "evil", Target: "evil@example.com:22"}}
 
 	cmd := drillFirstUser(t, host, users, captureFetch(&got))
-	cmd()
+	runCmds(cmd)
 
 	if got.HostPort != "example.com:79" {
 		t.Fatalf("HostPort = %q, want example.com:79 (server-supplied port must be pinned to 79)", got.HostPort)
@@ -435,7 +453,7 @@ func TestDrillServerSuppliedTargetKeepsCrossHost(t *testing.T) {
 	users := []User{{Login: "yalla", Target: "yalla@tilde.team"}}
 
 	cmd := drillFirstUser(t, host, users, captureFetch(&got))
-	cmd()
+	runCmds(cmd)
 
 	if got.HostPort != "tilde.team:79" {
 		t.Fatalf("HostPort = %q, want tilde.team:79 (cross-host drilling must be preserved)", got.HostPort)
@@ -448,7 +466,7 @@ func TestDrillSameHostKeepsUserTypedPort(t *testing.T) {
 	users := []User{{Login: "alice"}}       // no server-supplied target
 
 	cmd := drillFirstUser(t, host, users, captureFetch(&got))
-	cmd()
+	runCmds(cmd)
 
 	if got.HostPort != "plan.cat:7979" {
 		t.Fatalf("HostPort = %q, want plan.cat:7979 (user-typed port must be preserved)", got.HostPort)
@@ -771,7 +789,7 @@ func TestSubmitFetchesParsedTargetAndBlurs(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("submit should return a fetch command")
 	}
-	cmd()
+	runCmds(cmd)
 	if len(*seen) != 1 || (*seen)[0] != "alice@plan.cat" {
 		t.Fatalf("fetched %v, want [alice@plan.cat]", *seen)
 	}
@@ -837,6 +855,33 @@ func TestAltArrowsNoLongerNavigate(t *testing.T) {
 	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
 	if step.(appModel).pos != 1 {
 		t.Fatalf("pos = %d, want 1 (Alt+Left must not navigate)", step.(appModel).pos)
+	}
+}
+
+func TestLoadingShowsSpinnerTarget(t *testing.T) {
+	// A fetch that we drive manually: set loading via submit, render the bar.
+	m := newApp(func(_ context.Context, tg finger.Target) ([]byte, finger.Meta, error) {
+		return []byte("Plan\n"), finger.Meta{}, nil
+	}, colorprofile.NoTTY)
+	m.common.width = 80
+	m.input.SetValue("bob@sdf.org")
+	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+	if !m.loading {
+		t.Fatal("submit should set loading")
+	}
+	if !strings.Contains(m.statusBarModel().render(), "bob@sdf.org") {
+		t.Fatalf("loading bar should name the target:\n%s", m.statusBarModel().render())
+	}
+}
+
+func TestResultClearsLoading(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.loading = true
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	if step.(appModel).loading {
+		t.Fatal("a fetch result should clear loading")
 	}
 }
 

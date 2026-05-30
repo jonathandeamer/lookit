@@ -92,6 +92,8 @@ func TestHostFetchWithBodyAndReadErrorCanOpenList(t *testing.T) {
 
 func TestHostListViewKeepsPreambleWithoutRawUserGrid(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBodyWithPreamble()), Meta: finger.Meta{Addr: target.HostPort}}
 

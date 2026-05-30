@@ -2,11 +2,12 @@ package tui
 
 import (
 	"fmt"
-	"io"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -24,31 +25,22 @@ type userItem struct {
 // FilterValue lets the list filter by login as the user types "/".
 func (i userItem) FilterValue() string { return i.login }
 
-// userDelegate renders one user per line: "> login   name".
-type userDelegate struct {
-	styles styles
-}
+// Title satisfies list.DefaultItem — the primary line is the login.
+func (i userItem) Title() string { return i.login }
 
-func (d userDelegate) Height() int                         { return 1 }
-func (d userDelegate) Spacing() int                        { return 0 }
-func (d userDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
-
-func (d userDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	it, ok := item.(userItem)
-	if !ok {
-		return
+// Description satisfies list.DefaultItem — shows name and/or target if present.
+func (i userItem) Description() string {
+	var parts []string
+	if i.name != "" {
+		parts = append(parts, i.name)
 	}
-	cursor := "  "
-	login := it.login
-	if index == m.Index() {
-		cursor = "> "
-		login = d.styles.selected.Render(it.login)
+	if i.target != "" {
+		parts = append(parts, i.target)
 	}
-	line := login
-	if it.name != "" {
-		line += "  " + d.styles.listName.Render(it.name)
+	if len(parts) == 0 {
+		return ""
 	}
-	fmt.Fprint(w, cursor+line)
+	return strings.Join(parts, " · ")
 }
 
 // listModel wraps a bubbles list of a host's users.
@@ -72,7 +64,16 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 		height = 1
 	}
 
-	l := list.New(items, userDelegate{styles: newStyles()}, width, height)
+	d := list.NewDefaultDelegate()
+	d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(compat.AdaptiveColor{
+		Light: lipgloss.Color("#1a1a1a"),
+		Dark:  lipgloss.Color("#dddddd"),
+	})
+	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
+		Foreground(lipgloss.Color("#8affc1")).BorderForeground(lipgloss.Color("#8affc1"))
+	d.Styles.SelectedDesc = d.Styles.SelectedDesc.Foreground(lipgloss.Color("#8fb7ff"))
+	d.Styles.NormalDesc = d.Styles.NormalDesc.Foreground(lipgloss.Color("#808080"))
+	l := list.New(items, d, width, height)
 	l.Title = fmt.Sprintf("%s — %d users", host.Raw, len(users))
 	l.SetShowStatusBar(false)
 	l.SetShowTitle(false)

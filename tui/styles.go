@@ -3,10 +3,8 @@ package tui
 import "charm.land/lipgloss/v2"
 
 type styles struct {
-	status   lipgloss.Style
-	error    lipgloss.Style
-	listName lipgloss.Style // dim real-name column in list rows
-	selected lipgloss.Style // highlighted list row
+	status lipgloss.Style
+	error  lipgloss.Style
 
 	// bottom status bar
 	barFill lipgloss.Style // full-width background
@@ -22,10 +20,8 @@ func newStyles() styles {
 	barBg := lipgloss.Color("#242424")
 	seg := lipgloss.NewStyle().Background(barBg)
 	return styles{
-		status:   lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
-		error:    lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b6b")),
-		listName: lipgloss.NewStyle().Foreground(lipgloss.Color("#8fb7ff")),
-		selected: lipgloss.NewStyle().Foreground(lipgloss.Color("#8affc1")).Bold(true),
+		status: lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
+		error:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b6b")),
 
 		barFill: seg,
 		barHost: seg.Foreground(lipgloss.Color("#9a9a9a")),

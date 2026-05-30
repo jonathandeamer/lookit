@@ -101,8 +101,6 @@ func (b statusBar) styleCrumb(budget int) string {
 }
 
 // breadcrumbParts splits a target into the bar's host ("@host") and user halves.
-//
-//nolint:unused
 func breadcrumbParts(t finger.Target) (host, user string) {
 	h, _, err := net.SplitHostPort(t.HostPort)
 	if err != nil {
@@ -112,8 +110,6 @@ func breadcrumbParts(t finger.Target) (host, user string) {
 }
 
 // formatBytes renders a byte count compactly: "512 B", "1.2 KB", "3.4 MB".
-//
-//nolint:unused
 func formatBytes(n int) string {
 	switch {
 	case n < 1024:

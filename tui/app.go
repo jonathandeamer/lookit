@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 
@@ -25,6 +26,15 @@ type commonModel struct {
 	height  int
 	profile colorprofile.Profile
 	fetch   FetchFunc
+}
+
+// bodyHeight is the height available to a sub-model after reserving one row
+// for the bottom status bar.
+func (c *commonModel) bodyHeight() int {
+	if c.height > 1 {
+		return c.height - 1
+	}
+	return 1
 }
 
 // histNode snapshots a landed screen so back/forward restore instead of
@@ -172,11 +182,11 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.common.width = msg.Width
 		m.common.height = msg.Height
-		m.reader.setSize(msg.Width, msg.Height)
+		m.reader.setSize(msg.Width, m.common.bodyHeight())
 		// Resize the list only once it exists; a freshly-opened list is sized
 		// from common in newList.
 		if m.listReady {
-			m.list.setSize(msg.Width, msg.Height)
+			m.list.setSize(msg.Width, m.common.bodyHeight())
 		}
 		return m, nil
 
@@ -348,6 +358,42 @@ func pinFingerPort(t finger.Target) finger.Target {
 	return t
 }
 
+// statusBarModel assembles the bottom bar from the current node + history.
+func (m appModel) statusBarModel() statusBar {
+	st := newStyles()
+	w := m.common.width
+	if m.pos < 0 {
+		return landingBar(w, st)
+	}
+	node := m.history[m.pos]
+	bar := statusBar{width: w, styles: st}
+	bar.host, bar.user = breadcrumbParts(node.entry.Target)
+	if m.pos >= 1 {
+		bar.escTarget = m.history[m.pos-1].entry.Target.Raw
+	}
+
+	if m.showingRaw {
+		bar.meta = formatBytes(len(node.entry.Body))
+		bar.hints = "esc back · ? help"
+		return bar
+	}
+
+	switch node.state {
+	case stateList:
+		bar.meta = fmt.Sprintf("%d users", node.listUsers)
+		bar.hints = "↵ open · / filter · esc back · ? help"
+		if node.listGeneric {
+			bar.flags = append(bar.flags, "auto-detected")
+			bar.hints = "↵ open · / filter · r raw · esc back · ? help"
+		}
+		// (Task 4 adds the partial-truncated / partial-error flags here.)
+	default: // stateReader
+		bar.meta = formatBytes(len(node.entry.Body))
+		bar.hints = "↑↓ scroll · esc back · ? help"
+	}
+	return bar
+}
+
 func (m appModel) View() tea.View {
 	var content string
 	switch m.state {
@@ -356,6 +402,8 @@ func (m appModel) View() tea.View {
 	default:
 		content = m.reader.View()
 	}
+	content += "\n" + m.statusBarModel().render()
+
 	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion

@@ -580,6 +580,31 @@ func TestAltLeftAtRootIsNoOp(t *testing.T) {
 	}
 }
 
+func TestViewIncludesBreadcrumbBar(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+
+	view := m.View().Content
+	if !strings.Contains(view, "@tilde.team") {
+		t.Fatalf("view missing breadcrumb host:\n%s", view)
+	}
+	if !strings.Contains(view, "? help") {
+		t.Fatalf("view missing help hint:\n%s", view)
+	}
+}
+
+func TestLandingViewShowsLandingBar(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	m.reader.setSize(80, 23)
+	if !strings.Contains(m.View().Content, "type a target") {
+		t.Fatalf("landing view missing landing hint:\n%s", m.View().Content)
+	}
+}
+
 func TestRestorePreservesListSelection(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")

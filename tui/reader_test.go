@@ -135,13 +135,22 @@ func TestReaderSetEntryError(t *testing.T) {
 	}
 }
 
+func TestReaderViewNoLongerRendersStatusLine(t *testing.T) {
+	m := newReader(stubFetch(t), colorprofile.NoTTY)
+	m.setSize(80, 20)
+	m.status = "loaded something"
+	if strings.Contains(m.View(), "loaded something") {
+		t.Fatalf("reader View should no longer render its status line:\n%s", m.View())
+	}
+}
+
 func TestReaderSetSize(t *testing.T) {
 	m := newReader(stubFetch(t), colorprofile.NoTTY)
 	m.setSize(100, 30)
 	if m.viewport.Width() != 100 {
 		t.Fatalf("viewport width = %d, want 100", m.viewport.Width())
 	}
-	if m.viewport.Height() != 26 {
-		t.Fatalf("viewport height = %d, want 26", m.viewport.Height())
+	if m.viewport.Height() != 28 {
+		t.Fatalf("viewport height = %d, want 28", m.viewport.Height())
 	}
 }

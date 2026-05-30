@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -16,6 +17,9 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/jonathandeamer/lookit/finger"
 )
+
+// setClipboard is a seam for testing: it defaults to tea.SetClipboard.
+var setClipboard = tea.SetClipboard
 
 // appState selects which sub-model is active.
 type appState int
@@ -256,6 +260,10 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fetchResultMsg:
 		return m.routeFetch(msg.entry), nil
 
+	case clearFlashMsg:
+		m.flash = ""
+		return m, nil
+
 	case spinner.TickMsg:
 		if m.loading {
 			var cmd tea.Cmd
@@ -336,6 +344,9 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			return true, m, nil
 		}
 		cmd := m.back()
+		return true, m, cmd
+	case key.Matches(msg, m.keys.Copy):
+		cmd := m.copyAddress()
 		return true, m, cmd
 	case key.Matches(msg, m.keys.Open) && m.state == stateList:
 		return m.drill()
@@ -429,6 +440,34 @@ func pinFingerPort(t finger.Target) finger.Target {
 	return t
 }
 
+// clearFlashMsg is sent after a flash timer fires to clear m.flash.
+type clearFlashMsg struct{}
+
+// clearFlashCmd returns a command that fires clearFlashMsg after 2 seconds.
+func (m *appModel) clearFlashCmd() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearFlashMsg{} })
+}
+
+// copyAddress copies the relevant address to the clipboard and flashes it.
+func (m *appModel) copyAddress() tea.Cmd {
+	var addr string
+	if m.state == stateList {
+		if sel, ok := m.list.selected(); ok {
+			addr = sel.target
+			if addr == "" {
+				addr = sel.login + "@" + strings.TrimPrefix(m.list.host.Raw, "@")
+			}
+		}
+	} else if m.pos >= 0 {
+		addr = m.history[m.pos].entry.Target.Raw
+	}
+	if addr == "" {
+		return nil
+	}
+	m.flash = "copied " + addr
+	return tea.Batch(setClipboard(addr), m.clearFlashCmd())
+}
+
 // statusBarModel assembles the bottom bar from the current node + history.
 func (m appModel) statusBarModel() statusBar {
 	st := newStyles()
@@ -439,7 +478,11 @@ func (m appModel) statusBarModel() statusBar {
 		return bar
 	}
 	if m.pos < 0 {
-		return landingBar(w, st)
+		bar := landingBar(w, st)
+		if m.flash != "" {
+			bar.hints = m.flash
+		}
+		return bar
 	}
 	node := m.history[m.pos]
 	bar := statusBar{width: w, styles: st}
@@ -454,6 +497,9 @@ func (m appModel) statusBarModel() statusBar {
 		bar.escTarget = ""
 		bar.meta = formatBytes(len(node.entry.Body))
 		bar.hints = "esc back · ? help"
+		if m.flash != "" {
+			bar.hints = m.flash
+		}
 		return bar
 	}
 
@@ -479,6 +525,9 @@ func (m appModel) statusBarModel() statusBar {
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
 			bar.scroll = fmt.Sprintf("%d%%", int(m.reader.viewport.ScrollPercent()*100))
 		}
+	}
+	if m.flash != "" {
+		bar.hints = m.flash
 	}
 	return bar
 }
@@ -521,6 +570,5 @@ func (m appModel) View() tea.View {
 
 	v := tea.NewView(full)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }

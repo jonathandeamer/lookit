@@ -933,3 +933,98 @@ func TestListBarShowsPageIndicatorWhenPaged(t *testing.T) {
 		t.Fatalf("expected page indicator in bar:\n%s", m.statusBarModel().render())
 	}
 }
+
+func TestViewSetsNoMouseMode(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if m.View().MouseMode != tea.MouseModeNone {
+		t.Fatalf("MouseMode = %v, want none (native copy preserved)", m.View().MouseMode)
+	}
+}
+
+func TestYCopiesAddressWithFlash(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel) // list of @tilde.team, content focused
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'y'})
+	m = step.(appModel)
+	if copied != "alrs@tilde.team" {
+		t.Fatalf("copied = %q, want alrs@tilde.team", copied)
+	}
+	if !strings.Contains(m.flash, "alrs@tilde.team") {
+		t.Fatalf("flash = %q, want it to mention the copied address", m.flash)
+	}
+}
+
+// TestLandingParseErrorFlashesInBar verifies that a parse error on Enter at the
+// landing (pos == -1) is visible in the status bar. This is Fix 2 from the
+// Task 6 review: before the fix, the landing early-return in statusBarModel
+// bypassed the flash override, so the error was silently dropped.
+func TestLandingParseErrorFlashesInBar(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width = 80
+	// An empty input (after TrimSpace) is rejected by finger.ParseTarget with
+	// "empty target" — the simplest guaranteed-invalid input.
+	m.input.SetValue("")
+	step, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+	if cmd != nil {
+		t.Fatal("submit on invalid input should return nil cmd (no fetch)")
+	}
+	if m.flash == "" {
+		t.Fatal("flash should be set after a parse error at the landing")
+	}
+	if m.pos != -1 {
+		t.Fatalf("pos = %d, want -1 (input stays focused at landing on error)", m.pos)
+	}
+	bar := m.statusBarModel().render()
+	if !strings.Contains(bar, "error") {
+		t.Fatalf("status bar = %q, want it to contain the flash error text", bar)
+	}
+}
+
+// TestReaderYCopiesAddressWithFlash verifies y-copy from the reader (content)
+// path: after a profile fetch the state is reader with pos>=0; pressing y
+// copies the target's Raw address and sets a flash message.
+func TestReaderYCopiesAddressWithFlash(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "alice@plan.cat")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Plan\n")}})
+	m = step.(appModel) // reader, content focused, pos==0
+
+	if m.state != stateReader {
+		t.Fatalf("state = %d, want stateReader", m.state)
+	}
+	if m.inputFocused {
+		t.Fatal("expected content focus after fetch")
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'y'})
+	m = step.(appModel)
+	if copied != target.Raw {
+		t.Fatalf("copied = %q, want %q", copied, target.Raw)
+	}
+	if !strings.Contains(m.flash, target.Raw) {
+		t.Fatalf("flash = %q, want it to mention %q", m.flash, target.Raw)
+	}
+}
+
+// TestClearFlashMsgClearsFlash verifies that receiving a clearFlashMsg zeroes
+// m.flash.
+func TestClearFlashMsgClearsFlash(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.flash = "copied alice@plan.cat"
+	step, _ := m.Update(clearFlashMsg{})
+	if got := step.(appModel).flash; got != "" {
+		t.Fatalf("flash = %q after clearFlashMsg, want empty", got)
+	}
+}

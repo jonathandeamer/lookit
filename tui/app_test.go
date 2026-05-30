@@ -273,6 +273,16 @@ func TestWindowSizePropagatesToBothSubModels(t *testing.T) {
 	}
 }
 
+func TestWindowSizeReservesBarRow(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+	// bodyHeight = 24 - 1 (bar) = 23; reader viewport = 23 - chromeRows(2) = 21.
+	if m.reader.viewport.Height() != 21 {
+		t.Fatalf("viewport height = %d, want 21 (one row reserved for the bar)", m.reader.viewport.Height())
+	}
+}
+
 // isQuit runs a command and reports whether it produced tea.QuitMsg.
 func isQuit(cmd tea.Cmd) bool {
 	if cmd == nil {
@@ -599,7 +609,6 @@ func TestViewIncludesBreadcrumbBar(t *testing.T) {
 func TestLandingViewShowsLandingBar(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 80, 24
-	m.reader.setSize(80, 23)
 	if !strings.Contains(m.View().Content, "type a target") {
 		t.Fatalf("landing view missing landing hint:\n%s", m.View().Content)
 	}

@@ -373,6 +373,9 @@ func (m appModel) statusBarModel() statusBar {
 	}
 
 	if m.showingRaw {
+		// Esc here returns to the list at the same history position (it does
+		// not pop history), so don't show a back-to-previous-target hint.
+		bar.escTarget = ""
 		bar.meta = formatBytes(len(node.entry.Body))
 		bar.hints = "esc back · ? help"
 		return bar

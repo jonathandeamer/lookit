@@ -338,61 +338,37 @@ func TestEscWhileFilteringDelegatesToList(t *testing.T) {
 	}
 }
 
-func TestTruncatedHostFetchMarksListIncomplete(t *testing.T) {
+func barFor(t *testing.T, entry Entry) string {
+	t.Helper()
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 100, 24
+	step, _ := m.Update(fetchResultMsg{entry: entry})
+	return step.(appModel).statusBarModel().render()
+}
+
+func TestTruncatedHostFetchMarksListIncomplete(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
-	entry := Entry{
-		Target: host,
-		Body:   []byte(hostListBody()),
-		Meta:   finger.Meta{Addr: host.HostPort, Truncated: true},
-	}
-
-	next, _ := m.Update(fetchResultMsg{entry: entry})
-	got := next.(appModel)
-
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList", got.state)
-	}
-	if !strings.Contains(got.list.list.Title, "(incomplete)") {
-		t.Fatalf("list title = %q, want it to contain (incomplete)", got.list.list.Title)
+	bar := barFor(t, Entry{Target: host, Body: []byte(hostListBody()),
+		Meta: finger.Meta{Addr: host.HostPort, Truncated: true}})
+	if !strings.Contains(bar, "partial (truncated)") {
+		t.Fatalf("bar = %q, want partial (truncated)", bar)
 	}
 }
 
 func TestErroredHostFetchWithBodyMarksListIncomplete(t *testing.T) {
-	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	entry := Entry{
-		Target: host,
-		Body:   []byte(hostListBody()),
-		Meta:   finger.Meta{Addr: host.HostPort},
-		Err:    errors.New("connection reset"),
-	}
-
-	next, _ := m.Update(fetchResultMsg{entry: entry})
-	got := next.(appModel)
-
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList (errored body that parses opens the list)", got.state)
-	}
-	if !strings.Contains(got.list.list.Title, "(incomplete)") {
-		t.Fatalf("list title = %q, want it to contain (incomplete)", got.list.list.Title)
+	bar := barFor(t, Entry{Target: host, Body: []byte(hostListBody()),
+		Meta: finger.Meta{Addr: host.HostPort}, Err: errors.New("connection reset")})
+	if !strings.Contains(bar, "partial (error)") {
+		t.Fatalf("bar = %q, want partial (error)", bar)
 	}
 }
 
 func TestCompleteHostFetchListNotMarkedIncomplete(t *testing.T) {
-	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	entry := Entry{
-		Target: host,
-		Body:   []byte(hostListBody()),
-		Meta:   finger.Meta{Addr: host.HostPort},
-	}
-
-	next, _ := m.Update(fetchResultMsg{entry: entry})
-	got := next.(appModel)
-
-	if strings.Contains(got.list.list.Title, "(incomplete)") {
-		t.Fatalf("list title = %q, should not contain (incomplete)", got.list.list.Title)
+	bar := barFor(t, Entry{Target: host, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: host.HostPort}})
+	if strings.Contains(bar, "partial") {
+		t.Fatalf("bar = %q, should not flag partial", bar)
 	}
 }
 
@@ -471,20 +447,15 @@ func genericListBody() string {
 
 func TestGenericHostFetchOpensFlaggedList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 100, 24
 	target := hostTarget(t, "@unknown.host")
-	entry := Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}
-
-	next, _ := m.Update(fetchResultMsg{entry: entry})
-	got := next.(appModel)
-
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList", got.state)
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
+	got := step.(appModel)
+	if got.state != stateList || !got.list.generic {
+		t.Fatalf("state=%d generic=%v, want list/true", got.state, got.list.generic)
 	}
-	if !got.list.generic {
-		t.Fatal("list.generic = false, want true")
-	}
-	if !strings.Contains(got.list.list.Title, "(best guess)") {
-		t.Fatalf("title = %q, want (best guess)", got.list.list.Title)
+	if !strings.Contains(got.statusBarModel().render(), "auto-detected") {
+		t.Fatalf("bar missing auto-detected flag")
 	}
 }
 

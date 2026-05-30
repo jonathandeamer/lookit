@@ -389,7 +389,11 @@ func (m appModel) statusBarModel() statusBar {
 			bar.flags = append(bar.flags, "auto-detected")
 			bar.hints = "↵ open · / filter · r raw · esc back · ? help"
 		}
-		// (Task 4 adds the partial-truncated / partial-error flags here.)
+		if node.entry.Err != nil {
+			bar.flags = append(bar.flags, "partial (error)")
+		} else if node.entry.Meta.Truncated {
+			bar.flags = append(bar.flags, "partial (truncated)")
+		}
 	default: // stateReader
 		bar.meta = formatBytes(len(node.entry.Body))
 		bar.hints = "↑↓ scroll · esc back · ? help"

@@ -84,23 +84,13 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, incomplete, generic bool) listModel {
 	m := newList(common, host, users)
 	m.generic = generic
-	if generic {
-		// Heuristic list: tell the user this was a best-effort parse, not a
-		// recognized format. Composes with the "(incomplete)" flag below.
-		m.list.Title += " (best guess)"
-	}
-	if incomplete {
-		// The response errored or was truncated; flag it so a partial list is
-		// not presented as if it were complete.
-		m.list.Title += " (incomplete)"
-	}
 	if parsed, ok := parseUserList(body); ok {
 		m.preamble = parsed.preamble
 	} else {
 		m.preamble = extractListPreamble(body)
 	}
 	if generic {
-		note := "Auto-detected from an unrecognized response — press r to view the raw text."
+		note := "Auto-detected user list from an unrecognized response — press r to view raw."
 		if m.preamble != "" {
 			m.preamble = note + "\n\n" + m.preamble
 		} else {

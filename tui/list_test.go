@@ -69,12 +69,14 @@ func TestListNotFilteringByDefault(t *testing.T) {
 	}
 }
 
-func TestGenericListTitleFlaggedBestGuess(t *testing.T) {
+func TestGenericListFlaggedGeneric(t *testing.T) {
 	users := []User{{Login: "betsy"}, {Login: "oleander"}}
 	body := []byte("betsy\noleander\n")
 	m := newListWithPreamble(testCommon(), hostTarget(t, "@unknown.host"), users, body, false, true)
-	if !strings.Contains(m.list.Title, "(best guess)") {
-		t.Fatalf("title = %q, want it to contain (best guess)", m.list.Title)
+	// Flags are now in the status bar, not appended to the list Title.
+	wantTitle := "@unknown.host — 2 users"
+	if m.list.Title != wantTitle {
+		t.Fatalf("title = %q, want plain %q (flags moved to status bar)", m.list.Title, wantTitle)
 	}
 	if !m.generic {
 		t.Fatal("listModel.generic = false, want true")
@@ -94,8 +96,10 @@ func TestRecognizedListNotFlagged(t *testing.T) {
 	users := []User{{Login: "alrs"}, {Login: "dtracker"}}
 	body := []byte(hostListBody())
 	m := newListWithPreamble(testCommon(), hostTarget(t, "@tilde.team"), users, body, false, false)
-	if strings.Contains(m.list.Title, "(best guess)") {
-		t.Fatalf("title = %q, want no (best guess) for a recognized list", m.list.Title)
+	// Title is a plain "host — N users" string; no flag suffixes (flags are in the bar).
+	wantTitle := "@tilde.team — 2 users"
+	if m.list.Title != wantTitle {
+		t.Fatalf("title = %q, want plain %q", m.list.Title, wantTitle)
 	}
 	if m.generic {
 		t.Fatal("listModel.generic = true, want false for a recognized list")

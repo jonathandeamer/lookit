@@ -33,11 +33,36 @@ reach smallnet's `b`/`f`, which are anyway taken by paging).
   hardcode dark-mode hex; glow uses `lipgloss.AdaptiveColor{Light,Dark}`
   throughout. This is orthogonal theming work that also touches `render/` (the
   shared CLI path, deliberately v1 lipgloss) — its own follow-up spec.
+  Concrete carry-overs surfaced during the idiomatic-navigation work, for that
+  spec to resolve:
+  - **Selected list-row legibility.** The default delegate's selected
+    `Title`/`Description` and the selected left border are hardcoded mint
+    (`#8affc1`, ~1.22:1 on white) and blue (`#8fb7ff`, ~2.02:1) — effectively
+    invisible on a light macOS terminal. (`NormalTitle` was already made
+    adaptive via `compat.AdaptiveColor` in `tui/list.go`; the selected styles
+    and `NormalDesc`/`SelectedDesc` still need light values.) Note v2 removed
+    `lipgloss.AdaptiveColor`; the shim is `charm.land/lipgloss/v2/compat`
+    (`compat.AdaptiveColor{Light,Dark}`), which resolves against
+    `compat.HasDarkBackground` (seeded once at import — fine for a one-shot
+    background query, but it never listens for `tea.BackgroundColorMsg`).
+  - **Spinner colour.** The loading spinner now uses the `MiniDot` glyph but is
+    still un-themed (no foreground); give it an adaptive foreground here for
+    palette consistency rather than hardcoding.
 - **A `--mouse` opt-in flag / runtime mouse toggle.** This spec only *removes*
   the current always-on capture. Re-introducing mouse as glow does (behind a
   flag) is a separate, optional follow-up.
 - **Navigable links inside profile bodies.** Still the previously-planned
   follow-up; unaffected here.
+- **Minor UI polish (non-theming), surfaced in review, deferred:**
+  - **Flash feedback edge cases.** The copy/error flash isn't shown in the raw
+    body view (`showingRaw` returns its bar before the flash override), and a
+    second `y`/error within the 2 s window lets the first clear-timer wipe the
+    flash early (a brief flicker). A flash-generation token would fix the
+    latter; both are cosmetic.
+  - **List density.** The default delegate renders two lines + spacing per user
+    (~7 users/page on a 24-row terminal vs ~21 before). Intended trade-off, but
+    worth eyeballing in a real terminal — a compact custom delegate is an option
+    if it reads as too sparse for dense host user-lists.
 - No change to `finger/`, `render/`, `ParseUsers`, the history-stack mechanics,
   the drill + port-79 pinning, or the honesty flags.
 

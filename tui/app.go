@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"time"
@@ -103,7 +104,7 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		inputFocused: true,
 		keys:         newKeyMap(),
 		helpModel:    help.New(),
-		spin:         spinner.New(),
+		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		pos:          -1,
 	}
 }
@@ -524,7 +525,7 @@ func (m appModel) statusBarModel() statusBar {
 		bar.meta = formatBytes(len(node.entry.Body))
 		bar.hints = "↑↓ scroll · esc back · ? help"
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
-			bar.scroll = fmt.Sprintf("%d%%", int(m.reader.viewport.ScrollPercent()*100))
+			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))
 		}
 	}
 	if m.flash != "" {

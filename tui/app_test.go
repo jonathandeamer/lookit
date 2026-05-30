@@ -637,6 +637,15 @@ func TestQuestionMarkWhileFilteringDoesNotOpenHelp(t *testing.T) {
 	}
 }
 
+func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	// pos == -1, stateReader (landing state).
+	step, _ := m.Update(tea.KeyPressMsg{Code: '?'})
+	if !step.(appModel).help {
+		t.Fatal("'?' should open help from reader state")
+	}
+}
+
 func TestRestorePreservesListSelection(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")

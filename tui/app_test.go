@@ -11,6 +11,15 @@ import (
 	"github.com/jonathandeamer/lookit/finger"
 )
 
+// stubFetch returns a FetchFunc that fails the test if called.
+func stubFetch(t *testing.T) FetchFunc {
+	t.Helper()
+	return func(_ context.Context, _ finger.Target) ([]byte, finger.Meta, error) {
+		t.Fatalf("fetch should not be called")
+		return nil, finger.Meta{}, nil
+	}
+}
+
 // fetchOnce returns a fetch func yielding fixed bytes and records the targets.
 func fetchRecorder(body string) (FetchFunc, *[]string) {
 	var seen []string
@@ -142,6 +151,7 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	users, _ := ParseUsers([]byte(hostListBody()))
 	m.list = newList(m.common, host, users)
 	m.state = stateList
+	m.inputFocused = false // Enter must reach the list, not the input
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
@@ -173,6 +183,7 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 	}
 	m.list = newListWithPreamble(m.common, host, users, body, false)
 	m.state = stateList
+	m.inputFocused = false // Enter must reach the list, not the input
 
 	view := m.View().Content
 	if !strings.Contains(view, "This is the finger ring!") {
@@ -206,6 +217,7 @@ func TestEscInDrilledReaderRestoresList(t *testing.T) {
 	}
 	m.pos = 1
 	m.state = stateReader
+	m.inputFocused = false // Esc must reach content, not the input
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	got := next.(appModel)
@@ -221,6 +233,7 @@ func TestEscInListReturnsToReaderHome(t *testing.T) {
 	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
 	m.pos = 0
 	m.state = stateList
+	m.inputFocused = false // Esc must reach the list, not the input
 	users, _ := ParseUsers([]byte(hostListBody()))
 	m.list = newList(m.common, host, users)
 
@@ -277,9 +290,9 @@ func TestWindowSizeReservesBarRow(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = step.(appModel)
-	// bodyHeight = 24 - 1 (bar) = 23; reader viewport = 23 - chromeRows(2) = 21.
-	if m.reader.viewport.Height() != 21 {
-		t.Fatalf("viewport height = %d, want 21 (one row reserved for the bar)", m.reader.viewport.Height())
+	// bodyHeight = 24 - 2 (input row + bar row) = 22; reader viewport = 22 - chromeRows(0) = 22.
+	if m.reader.viewport.Height() != 22 {
+		t.Fatalf("viewport height = %d, want 22 (two rows reserved: input + bar)", m.reader.viewport.Height())
 	}
 }
 
@@ -321,6 +334,7 @@ func TestEscWhileFilteringDelegatesToList(t *testing.T) {
 	m.listReady = true
 	m.list = newList(m.common, host, users)
 	m.state = stateList
+	m.inputFocused = false // keys must reach the list, not the input
 
 	// Enter filtering mode (the list's default filter key is "/").
 	next, _ := m.Update(tea.KeyPressMsg{Code: '/'})
@@ -388,6 +402,7 @@ func drillFirstUser(t *testing.T, host finger.Target, users []User, fetch FetchF
 	m.listReady = true
 	m.list = newList(m.common, host, users)
 	m.state = stateList
+	m.inputFocused = false // Enter must reach the list, not the input
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
 	if got.state != stateReader {
@@ -512,7 +527,8 @@ func TestRInertOnRecognizedList(t *testing.T) {
 	}
 }
 
-func TestForwardBackDoNotRefetch(t *testing.T) {
+func TestEscBackDoesNotRefetch(t *testing.T) {
+	// Esc navigates back through history without re-fetching.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
 	userT := hostTarget(t, "bob@tilde.team")
@@ -526,20 +542,17 @@ func TestForwardBackDoNotRefetch(t *testing.T) {
 		t.Fatalf("history=%d pos=%d state=%d, want 2/1/reader", len(m.history), m.pos, m.state)
 	}
 
-	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	// Esc backs to the list (no re-fetch; stubFetch would panic if called).
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = step.(appModel)
 	if m.pos != 0 || m.state != stateList {
-		t.Fatalf("after back: pos=%d state=%d, want 0/list", m.pos, m.state)
-	}
-
-	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt})
-	m = step.(appModel)
-	if m.pos != 1 || m.state != stateReader {
-		t.Fatalf("after forward: pos=%d state=%d, want 1/reader", m.pos, m.state)
+		t.Fatalf("after Esc back: pos=%d state=%d, want 0/list", m.pos, m.state)
 	}
 }
 
 func TestNewNavigationTruncatesForwardTail(t *testing.T) {
+	// After fetching a, b; Esc-backing to a; then fetching c, the forward tail
+	// (b) must be truncated: history = [a, c], pos = 1.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	a := hostTarget(t, "@a.example")
 	b := hostTarget(t, "@b.example")
@@ -549,8 +562,12 @@ func TestNewNavigationTruncatesForwardTail(t *testing.T) {
 		step, _ := m.Update(fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
 		m = step.(appModel)
 	}
-	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	// Esc back to a (pos=0).
+	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = step.(appModel)
+	// Now fetch c — this must truncate the forward tail (b).
+	fetch, _ := fetchRecorder(hostListBody())
+	m.common.fetch = fetch
 	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: c, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
@@ -563,6 +580,7 @@ func TestNewNavigationTruncatesForwardTail(t *testing.T) {
 }
 
 func TestAltLeftAtRootIsNoOp(t *testing.T) {
+	// Alt+← is now inert (navigation moved to Esc); must not quit or change pos.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	step, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
 	if cmd != nil && isQuit(cmd) {
@@ -609,7 +627,7 @@ func TestQuestionMarkTogglesHelpOverlay(t *testing.T) {
 	if !m.help {
 		t.Fatal("help should be open after '?'")
 	}
-	if !strings.Contains(m.View().Content, "Alt+←") {
+	if !strings.Contains(m.View().Content, "move") {
 		t.Fatalf("help overlay missing keymap:\n%s", m.View().Content)
 	}
 
@@ -628,6 +646,7 @@ func TestQuestionMarkWhileFilteringDoesNotOpenHelp(t *testing.T) {
 	m.listReady = true
 	m.list = newList(m.common, host, users)
 	m.state = stateList
+	m.inputFocused = false // keys must reach the list, not the input
 
 	step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
 	m = step.(appModel)
@@ -639,14 +658,19 @@ func TestQuestionMarkWhileFilteringDoesNotOpenHelp(t *testing.T) {
 
 func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	// pos == -1, stateReader (landing state).
-	step, _ := m.Update(tea.KeyPressMsg{Code: '?'})
+	// Drive a fetch so we reach a content-focused reader state.
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")}})
+	m = step.(appModel)
+	// Now inputFocused==false; '?' should open help.
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	if !step.(appModel).help {
-		t.Fatal("'?' should open help from reader state")
+		t.Fatal("'?' should open help from content-focused reader state")
 	}
 }
 
-func TestAltLeftFromRawViewClearsRawState(t *testing.T) {
+func TestEscFromRawViewClearsRawState(t *testing.T) {
+	// Esc from raw view returns to the list (clears showingRaw, does not pop history).
+	// A second Esc backs to landing (pops the history node).
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@unknown.host")
 	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
@@ -658,20 +682,30 @@ func TestAltLeftFromRawViewClearsRawState(t *testing.T) {
 		t.Fatal("precondition: r should enter raw view on a generic list")
 	}
 
-	// Alt+← must exit raw view (not leave it stuck) and go back to landing.
-	back, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	// Esc must exit raw view, returning to the list at the same history position.
+	back, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = back.(appModel)
 	if m.showingRaw {
-		t.Fatal("Alt+← must clear showingRaw")
+		t.Fatal("Esc must clear showingRaw")
 	}
-	if m.pos != -1 {
-		t.Fatalf("pos = %d, want -1 (landing) after backing out of the only node", m.pos)
+	if m.state != stateList {
+		t.Fatalf("state = %d, want stateList after Esc from raw view", m.state)
+	}
+	if m.pos != 0 {
+		t.Fatalf("pos = %d, want 0 (still at the list node, Esc from raw view does not pop)", m.pos)
 	}
 
-	// With raw state cleared, Esc at the landing must quit (not be swallowed).
+	// Second Esc backs to landing.
+	back2, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = back2.(appModel)
+	if m.pos != -1 {
+		t.Fatalf("pos = %d, want -1 (landing) after second Esc", m.pos)
+	}
+
+	// At the landing (input focused), Esc quits.
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if cmd == nil || !isQuit(cmd) {
-		t.Fatal("Esc at landing should quit after raw view was cleared by Alt+←")
+		t.Fatal("Esc at landing should quit")
 	}
 }
 
@@ -689,5 +723,119 @@ func TestRestorePreservesListSelection(t *testing.T) {
 	m = step.(appModel)
 	if m.list.list.Index() != wantIdx {
 		t.Fatalf("restored list index = %d, want %d", m.list.list.Index(), wantIdx)
+	}
+}
+
+func TestLandingFocusesInput(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if !m.inputFocused {
+		t.Fatal("landing should focus the input")
+	}
+}
+
+func TestIFocusesInputFromContent(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	if m.inputFocused {
+		t.Fatal("after a fetch, content should have focus")
+	}
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'i'})
+	m = step.(appModel)
+	if !m.inputFocused {
+		t.Fatal("'i' should focus the input")
+	}
+}
+
+func TestTypingReachesInputOnlyWhenFocused(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY) // landing: input focused
+	// textinput inserts from msg.Text, not msg.Code; both must be set for printable keys.
+	step, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	step, _ = step.(appModel).Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	m = step.(appModel)
+	if m.input.Value() != "bo" {
+		t.Fatalf("input value = %q, want \"bo\"", m.input.Value())
+	}
+}
+
+func TestSubmitFetchesParsedTargetAndBlurs(t *testing.T) {
+	fetch, seen := fetchRecorder("Plan: hi\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.input.SetValue("alice@plan.cat")
+	step, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+	if m.inputFocused {
+		t.Fatal("submit should blur the input to content")
+	}
+	if cmd == nil {
+		t.Fatal("submit should return a fetch command")
+	}
+	cmd()
+	if len(*seen) != 1 || (*seen)[0] != "alice@plan.cat" {
+		t.Fatalf("fetched %v, want [alice@plan.cat]", *seen)
+	}
+}
+
+func TestQQuitsFromContent(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q'})
+	if cmd == nil || !isQuit(cmd) {
+		t.Fatal("'q' should quit from content")
+	}
+}
+
+func TestQIsLiteralWhenInputFocused(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY) // input focused
+	// textinput inserts from msg.Text, not msg.Code; both must be set for printable keys.
+	step, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	m = step.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("'q' must be literal while the input is focused")
+	}
+	if m.input.Value() != "q" {
+		t.Fatalf("input value = %q, want \"q\"", m.input.Value())
+	}
+}
+
+func TestEscFromInputBlursToContentThenQuitsAtLanding(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY) // landing, input focused, pos -1
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if cmd == nil || !isQuit(cmd) {
+		t.Fatal("Esc from the bare landing input should quit")
+	}
+
+	// With content present, Esc from the input blurs (does not quit).
+	m2 := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m2.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m2 = step.(appModel)
+	step, _ = m2.Update(tea.KeyPressMsg{Code: 'i'}) // focus input
+	m2 = step.(appModel)
+	step, cmd2 := m2.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m2 = step.(appModel)
+	if cmd2 != nil && isQuit(cmd2) {
+		t.Fatal("Esc from input with content present must not quit")
+	}
+	if m2.inputFocused {
+		t.Fatal("Esc from input should blur to content")
+	}
+}
+
+func TestAltArrowsNoLongerNavigate(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	a := hostTarget(t, "@a.example")
+	b := hostTarget(t, "@b.example")
+	for _, tg := range []finger.Target{a, b} {
+		step, _ := m.Update(fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
+		m = step.(appModel)
+	}
+	// Alt+Left used to go back; now it's inert (content key, delegated, no-op for the list).
+	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	if step.(appModel).pos != 1 {
+		t.Fatalf("pos = %d, want 1 (Alt+Left must not navigate)", step.(appModel).pos)
 	}
 }

@@ -215,6 +215,7 @@ func (m *appModel) submit() tea.Cmd {
 		m.flash = "error: " + err.Error()
 		return nil
 	}
+	m.flash = "" // clear any stale parse-error flash from a prior failed submit
 	m.blurInput()
 	m.loading = true
 	m.loadingTarget = target

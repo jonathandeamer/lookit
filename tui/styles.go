@@ -3,9 +3,6 @@ package tui
 import "charm.land/lipgloss/v2"
 
 type styles struct {
-	status lipgloss.Style
-	error  lipgloss.Style
-
 	// bottom status bar
 	barFill lipgloss.Style // full-width background
 	barHost lipgloss.Style // "@host" (dim)
@@ -20,9 +17,6 @@ func newStyles() styles {
 	barBg := lipgloss.Color("#242424")
 	seg := lipgloss.NewStyle().Background(barBg)
 	return styles{
-		status: lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")),
-		error:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b6b")),
-
 		barFill: seg,
 		barHost: seg.Foreground(lipgloss.Color("#9a9a9a")),
 		barSep:  seg.Foreground(lipgloss.Color("#6a6a6a")),

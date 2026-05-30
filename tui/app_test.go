@@ -990,6 +990,55 @@ func TestLandingParseErrorFlashesInBar(t *testing.T) {
 	}
 }
 
+// TestSuccessfulSubmitClearsStaleErrorFlash is a regression test for the bug
+// where a parse-error flash set by a failed submit would persist and bleed over
+// the status bar after a subsequent successful submit.
+func TestSuccessfulSubmitClearsStaleErrorFlash(t *testing.T) {
+	fetch, _ := fetchRecorder("Plan: hi\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.common.width = 80
+
+	// Step 1: submit an invalid input so a parse-error flash is set.
+	m.input.SetValue("")
+	step, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+	if cmd != nil {
+		t.Fatal("invalid submit should return nil cmd")
+	}
+	wantErr := m.flash
+	if wantErr == "" {
+		t.Fatal("precondition: flash should be set after invalid submit")
+	}
+	bar := m.statusBarModel().render()
+	if !strings.Contains(bar, "error") {
+		t.Fatalf("precondition: status bar %q should contain error text", bar)
+	}
+
+	// Step 2: submit a valid input — flash must be cleared before the fetch lands.
+	m.input.SetValue("alice@plan.cat")
+	step, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+	if cmd == nil {
+		t.Fatal("valid submit should return a fetch command")
+	}
+	if m.flash != "" {
+		t.Fatalf("flash = %q after valid submit, want empty (stale error must be cleared)", m.flash)
+	}
+
+	// Step 3: deliver the fetch result and confirm the bar shows no error text.
+	target := hostTarget(t, "alice@plan.cat")
+	result := fetchResultMsg{entry: Entry{Target: target, Body: []byte("Plan: hi\n"), Meta: finger.Meta{Addr: target.HostPort}}}
+	step, _ = m.Update(result)
+	m = step.(appModel)
+	bar = m.statusBarModel().render()
+	if strings.Contains(bar, wantErr) {
+		t.Fatalf("status bar %q still contains stale error %q after successful fetch", bar, wantErr)
+	}
+	if strings.Contains(bar, "error:") {
+		t.Fatalf("status bar %q must not show error text after a successful fetch", bar)
+	}
+}
+
 // TestReaderYCopiesAddressWithFlash verifies y-copy from the reader (content)
 // path: after a profile fetch the state is reader with pos>=0; pressing y
 // copies the target's Raw address and sets a flash message.

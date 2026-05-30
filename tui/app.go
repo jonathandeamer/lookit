@@ -135,6 +135,7 @@ func (m *appModel) gotoLanding() {
 
 // stepBack moves one step toward history root, or to the landing from pos 0.
 func (m *appModel) stepBack() {
+	m.showingRaw = false
 	if m.pos < 0 {
 		return
 	}
@@ -149,7 +150,6 @@ func (m *appModel) stepBack() {
 
 // back is Esc semantics: step back, or quit when already at the landing.
 func (m *appModel) back() tea.Cmd {
-	m.showingRaw = false
 	if m.pos < 0 {
 		return tea.Quit
 	}
@@ -159,6 +159,7 @@ func (m *appModel) back() tea.Cmd {
 
 // forward re-applies a previously-popped node.
 func (m *appModel) forward() {
+	m.showingRaw = false
 	if m.pos >= len(m.history)-1 {
 		return
 	}

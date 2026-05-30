@@ -646,6 +646,35 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	}
 }
 
+func TestAltLeftFromRawViewClearsRawState(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "@unknown.host")
+	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
+	m = opened.(appModel)
+
+	raw, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	m = raw.(appModel)
+	if !m.showingRaw {
+		t.Fatal("precondition: r should enter raw view on a generic list")
+	}
+
+	// Alt+← must exit raw view (not leave it stuck) and go back to landing.
+	back, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModAlt})
+	m = back.(appModel)
+	if m.showingRaw {
+		t.Fatal("Alt+← must clear showingRaw")
+	}
+	if m.pos != -1 {
+		t.Fatalf("pos = %d, want -1 (landing) after backing out of the only node", m.pos)
+	}
+
+	// With raw state cleared, Esc at the landing must quit (not be swallowed).
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if cmd == nil || !isQuit(cmd) {
+		t.Fatal("Esc at landing should quit after raw view was cleared by Alt+←")
+	}
+}
+
 func TestRestorePreservesListSelection(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")

@@ -19,6 +19,8 @@ type statusBar struct {
 	user      string   // "jonathan" ("" for a host directory)
 	escTarget string   // previous history node's target.Raw ("" at the root)
 	flags     []string // honesty flags, e.g. {"auto-detected"}, {"partial (truncated)"}
+	page      string   // "page 2/4" when list has multiple pages; "" otherwise
+	scroll    string   // "42%" when reader is scrollable; "" otherwise
 	meta      string   // "1.2 KB", "3 users", …
 	hints     string   // contextual keys, e.g. "↵ open · / filter · ? help"
 	width     int
@@ -36,10 +38,16 @@ func (b statusBar) render() string {
 	}
 	st := b.styles
 
-	// Right group: "◂ esc: X · meta · hints", dim, truncated whole if needed.
+	// Right group: "◂ esc: X · page N/M · 42% · meta · hints", dim, truncated whole if needed.
 	var right []string
 	if b.escTarget != "" {
 		right = append(right, "◂ esc: "+b.escTarget)
+	}
+	if b.page != "" {
+		right = append(right, b.page)
+	}
+	if b.scroll != "" {
+		right = append(right, b.scroll)
 	}
 	if b.meta != "" {
 		right = append(right, b.meta)

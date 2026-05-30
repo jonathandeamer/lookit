@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -902,5 +903,33 @@ func TestHelpExpandsAtBottomNotFullScreen(t *testing.T) {
 	// Not a full-screen takeover: a list user is still visible alongside help.
 	if !strings.Contains(view, "alrs") {
 		t.Fatalf("help should not blank the content:\n%s", view)
+	}
+}
+
+func TestListBarShowsPageIndicatorWhenPaged(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 40, 8 // small height forces multiple pages
+
+	// Build a columnar body large enough to require multiple pages.
+	// parseColumnar recognises a "Login" header followed by one login per line.
+	body := "Login\n"
+	for i := range 40 {
+		body += fmt.Sprintf("u%02d\n", i)
+	}
+
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
+	m = step.(appModel)
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "@big.host"), Body: []byte(body)}})
+	m = step.(appModel)
+
+	if m.state != stateList {
+		t.Fatalf("state = %d, want stateList", m.state)
+	}
+	tp := m.list.list.Paginator.TotalPages
+	if tp <= 1 {
+		t.Fatalf("TotalPages = %d, want > 1 (test requires multiple pages to be meaningful)", tp)
+	}
+	if !strings.Contains(m.statusBarModel().render(), "page 1/") {
+		t.Fatalf("expected page indicator in bar:\n%s", m.statusBarModel().render())
 	}
 }

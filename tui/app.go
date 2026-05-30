@@ -470,9 +470,15 @@ func (m appModel) statusBarModel() statusBar {
 		} else if node.entry.Meta.Truncated {
 			bar.flags = append(bar.flags, "partial (truncated)")
 		}
+		if tp := m.list.list.Paginator.TotalPages; tp > 1 {
+			bar.page = fmt.Sprintf("page %d/%d", m.list.list.Paginator.Page+1, tp)
+		}
 	default: // stateReader
 		bar.meta = formatBytes(len(node.entry.Body))
 		bar.hints = "↑↓ scroll · esc back · ? help"
+		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
+			bar.scroll = fmt.Sprintf("%d%%", int(m.reader.viewport.ScrollPercent()*100))
+		}
 	}
 	return bar
 }

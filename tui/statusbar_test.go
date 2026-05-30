@@ -55,6 +55,19 @@ func TestStatusBarTruncatesBreadcrumbFirst(t *testing.T) {
 	}
 }
 
+func TestStatusBarShowsScrollAndPage(t *testing.T) {
+	b := statusBar{host: "@tilde.team", user: "bob", scroll: "42%",
+		hints: "? help", width: 80, styles: newStyles()}
+	if !strings.Contains(b.render(), "42%") {
+		t.Fatalf("bar missing scroll %%: %q", b.render())
+	}
+	b2 := statusBar{host: "@sdf.org", page: "page 2/4", meta: "42 users",
+		hints: "? help", width: 80, styles: newStyles()}
+	if !strings.Contains(b2.render(), "page 2/4") {
+		t.Fatalf("bar missing page indicator: %q", b2.render())
+	}
+}
+
 func TestStatusBarZeroWidthIsEmpty(t *testing.T) {
 	if out := (statusBar{width: 0, styles: newStyles()}).render(); out != "" {
 		t.Fatalf("zero-width bar = %q, want empty", out)

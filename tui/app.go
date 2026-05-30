@@ -93,13 +93,14 @@ func (m *appModel) snapshot() {
 
 // restore rebuilds the active sub-model from a node (no network).
 func (m *appModel) restore(n histNode) {
-	m.state = n.state
 	if n.state == stateReader {
+		m.state = stateReader
 		m.reader.setEntry(n.entry)
 		m.reader.viewport.SetYOffset(n.scrollY)
 		return
 	}
 	if parsed, ok := parseUserList(n.entry.Body); ok {
+		m.state = stateList
 		incomplete := n.entry.Err != nil || n.entry.Meta.Truncated
 		m.list = newListWithPreamble(m.common, n.entry.Target, parsed.users, n.entry.Body, incomplete, parsed.generic)
 		m.listReady = true
@@ -107,7 +108,13 @@ func (m *appModel) restore(n histNode) {
 		if n.listFltr != "" {
 			m.list.list.SetFilterText(n.listFltr)
 		}
+		return
 	}
+	// Defensive: a previously-listed body no longer parses; show it in the
+	// reader rather than leaving a stale list on screen. Unreachable in
+	// practice (parseUserList is deterministic on the same bytes).
+	m.state = stateReader
+	m.reader.setEntry(n.entry)
 }
 
 // gotoLanding returns the reader to its empty pre-fetch state.
@@ -219,6 +226,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		}
 		switch {
 		case key.Code == tea.KeyEsc:
+			// Let the list clear an active or applied filter before backing out.
 			if m.list.list.FilterState() != list.Unfiltered {
 				return false, m, nil
 			}

@@ -60,9 +60,8 @@ type appModel struct {
 	history    []histNode
 	pos        int  // -1 == landing (nothing fetched yet)
 	showingRaw bool // r-toggled raw view of the current generic list node
-	//nolint:unused
-	help      bool // help overlay open (wired in Task 5)
-	listReady bool
+	help       bool // help overlay open
+	listReady  bool
 }
 
 func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
@@ -226,6 +225,16 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	// Ctrl+C always quits.
 	if key.Code == 'c' && key.Mod == tea.ModCtrl {
 		return true, m, tea.Quit
+	}
+
+	// Help overlay: any key closes it; '?' opens it (except while filtering).
+	if m.help {
+		m.help = false
+		return true, m, nil
+	}
+	if key.Code == '?' && (m.state != stateList || !m.list.filtering()) {
+		m.help = true
+		return true, m, nil
 	}
 
 	switch m.state {
@@ -399,10 +408,29 @@ func (m appModel) statusBarModel() statusBar {
 	return bar
 }
 
+func (m appModel) helpView() string {
+	st := newStyles()
+	lines := []string{
+		st.title.Render("lookit — keys"),
+		"",
+		"  Enter        open / fetch the highlighted target",
+		"  Esc          back (quit at the top)",
+		"  Alt+←        back        Alt+→   forward",
+		"  ↑ ↓          scroll / move selection",
+		"  /            filter a list      r   raw view (auto-detected lists)",
+		"  ?            toggle this help    Ctrl+C   quit",
+		"",
+		st.hint.Render("press any key to close"),
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m appModel) View() tea.View {
 	var content string
-	switch m.state {
-	case stateList:
+	switch {
+	case m.help:
+		content = m.helpView()
+	case m.state == stateList:
 		content = m.list.View()
 	default:
 		content = m.reader.View()

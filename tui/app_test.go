@@ -597,6 +597,46 @@ func TestLandingViewShowsLandingBar(t *testing.T) {
 	}
 }
 
+func TestQuestionMarkTogglesHelpOverlay(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+	if !m.help {
+		t.Fatal("help should be open after '?'")
+	}
+	if !strings.Contains(m.View().Content, "Alt+←") {
+		t.Fatalf("help overlay missing keymap:\n%s", m.View().Content)
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if step.(appModel).help {
+		t.Fatal("any key should close the help overlay")
+	}
+}
+
+func TestQuestionMarkWhileFilteringDoesNotOpenHelp(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	users, _ := ParseUsers([]byte(hostListBody()))
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos = 0
+	m.listReady = true
+	m.list = newList(m.common, host, users)
+	m.state = stateList
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	if step.(appModel).help {
+		t.Fatal("'?' must be a literal filter character while filtering, not open help")
+	}
+}
+
 func TestRestorePreservesListSelection(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")

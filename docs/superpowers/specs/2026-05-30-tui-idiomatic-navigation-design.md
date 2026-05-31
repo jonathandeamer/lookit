@@ -182,36 +182,52 @@ app-level keys defer to the list.
 
 The keyMap is the **single source of truth** for which keys are live in the
 current state, following Charm's own pattern: `pop`'s `updateKeymap()`
-(`~/pop/keymap.go`) flips `key.Binding.SetEnabled(...)` per app state so that
-`bubbles/help` automatically shows only the keys you can actually press, and
-`key.Matches` against a disabled binding is a no-op. lookit adopts the same
-mechanism instead of hand-maintaining a parallel focus-aware hint string:
+(`~/pop/keymap.go`) flips `key.Binding.SetEnabled(...)` per app state. In lookit
+this has **two** effects, both flowing from `bubbles`' behaviour:
 
-- An `updateKeymap()` (called whenever `state`/`inputFocused`/`showingRaw`
-  change) enables/disables bindings: `Copy`/`FocusInput`/`Back`/`Raw` are
-  enabled only when **content-focused**; `Raw` only when the current entry is an
-  auto-detected list; `Back` only when `pos >= 0`. When the input is focused the
-  content app-keys are disabled (so they fall through to `textinput` as literal
-  characters, matching the "filter is being typed" guard).
-- The **expanded `help` panel** and the **content-focused short hints** (status
-  bar) both render from the enabled bindings (`keyMap.FullHelp()` /
-  `ShortHelp()`), so those two surfaces can't drift. `bubbles/help` already skips
-  disabled bindings, so the panel needs no extra filtering once `updateKeymap()`
-  runs; the content short-hint string is built by joining the *enabled*
-  `ShortHelp()` bindings instead of a hand-maintained focus-aware string.
-- Two bar states stay outside the keyMap by necessity and keep their own concise
-  strings: the **input-focused** hint (`↵ fetch · esc cancel`, or `esc quit` at
-  the bare landing) describes `textinput`-context actions that are *not*
-  app-key bindings, and the **loading**/**flash** hints are transient overrides
-  (owned by the spinner and `y`-copy paths). Enablement still applies — while the
-  input is focused the content app-keys are disabled, which is what lets those
-  keys fall through to `textinput` as literal characters.
+1. **The expanded `?` help panel** renders only the live keys. `bubbles/help`
+   skips disabled bindings (`help.go` checks `b.Enabled()`), so once
+   `updateKeymap()` runs the panel needs no extra filtering. This is the win:
+   today `FullHelp()` returns *all* bindings unconditionally, so the panel
+   advertises `open`/`filter`/`copy`/`raw` even in a profile reader where they
+   do nothing, and every content key while you are typing a target.
+2. **Routing.** `key.Matches` treats a disabled binding as no-match, so a
+   content-only key (`i`/`y`/`r`/`q`) is **inert — typed literally — while the
+   input is focused**, which is exactly the desired blur-by-default behaviour.
+
+Because effect (2) gates routing, `updateKeymap()` must run **before `handleKey`
+matches** (lookit calls it at the top of `Update`) and again in the render path
+(`View`/`helpHeight`) so the panel reflects the post-key state. It reads only
+`inputFocused`/`state`/`pos`/`showingRaw`, so recomputing it fresh each cycle is
+cheap and side-effect-free.
+
+Enablement classes (as built):
+
+- **Dual-mode commands** — `Open` (`Enter`), `Back` (`Esc`), `Help` (`?`) —
+  stay enabled while the input is focused, because `handleKey`'s input-focused
+  branch matches them there too: `Enter` submits the typed target, `Esc` cancels
+  the edit (or quits at the bare landing), `?` opens help. Disabling them would
+  break submit/cancel/help-from-input. (`Open`/`Filter` are additionally gated to
+  the **list** state when content-focused; `Back` to `pos >= 0`.)
+- **Content-only keys** — `FocusInput` (`i`), `Copy` (`y`), `Raw` (`r`), `Quit`
+  (`q`), `Filter` (`/`), and the display-only `Move`/`Page`/`Jump` — enabled only
+  when content-focused (and `Copy`/`Raw` only with a result, `Filter` only in a
+  list). Disabled while typing, so they reach `textinput` as literal characters.
+
+**The status bar is *not* rewired to render from `ShortHelp()`.** lookit's bar
+already shows *richer, per-state* hints than `ShortHelp()`'s fixed set can — the
+list bar carries `/ filter` and `r raw`, the reader carries `↑↓ scroll`, none of
+which are in `ShortHelp()` — so deriving the bar from it would be a regression,
+and `ShortHelp()` is never rendered anyway (the collapsed help *is* the bar's own
+hints). The only state the bar was missing is **input-focused**: editing an
+address over existing content now shows `↵ fetch · esc cancel` instead of stale
+content hints. Loading/flash remain transient bar overrides.
 
 This is purely a refactor of how the existing keys are gated (no new keys, no
-behavior change); it removes a class of "help shows a key that does nothing
-here" bugs. Precedent: `pop` and `wishlist` (Bubble Tea TUIs); `skate`
-(cobra+`fang`) is the precedent only for the one-shot CLI path and is out of
-scope here.
+behaviour change beyond the input-focused bar hint); it removes a class of "help
+shows a key that does nothing here" bugs. Precedent: `pop` and `wishlist` (Bubble
+Tea TUIs); `skate` (cobra+`fang`) is the precedent only for the one-shot CLI path
+and is out of scope here.
 
 ## Transitions
 

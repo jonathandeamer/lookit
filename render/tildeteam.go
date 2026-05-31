@@ -30,3 +30,37 @@ func extraFieldPrefixes(t finger.Target) []string {
 	}
 	return nil
 }
+
+// pronounsInlinePrefix is the inline form emitted by tilde.team's daemon:
+// "Pronouns:" followed by a single space and the value.
+const pronounsInlinePrefix = "Pronouns: "
+
+// reflowPronouns rewrites an inline "Pronouns: <value>" line into a block that
+// matches the Plan:/Project: layout — the label on its own line and the value
+// on the next line, indented two spaces. A bare "Pronouns:" (no value) and all
+// other lines pass through unchanged. The body's line structure is otherwise
+// preserved.
+func reflowPronouns(body []byte) []byte {
+	lines := strings.SplitAfter(string(body), "\n")
+	var sb strings.Builder
+	for _, line := range lines {
+		// Split the trailing newline (if any) off so we reason about content.
+		content := line
+		nl := ""
+		if strings.HasSuffix(content, "\n") {
+			content = content[:len(content)-1]
+			nl = "\n"
+		}
+		if strings.HasPrefix(content, pronounsInlinePrefix) {
+			value := content[len(pronounsInlinePrefix):]
+			if value != "" {
+				sb.WriteString("Pronouns:\n  ")
+				sb.WriteString(value)
+				sb.WriteString(nl)
+				continue
+			}
+		}
+		sb.WriteString(line)
+	}
+	return []byte(sb.String())
+}

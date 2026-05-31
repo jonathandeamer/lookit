@@ -18,7 +18,7 @@ func TestSanitize(t *testing.T) {
 		{"stray cr to caret", "a\rb", "a^Mb"},
 		{"valid multibyte utf8 preserved", "café ünïcödé", "café ünïcödé"},
 		{"raw high c1 byte", "a\x9bb", "a\\x9bb"},
-		{"utf8 encoded c1", "ab", "a\\x85b"},
+		{"utf8 encoded c1", "a\u0085b", "a\\x85b"},
 		{"invalid utf8 byte", "a\xffb", "a\\xffb"},
 		{"empty", "", ""},
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -310,5 +311,37 @@ func TestQuery_DefangsInvalidUTF8Bytes(t *testing.T) {
 	want := "Plan:\ncaf\\xe9 ü\n"
 	if string(body) != want {
 		t.Errorf("body:\n  got:  %q\n  want: %q", string(body), want)
+	}
+}
+
+func TestQuery_DefangsControlBytes(t *testing.T) {
+	// Server sends a body containing an ESC sequence and a BEL, ending in CRLF.
+	fs := newFakeServer(t, func(line string) []byte {
+		return []byte("Name: \x1b[31mEvil\x1b[0m\x07\r\n")
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	body, meta, err := Query(ctx, Target{HostPort: fs.addr})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+
+	got := string(body)
+	want := "Name: ^[[31mEvil^[[0m^G\n"
+	if got != want {
+		t.Errorf("body = %q, want %q", got, want)
+	}
+	// No live ESC may survive into the body handed to callers.
+	if strings.ContainsRune(got, 0x1b) {
+		t.Errorf("body still contains a raw ESC: %q", got)
+	}
+	// meta.Bytes reflects the post-sanitize length.
+	if meta.Bytes != len(body) {
+		t.Errorf("meta.Bytes = %d, want %d", meta.Bytes, len(body))
+	}
+	// Body ends in newline, so it must not be marked truncated.
+	if meta.Truncated {
+		t.Errorf("meta.Truncated = true, want false")
 	}
 }

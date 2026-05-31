@@ -90,7 +90,8 @@ TUI both branch only *after* `Query` returns). The body is walked rune by rune:
    international" need. The only residual want — rendering a trusted host's
    intentional ANSI colour *in colour* — is a convenience, not a safety control,
    and is out of scope. (It is also distinct from the existing TUI `r` key, which
-   toggles parsed-list ↔ source *structure*, not control-char safety.)
+   toggles the rendered view ↔ the unrendered source body, not control-char
+   safety — and which shows the same defanged bytes after ingress sanitization.)
 
 **What this closes.** Without it, a hostile or garbled response could inject
 clear-screen, set-title (`ESC]0;…`), cursor moves, OSC-8 hyperlinks, BEL spam,

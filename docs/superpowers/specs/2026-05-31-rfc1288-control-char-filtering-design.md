@@ -131,8 +131,10 @@ hatch, and is explicitly out of scope here. The decline is recorded in
 `docs/rfc1288-conformance.md` so it reads as a decision, not a gap.
 
 This also keeps clear of the existing `r` "raw view" key, which is an orthogonal
-*structure* affordance (lookit's parsed list ↔ the source text it parsed),
-unrelated to control-character safety. No keybinding or CLI flag is added.
+*view* affordance (the rendered/parsed view ↔ the unrendered source body),
+unrelated to control-character safety — and which, after ingress sanitization,
+shows the same already-defanged bytes everything else does. No keybinding or CLI
+flag is added.
 
 ## Testing
 

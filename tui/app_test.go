@@ -459,6 +459,28 @@ func TestDrillServerSuppliedTargetPinnedToPort79(t *testing.T) {
 	}
 }
 
+func TestDrillPinnedServerTargetRefillsInputWithPinnedRaw(t *testing.T) {
+	var fetched finger.Target
+	host := hostTarget(t, "@thebackupbox.net")
+	users := []User{{Login: "evil", Target: "evil@example.com:22"}}
+
+	cmd := drillFirstUser(t, host, users, captureFetch(&fetched))
+	runCmds(cmd)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history = []histNode{{entry: Entry{Target: fetched, Body: []byte("Plan: hi\n")}, state: stateReader}}
+	m.pos = 0
+	m.reader.setEntry(m.history[0].entry)
+	m.inputFocused = false
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: 'i'})
+	got := step.(appModel)
+
+	if got.input.Value() != "evil@example.com:79" {
+		t.Fatalf("input value = %q, want pinned target evil@example.com:79", got.input.Value())
+	}
+}
+
 func TestDrillServerSuppliedTargetKeepsCrossHost(t *testing.T) {
 	var got finger.Target
 	host := hostTarget(t, "@thebackupbox.net")
@@ -622,6 +644,29 @@ func TestEscBackDoesNotRefetch(t *testing.T) {
 	m = step.(appModel)
 	if m.pos != 0 || m.state != stateList {
 		t.Fatalf("after Esc back: pos=%d state=%d, want 0/list", m.pos, m.state)
+	}
+}
+
+func TestRouteFetchSnapshotsListBeforeReplacingIt(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	nextHost := hostTarget(t, "@sdf.org")
+
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	m.list.list.SetFilterText("kap")
+
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: nextHost, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = step.(appModel)
+
+	if got := m.list.list.FilterValue(); got != "kap" {
+		t.Fatalf("restored filter = %q, want kap", got)
+	}
+	sel, ok := m.list.selected()
+	if !ok || sel.login != "kapad" {
+		t.Fatalf("restored selection = %+v ok=%v, want kapad", sel, ok)
 	}
 }
 
@@ -815,6 +860,27 @@ func TestRestorePreservesListSelection(t *testing.T) {
 	m = step.(appModel)
 	if m.list.list.Index() != wantIdx {
 		t.Fatalf("restored list index = %d, want %d", m.list.list.Index(), wantIdx)
+	}
+}
+
+func TestRestorePreservesFilteredListSelection(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	body := []byte("Login\nalpha\nbeta\ngamma\n")
+	node := histNode{
+		entry:    Entry{Target: host, Body: body},
+		state:    stateList,
+		listIdx:  2,
+		listFltr: "a",
+	}
+
+	m.restore(node)
+
+	if got := m.list.list.FilterValue(); got != "a" {
+		t.Fatalf("restored filter = %q, want a", got)
+	}
+	if got := m.list.list.Index(); got != 2 {
+		t.Fatalf("restored list index = %d, want 2", got)
 	}
 }
 

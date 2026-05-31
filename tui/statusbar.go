@@ -58,22 +58,13 @@ func (b statusBar) render() string {
 	rightText := ansi.Truncate(strings.Join(right, " · "), b.width, "…")
 	rightW := lipgloss.Width(rightText)
 
-	// Left group: breadcrumb + flags. Flags are kept whole; the breadcrumb
-	// truncates first (it is the most expendable when space is tight).
-	plainFlags, styledFlags := "", ""
-	for _, f := range b.flags {
-		plainFlags += "  " + f
-		fs := st.barFlag
-		if strings.HasPrefix(f, "partial") {
-			fs = st.barWarn
-		}
-		styledFlags += "  " + fs.Render(f)
-	}
-
+	// Left group: breadcrumb + flags. Flags are kept whole when they fit; the
+	// breadcrumb truncates first because it is the most expendable content.
 	avail := b.width - rightW - 1
 	if avail < 0 {
 		avail = 0
 	}
+	plainFlags, styledFlags := b.flagsWithin(avail)
 	crumbBudget := avail - lipgloss.Width(plainFlags)
 	if crumbBudget < 0 {
 		crumbBudget = 0
@@ -88,6 +79,25 @@ func (b statusBar) render() string {
 	}
 	line := left + st.barFill.Render(strings.Repeat(" ", gap)) + st.barDim.Render(rightText)
 	return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)
+}
+
+func (b statusBar) flagsWithin(width int) (plain, styled string) {
+	if width <= 0 {
+		return "", ""
+	}
+	for _, f := range b.flags {
+		nextPlain := plain + "  " + f
+		if lipgloss.Width(nextPlain) > width {
+			break
+		}
+		fs := b.styles.barFlag
+		if strings.HasPrefix(f, "partial") {
+			fs = b.styles.barWarn
+		}
+		plain = nextPlain
+		styled += "  " + fs.Render(f)
+	}
+	return plain, styled
 }
 
 // styleCrumb renders the breadcrumb within budget: host dim + user bold when it

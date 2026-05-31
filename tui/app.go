@@ -146,10 +146,10 @@ func (m *appModel) restore(n histNode) {
 		m.state = stateList
 		m.list = newListWithPreamble(m.common, n.entry.Target, parsed.users, n.entry.Body, parsed.generic)
 		m.listReady = true
-		m.list.list.Select(n.listIdx)
 		if n.listFltr != "" {
 			m.list.list.SetFilterText(n.listFltr)
 		}
+		m.list.list.Select(n.listIdx)
 		return
 	}
 	// Defensive: a previously-listed body no longer parses; show it in the
@@ -439,9 +439,10 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 // Either way it pushes a history node.
 func (m appModel) routeFetch(entry Entry) appModel {
 	m.loading = false
-	m.showingRaw = false
 	m.inputFocused = false
 	m.input.Blur()
+	m.snapshot() // save current position's scroll/selection before replacing it
+	m.showingRaw = false
 	node := histNode{entry: entry, state: stateReader}
 	if len(entry.Body) > 0 && shouldOpenList(entry) {
 		if parsed, ok := parseUserList(entry.Body); ok {
@@ -456,7 +457,6 @@ func (m appModel) routeFetch(entry Entry) appModel {
 		m.reader.setEntry(entry)
 	}
 	m.state = node.state
-	m.snapshot() // save current position's scroll/selection before pushing
 	m.push(node)
 	return m
 }
@@ -476,9 +476,19 @@ func shouldOpenList(entry Entry) bool {
 // Finger Ring is legitimately cross-host).
 func pinFingerPort(t finger.Target) finger.Target {
 	if host, _, err := net.SplitHostPort(t.HostPort); err == nil {
-		t.HostPort = net.JoinHostPort(host, "79")
+		pinned := net.JoinHostPort(host, "79")
+		if t.HostPort != pinned {
+			t.HostPort = pinned
+			t.Raw = rawFromTarget(t)
+		} else {
+			t.HostPort = pinned
+		}
 	}
 	return t
+}
+
+func rawFromTarget(t finger.Target) string {
+	return t.User + "@" + t.HostPort
 }
 
 // clearFlashMsg is sent after a flash timer fires to clear m.flash.

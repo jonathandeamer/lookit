@@ -52,6 +52,41 @@ reach smallnet's `b`/`f`, which are anyway taken by paging).
     key/desc styles, which read as low-contrast on a dark terminal. Theme
     `helpModel.Styles` (the `help.Styles` short/full key+desc + separator) with
     adaptive values as part of this pass.
+  - **`render/` field-highlight palette (the CLI path).** The shared renderer's
+    pink-label / cyan-value / gold / red / dim family (`render/theme.go`) is the
+    user-facing colour on the **one-shot CLI** as well as the TUI reader, and is
+    hardcoded dark hex with no light pairing — so piped-to-a-light-terminal
+    `lookit user@host` has the same legibility gap as the TUI chrome. Because
+    `render/` is deliberately **v1 lipgloss** (not the v2 `compat` shim), the
+    theming spec must resolve adaptive light/dark there with a v1-compatible
+    mechanism (v1 `lipgloss.AdaptiveColor`, which still exists), not the v2
+    `compat.AdaptiveColor` used in `tui/`. This is the larger half of the debt:
+    it spans both packages and both output paths.
+  - **Dynamic background detection (seed-once → live).** Both the v2 `compat`
+    shim (`compat.HasDarkBackground`) and any v1 `AdaptiveColor` resolve the
+    light/dark choice **once**, so a terminal theme switch mid-session is not
+    reflected. The fix belongs with the existing colour-profile plumbing from
+    the Phase 2 spec (the TUI already requests `RGB`/`Tc` via
+    `tea.RequestCapability` and updates its profile on `tea.ColorProfileMsg`):
+    additionally subscribe to **`tea.BackgroundColorMsg`**, store the
+    background on the model, and re-render so adaptive colours follow a live
+    theme change. Listed here so the theming spec wires it alongside the
+    `ColorProfileMsg` handling rather than re-discovering it.
+
+  Provenance: adaptive light/dark was explicitly deferred at MVP
+  (`2026-05-28-lookit-design.md` — "Adaptive light/dark theming … defer until
+  Phase 2 TUI work surfaces real need") and Phase 2 fixed the dark-only palette
+  (`2026-05-29-lookit-phase-2-tui-design.md` "Palette"/"Color profile
+  handling"); this is the accumulated debt that work left, collected for the
+  dedicated theming spec.
+
+  **Out of the theming spec (separate concern, kept separate per "keep specs
+  focused"):** *configurable* / user-selectable themes and keymaps remain
+  deferred on their own axis (`2026-05-29-lookit-phase-2-tui-design.md`: "No
+  configurable themes or keymaps … until they solve a real user problem").
+  Adaptive light/dark is about making the *one fixed* palette legible
+  everywhere; user-chosen palettes are a different, later feature and should not
+  be folded into the adaptive-theming spec.
 - **A `--mouse` opt-in flag / runtime mouse toggle.** This spec only *removes*
   the current always-on capture. Re-introducing mouse as glow does (behind a
   flag) is a separate, optional follow-up.
@@ -142,6 +177,41 @@ While the input is focused, `?`/`q`/`i` are literal characters (typed), exactly
 as `bubbles/list` treats keys while its filter is being typed. The existing
 "list is filtering" guard is preserved: while the list filter is being typed,
 app-level keys defer to the list.
+
+### State-driven binding enablement
+
+The keyMap is the **single source of truth** for which keys are live in the
+current state, following Charm's own pattern: `pop`'s `updateKeymap()`
+(`~/pop/keymap.go`) flips `key.Binding.SetEnabled(...)` per app state so that
+`bubbles/help` automatically shows only the keys you can actually press, and
+`key.Matches` against a disabled binding is a no-op. lookit adopts the same
+mechanism instead of hand-maintaining a parallel focus-aware hint string:
+
+- An `updateKeymap()` (called whenever `state`/`inputFocused`/`showingRaw`
+  change) enables/disables bindings: `Copy`/`FocusInput`/`Back`/`Raw` are
+  enabled only when **content-focused**; `Raw` only when the current entry is an
+  auto-detected list; `Back` only when `pos >= 0`. When the input is focused the
+  content app-keys are disabled (so they fall through to `textinput` as literal
+  characters, matching the "filter is being typed" guard).
+- The **expanded `help` panel** and the **content-focused short hints** (status
+  bar) both render from the enabled bindings (`keyMap.FullHelp()` /
+  `ShortHelp()`), so those two surfaces can't drift. `bubbles/help` already skips
+  disabled bindings, so the panel needs no extra filtering once `updateKeymap()`
+  runs; the content short-hint string is built by joining the *enabled*
+  `ShortHelp()` bindings instead of a hand-maintained focus-aware string.
+- Two bar states stay outside the keyMap by necessity and keep their own concise
+  strings: the **input-focused** hint (`↵ fetch · esc cancel`, or `esc quit` at
+  the bare landing) describes `textinput`-context actions that are *not*
+  app-key bindings, and the **loading**/**flash** hints are transient overrides
+  (owned by the spinner and `y`-copy paths). Enablement still applies — while the
+  input is focused the content app-keys are disabled, which is what lets those
+  keys fall through to `textinput` as literal characters.
+
+This is purely a refactor of how the existing keys are gated (no new keys, no
+behavior change); it removes a class of "help shows a key that does nothing
+here" bugs. Precedent: `pop` and `wishlist` (Bubble Tea TUIs); `skate`
+(cobra+`fang`) is the precedent only for the one-shot CLI path and is out of
+scope here.
 
 ## Transitions
 
@@ -274,6 +344,12 @@ Consistent with the project's injected-fakes, offline, no-TTY discipline:
   guard still defers keys to the list.
 - **Keymap via `key.Matches`:** back/open/raw/help/quit resolve through the
   `keyMap`; scroll keys reach the active sub-model only when content-focused.
+- **State-driven enablement (`updateKeymap`):** `Back` is disabled at the
+  landing (`pos == -1`) and enabled after a fetch; `Raw` is enabled only for an
+  auto-detected list; content app-keys (`Copy`/`FocusInput`/`Raw`) are disabled
+  while the input is focused; `keyMap.ShortHelp()`/`FullHelp()` list only the
+  enabled bindings for the current state (so the help panel and short hints
+  derive from the keyMap, with no second source to drift).
 - **Removal:** `forward` and any `Alt` binding are gone (`grep` guard in the
   plan); `Alt+←/→` no longer navigate.
 - **Help panel:** `?` toggles `help.ShowAll`; the rendered `View().Content`

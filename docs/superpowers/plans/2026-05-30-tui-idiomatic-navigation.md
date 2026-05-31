@@ -33,7 +33,7 @@ Test conventions: `newApp(stubFetch(t), colorprofile.NoTTY)`; `stubFetch(t)` fai
 ## File structure
 
 - **Create** `tui/keys.go` — the `keyMap` (`key.Binding`s) + `help.KeyMap` impl.
-- **Modify** `tui/app.go` — input ownership, `inputFocused`, focus routing via `key.Matches`, centralized submit, spinner, help model, flash, scroll-%/page wiring, drop mouse mode, `y`-copy; remove `forward()`/`Alt`/`helpView` string.
+- **Modify** `tui/app.go` — input ownership, `inputFocused`, focus routing via `key.Matches`, centralized submit, spinner, help model, flash, scroll-%/page wiring, drop mouse mode, `y`-copy, state-driven `updateKeymap()`/`shortHints` (Task 8); remove `forward()`/`Alt`/`helpView` string.
 - **Modify** `tui/reader.go` — drop the input (and `status`/`loading`/`update`-fetch); reader becomes viewport-only.
 - **Modify** `tui/list.go` — default delegate; `userItem` gains `Title()/Description()`.
 - **Modify** `tui/statusbar.go` — add `scroll`/`page` segments.
@@ -1141,12 +1141,163 @@ git commit -m "feat(tui): use the default list delegate (title + description)"
 
 ---
 
+## Task 8: state-driven binding enablement (`updateKeymap`)
+
+Make the `keyMap` the single source of truth for which keys are live in the
+current state, mirroring `pop`'s `updateKeymap()` (`~/pop/keymap.go`): a method
+flips `key.Binding.SetEnabled(...)` per state, `bubbles/help` then renders only
+the enabled bindings (it already skips disabled ones), and the content-focused
+short-hint string is built from the enabled `ShortHelp()` rather than a
+hand-maintained string. This is a refactor of how the existing keys are gated —
+no new keys, no behaviour change — that removes "help shows a key that does
+nothing here" drift. Routing correctness still comes from `handleKey`'s explicit
+`inputFocused`/`state` checks (added in Task 2); enablement here drives
+**display only**, computed fresh in the render path, so there is no stale-state
+routing risk.
+
+**Files:** Modify `tui/app.go`, `tui/app_test.go`.
+
+- [ ] **Step 1: Write the failing tests** — add to `tui/app_test.go`:
+
+```go
+func TestUpdateKeymapGatesByState(t *testing.T) {
+	// Landing: input focused, no result. All content app-keys disabled.
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	(&m).updateKeymap()
+	for _, b := range []key.Binding{m.keys.FocusInput, m.keys.Back, m.keys.Open, m.keys.Copy, m.keys.Raw, m.keys.Help, m.keys.Quit} {
+		if b.Enabled() {
+			t.Fatalf("binding %q should be disabled while the input is focused", b.Help().Key)
+		}
+	}
+
+	// After a host list lands: content focused, list state.
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	(&m).updateKeymap()
+	for _, b := range []key.Binding{m.keys.FocusInput, m.keys.Back, m.keys.Open, m.keys.Filter, m.keys.Copy, m.keys.Help, m.keys.Quit} {
+		if !b.Enabled() {
+			t.Fatalf("binding %q should be enabled in a content-focused list", b.Help().Key)
+		}
+	}
+
+	// A profile reader: no Open/Filter (nothing to drill or filter).
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m = step.(appModel)
+	(&m).updateKeymap()
+	if m.keys.Open.Enabled() || m.keys.Filter.Enabled() {
+		t.Fatal("Open/Filter should be disabled in a profile reader")
+	}
+	if !m.keys.Copy.Enabled() || !m.keys.Back.Enabled() {
+		t.Fatal("Copy/Back should be enabled in a content-focused reader with a result")
+	}
+}
+
+func TestShortHintsRenderEnabledBindingsOnly(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	(&m).updateKeymap()
+	hints := shortHints(m.keys)
+	if !strings.Contains(hints, "open") || !strings.Contains(hints, "help") {
+		t.Fatalf("list short hints should advertise open + help: %q", hints)
+	}
+	// Input focused → content keys disabled → they drop out of the hints.
+	m.inputFocused = true
+	(&m).updateKeymap()
+	if strings.Contains(shortHints(m.keys), "open") {
+		t.Fatalf("input-focused hints must not advertise content keys: %q", shortHints(m.keys))
+	}
+}
+```
+
+(Ensure `tui/app_test.go` imports `"charm.land/bubbles/v2/key"`; add it if absent.)
+
+- [ ] **Step 2: Verify failure** — `go test ./tui/ -run 'TestUpdateKeymapGatesByState|TestShortHintsRenderEnabledBindingsOnly' -count=1 -v` → FAIL (`updateKeymap`/`shortHints` undefined).
+
+- [ ] **Step 3: Implement** — in `tui/app.go` add the method and helper:
+
+```go
+// updateKeymap enables only the bindings usable in the current state, so the
+// bubbles/help panel (which skips disabled bindings) and the content short
+// hints advertise exactly the live keys. It is the single source of truth and
+// drives display only — handleKey still gates routing by inputFocused/state, so
+// computing this fresh in the render path carries no stale-state risk. Pattern:
+// pop's updateKeymap (~/pop/keymap.go).
+func (m *appModel) updateKeymap() {
+	content := !m.inputFocused
+	hasResult := m.pos >= 0
+	inList := content && m.state == stateList
+
+	m.keys.FocusInput.SetEnabled(content)
+	m.keys.Help.SetEnabled(content)
+	m.keys.Quit.SetEnabled(content)
+	m.keys.Back.SetEnabled(content && hasResult)
+	m.keys.Copy.SetEnabled(content && hasResult)
+	m.keys.Raw.SetEnabled(content && hasResult)
+	m.keys.Open.SetEnabled(inList)
+	m.keys.Filter.SetEnabled(inList)
+	m.keys.Move.SetEnabled(content)
+	m.keys.Page.SetEnabled(content)
+	m.keys.Jump.SetEnabled(content)
+}
+
+// shortHints renders the enabled ShortHelp bindings as "key desc · key desc",
+// the focus/state-aware content hint shown in the status bar's hint slot.
+func shortHints(k keyMap) string {
+	var parts []string
+	for _, b := range k.ShortHelp() {
+		if !b.Enabled() {
+			continue
+		}
+		h := b.Help()
+		parts = append(parts, h.Key+" "+h.Desc)
+	}
+	return strings.Join(parts, " · ")
+}
+```
+
+Apply it in the two render entrypoints (idempotent — both recompute from the
+same state):
+
+- At the very top of `statusBarModel()` (after `w := m.common.width`), add
+  `(&m).updateKeymap()`. Then in the **content-focused** branch — the normal
+  path that builds `host`/`user`/`meta` and sets `bar.hints` (i.e. *not* the
+  `m.loading` early-return, *not* the `m.pos < 0` landing `landingBar`, *not*
+  the input-focused submit/cancel hint, *not* the trailing `m.flash` override) —
+  replace the hand-built hint assignment with:
+  ```go
+  bar.hints = shortHints(m.keys)
+  ```
+  Leave the loading, landing, input-focused, and flash hint assignments exactly
+  as Tasks 2/4/6 set them.
+- At the top of `View()` (before `m.helpModel.View(m.keys)` is reached), add
+  `(&m).updateKeymap()` so the expanded help panel renders against the same
+  enabled set. (Both `View` and `statusBarModel` have value receivers, so
+  `(&m).updateKeymap()` mutates only the local copy used for this render.)
+- In `newApp`, after the `keys: newKeyMap()` field is set and the model is
+  assembled, call `m.updateKeymap()` once on the constructed value so the first
+  frame is correct before any `Update`.
+
+- [ ] **Step 4: Verify** — `go test ./tui/ -run 'TestUpdateKeymapGatesByState|TestShortHintsRenderEnabledBindingsOnly' -count=1 -v` → PASS. Then `go test ./tui/ -count=1` (the Task 3 help test still passes — at the content-focused list it asserts `move`/`page`, which stay enabled) and `make check` → green. If `make fmt` reports changes, run it.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tui/app.go tui/app_test.go
+git commit -m "feat(tui): state-driven key enablement; derive hints/help from keymap"
+```
+
+---
+
 ## Final verification
 
 - [ ] `make check` green (vet, gofmt, golangci-lint, race).
 - [ ] `git grep -n "forward\|MouseModeCellMotion\|ModAlt" tui/*.go` returns nothing (forward + Alt + mouse capture all gone). `helpView` may remain only if you kept a fallback — it should be deleted (Task 3).
 - [ ] `git grep -n "userDelegate" tui/*.go` returns nothing.
-- [ ] `make build && ./lookit` in a real terminal: landing focuses input; type `@tilde.team` ↵ → list; `j/k` move, `←/→` page, `g/G` jump; `i` focuses input pre-filled; `y` copies + flashes; `?` expands a bottom help block (content still visible); `Esc` backs to landing then quits; drag-to-select copies natively (no mouse capture).
+- [ ] `git grep -n "updateKeymap\|shortHints" tui/app.go` shows the method/helper exist and are called from both render entrypoints (Task 8).
+- [ ] `make build && ./lookit` in a real terminal: landing focuses input; type `@tilde.team` ↵ → list; `j/k` move, `←/→` page, `g/G` jump; `i` focuses input pre-filled; `y` copies + flashes; `?` expands a bottom help block (content still visible) that lists **only** the keys live in that state (e.g. no `open`/`filter` in a profile reader, none of the content keys while the input is focused); `Esc` backs to landing then quits; drag-to-select copies natively (no mouse capture).
 
 ## Notes for the executor
 

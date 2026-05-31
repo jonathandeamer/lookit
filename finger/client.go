@@ -86,6 +86,7 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 	}
 
 	body := bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n"))
+	body = sanitize(body)
 	meta.Bytes = len(body)
 	meta.Elapsed = time.Since(start)
 

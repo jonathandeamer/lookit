@@ -2,7 +2,6 @@ package finger
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -294,10 +293,13 @@ func TestQuery_EOFMidLineNotTruncated(t *testing.T) {
 	}
 }
 
-func TestQuery_BinaryBytesPreserved(t *testing.T) {
-	// Server emits a high-bit byte (Latin-1 'é' = 0xE9) that's not valid UTF-8.
+func TestQuery_DefangsInvalidUTF8Bytes(t *testing.T) {
+	// Server emits a lone Latin-1 byte (0xE9, 'é') that is not valid UTF-8,
+	// alongside a valid UTF-8 'ü' (0xC3 0xBC). Per RFC 1288 §3.3 the client
+	// defangs the invalid byte to "\xe9" while leaving valid UTF-8 intact.
 	fs := newFakeServer(t, func(line string) []byte {
-		return []byte{'P', 'l', 'a', 'n', ':', '\r', '\n', 'c', 'a', 'f', 0xE9, '\r', '\n'}
+		return []byte{'P', 'l', 'a', 'n', ':', '\r', '\n',
+			'c', 'a', 'f', 0xE9, ' ', 0xC3, 0xBC, '\r', '\n'}
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -305,8 +307,8 @@ func TestQuery_BinaryBytesPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
-	want := []byte{'P', 'l', 'a', 'n', ':', '\n', 'c', 'a', 'f', 0xE9, '\n'}
-	if !bytes.Equal(body, want) {
-		t.Errorf("body:\n  got:  % x\n  want: % x", body, want)
+	want := "Plan:\ncaf\\xe9 ü\n"
+	if string(body) != want {
+		t.Errorf("body:\n  got:  %q\n  want: %q", string(body), want)
 	}
 }

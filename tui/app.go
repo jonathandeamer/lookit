@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 	"net"
 	"strings"
 	"time"
@@ -21,6 +22,22 @@ import (
 
 // setClipboard is a seam for testing: it defaults to tea.SetClipboard.
 var setClipboard = tea.SetClipboard
+
+// sampleTargets are the rotating greyed-out hints shown in the empty target
+// input. The mix of "@host" directory shapes and "user@host" profile shapes
+// teaches both input forms. They are hint text only, never auto-submitted.
+var sampleTargets = []string{
+	"ring@thebackupbox.net",
+	"@happynetbox.com",
+	"@plan.cat",
+	"@tilde.team",
+	"jonathan@tilde.team",
+}
+
+// pickSample returns a uniformly random sample target for the placeholder.
+func pickSample() string {
+	return sampleTargets[rand.Intn(len(sampleTargets))]
+}
 
 // appState selects which sub-model is active.
 type appState int
@@ -91,7 +108,7 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 	}
 	common := &commonModel{profile: profile, fetch: fetch}
 	in := textinput.New()
-	in.Placeholder = "alice@plan.cat"
+	in.Placeholder = pickSample()
 	in.Prompt = "target: "
 	in.CharLimit = 256
 	in.SetWidth(40)

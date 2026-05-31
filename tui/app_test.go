@@ -1306,3 +1306,19 @@ func TestJoinHintsDropsEscBackWhenBreadcrumbPresent(t *testing.T) {
 		t.Fatalf("esc back should be present when there is no breadcrumb: %q", noCrumb)
 	}
 }
+
+func TestPickSampleIsMember(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		got := pickSample()
+		found := false
+		for _, s := range sampleTargets {
+			if got == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("pickSample() = %q, not in sampleTargets", got)
+		}
+	}
+}

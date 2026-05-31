@@ -69,6 +69,12 @@ func (m *readerModel) setEntry(entry Entry) {
 	m.viewport.SetContent(renderEntry(m.profile, entry))
 }
 
+// setRaw shows the unprocessed response body as plain text ("view source"),
+// bypassing render's chrome and field highlighting.
+func (m *readerModel) setRaw(body []byte) {
+	m.viewport.SetContent(string(body))
+}
+
 func renderEntry(profile colorprofile.Profile, entry Entry) string {
 	return render.Render(entry.Target, entry.Body, entry.Meta, entry.Err, profile)
 }

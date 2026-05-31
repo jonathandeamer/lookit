@@ -79,7 +79,7 @@ type appModel struct {
 
 	history    []histNode
 	pos        int  // -1 == landing (nothing fetched yet)
-	showingRaw bool // r-toggled raw view of the current generic list node
+	showingRaw bool // r-toggled "view source" of the current node's raw body
 	help       bool // help panel open
 	helpModel  help.Model
 	listReady  bool
@@ -206,6 +206,31 @@ func (m *appModel) focusInput() tea.Cmd {
 func (m *appModel) blurInput() {
 	m.inputFocused = false
 	m.input.Blur()
+}
+
+// enterRaw shows the current node's unprocessed body ("view source") in the
+// reader viewport. It works over any node (list or profile); the underlying
+// node.state is preserved in history so exitRaw can return to it.
+func (m *appModel) enterRaw() {
+	if m.pos < 0 {
+		return
+	}
+	m.reader.setRaw(m.history[m.pos].entry.Body)
+	m.state = stateReader
+	m.showingRaw = true
+}
+
+// exitRaw returns from raw view to the node's normal view (list or profile).
+func (m *appModel) exitRaw() {
+	m.showingRaw = false
+	if m.pos < 0 {
+		return
+	}
+	node := m.history[m.pos]
+	m.state = node.state
+	if node.state == stateReader {
+		m.reader.setEntry(node.entry) // re-render the profile
+	}
 }
 
 // submit parses the input and starts a fetch, blurring to content. On a parse
@@ -348,8 +373,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			return false, m, nil // clear an applied filter first
 		}
 		if m.showingRaw {
-			m.showingRaw = false
-			m.state = stateList
+			m.exitRaw()
 			return true, m, nil
 		}
 		cmd := m.back()
@@ -359,13 +383,13 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		return true, m, cmd
 	case key.Matches(msg, m.keys.Open) && m.state == stateList:
 		return m.drill()
-	case key.Matches(msg, m.keys.Raw) && m.state == stateList:
-		if m.list.generic && m.pos >= 0 {
-			m.reader.setEntry(m.history[m.pos].entry)
-			m.state = stateReader
-			m.showingRaw = true
-			return true, m, nil
+	case key.Matches(msg, m.keys.Raw) && m.pos >= 0:
+		if m.showingRaw {
+			m.exitRaw()
+		} else {
+			m.enterRaw()
 		}
+		return true, m, nil
 	}
 	return false, m, nil
 }

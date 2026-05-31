@@ -543,7 +543,8 @@ func TestRViewsRawBodyOnGenericList(t *testing.T) {
 	}
 }
 
-func TestRInertOnRecognizedList(t *testing.T) {
+func TestRViewsRawBodyOnRecognizedList(t *testing.T) {
+	// 'r' views the raw response on any list, recognized ones included.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: target.HostPort}}
@@ -552,9 +553,52 @@ func TestRInertOnRecognizedList(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
 	got := next.(appModel)
+	if !got.showingRaw || got.state != stateReader {
+		t.Fatalf("r should view raw on a recognized list: showingRaw=%v state=%d", got.showingRaw, got.state)
+	}
+	// The raw body carries the header line the parsed list view omits.
+	if !strings.Contains(got.reader.viewport.View(), "users currently logged in are:") {
+		t.Fatalf("raw view missing the unprocessed body: %q", got.reader.viewport.View())
+	}
 
-	if got.state != stateList {
-		t.Fatalf("state = %d, want stateList (r must be inert on a recognized list)", got.state)
+	back, _ := got.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if back.(appModel).state != stateList {
+		t.Fatalf("state = %d, want stateList after Esc from raw view", back.(appModel).state)
+	}
+}
+
+func TestRTogglesRawBodyOnProfile(t *testing.T) {
+	// 'r' toggles "view source" on a profile too; a second 'r' restores it.
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "alice@plan.cat")
+	body := "Login: alice\nPlan:\nhello from the raw body\n"
+	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(body)}})
+	m = opened.(appModel)
+	if m.state != stateReader {
+		t.Fatalf("precondition: a profile opens in the reader (state=%d)", m.state)
+	}
+	rendered := m.reader.viewport.View()
+
+	raw, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	gotRaw := raw.(appModel)
+	if !gotRaw.showingRaw {
+		t.Fatal("r should enter raw view on a profile")
+	}
+	rawView := gotRaw.reader.viewport.View()
+	if !strings.Contains(rawView, "hello from the raw body") {
+		t.Fatalf("raw view missing body text: %q", rawView)
+	}
+	if rawView == rendered {
+		t.Fatal("raw view should differ from the rendered profile (view source)")
+	}
+
+	off, _ := gotRaw.Update(tea.KeyPressMsg{Code: 'r'})
+	gotOff := off.(appModel)
+	if gotOff.showingRaw {
+		t.Fatal("a second r should exit raw view")
+	}
+	if gotOff.state != stateReader {
+		t.Fatalf("exiting raw on a profile returns to the reader (state=%d)", gotOff.state)
 	}
 }
 

@@ -28,7 +28,7 @@ func newKeyMap() keyMap {
 	return keyMap{
 		FocusInput: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "target")),
 		Back:       key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
-		Open:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("↵", "open")),
+		Open:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("↵", "go")),
 		Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 		Raw:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "raw")),
 		Copy:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
@@ -47,11 +47,13 @@ func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Open, k.FocusInput, k.Back, k.Help, k.Quit}
 }
 
-// FullHelp implements help.KeyMap — the expanded panel toggled by '?'.
+// FullHelp implements help.KeyMap — the expanded panel toggled by '?'. Help
+// itself is intentionally omitted: the bottom bar always advertises "? help", so
+// listing it inside the open panel (where '?' actually closes) is redundant.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Open, k.FocusInput, k.Copy, k.Raw},
 		{k.Move, k.Page, k.Jump, k.Filter},
-		{k.Back, k.Help, k.Quit},
+		{k.Back, k.Quit},
 	}
 }

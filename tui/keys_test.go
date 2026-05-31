@@ -34,10 +34,15 @@ func TestKeyMapFullHelpIncludesPageAndMoveKeys(t *testing.T) {
 		}
 	}
 	joined := strings.Join(all, " ")
-	for _, want := range []string{"i", "y", "esc", "?", "q"} {
+	for _, want := range []string{"i", "y", "esc", "q"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("FullHelp missing %q; got %s", want, joined)
 		}
+	}
+	// '?' is intentionally absent from the panel: the bottom bar always shows
+	// "? help", and inside the open panel '?' actually closes it.
+	if strings.Contains(joined, "?") {
+		t.Fatalf("FullHelp should omit '?' (it lives in the bottom bar); got %s", joined)
 	}
 	// Page/move discoverability (owed because we disable the list's own help).
 	if !strings.Contains(joined, "left") || !strings.Contains(joined, "g") {

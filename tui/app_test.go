@@ -1208,9 +1208,9 @@ func TestHelpPanelHidesInertKeys(t *testing.T) {
 	}
 }
 
-// TestInputFocusedBarShowsFetchCancel: focusing the input over existing content
-// shows a target-entry hint, not the stale content hints.
-func TestInputFocusedBarShowsFetchCancel(t *testing.T) {
+// TestInputFocusedBarShowsGoCancel: focusing the input over existing content
+// shows a target-entry hint (↵ go · esc cancel), not the stale content hints.
+func TestInputFocusedBarShowsGoCancel(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width = 80
 	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
@@ -1221,7 +1221,22 @@ func TestInputFocusedBarShowsFetchCancel(t *testing.T) {
 		t.Fatal("'i' should focus the input")
 	}
 	bar := m.statusBarModel().render()
-	if !strings.Contains(bar, "fetch") || !strings.Contains(bar, "cancel") {
-		t.Fatalf("input-focused bar should show fetch/cancel:\n%s", bar)
+	if !strings.Contains(bar, "go") || !strings.Contains(bar, "cancel") {
+		t.Fatalf("input-focused bar should show go/cancel:\n%s", bar)
+	}
+}
+
+// TestJoinHintsDropsEscBackWhenBreadcrumbPresent: when the "◂ esc: <target>"
+// breadcrumb is shown, the redundant "esc back" hint is omitted; "? help" stays.
+func TestJoinHintsDropsEscBackWhenBreadcrumbPresent(t *testing.T) {
+	withCrumb := joinHints([]string{"↑↓ scroll"}, "@tilde.team")
+	if strings.Contains(withCrumb, "esc back") {
+		t.Fatalf("esc back should be omitted when the ◂ esc: breadcrumb is present: %q", withCrumb)
+	}
+	if !strings.Contains(withCrumb, "? help") {
+		t.Fatalf("? help should always be present: %q", withCrumb)
+	}
+	if noCrumb := joinHints([]string{"↑↓ scroll"}, ""); !strings.Contains(noCrumb, "esc back") {
+		t.Fatalf("esc back should be present when there is no breadcrumb: %q", noCrumb)
 	}
 }

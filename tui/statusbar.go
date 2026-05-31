@@ -22,7 +22,7 @@ type statusBar struct {
 	page      string   // "page 2/4" when list has multiple pages; "" otherwise
 	scroll    string   // "42%" when reader is scrollable; "" otherwise
 	meta      string   // "1.2 KB", "3 users", …
-	hints     string   // contextual keys, e.g. "↵ open · / filter · ? help"
+	hints     string   // contextual keys, e.g. "↵ go · / filter · ? help"
 	width     int
 	styles    styles
 }

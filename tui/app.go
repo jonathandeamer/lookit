@@ -541,6 +541,19 @@ func (m *appModel) updateKeymap() {
 	m.keys.Jump.SetEnabled(content)
 }
 
+// joinHints assembles the bar's hint string. "esc back" is included only when
+// there is no "◂ esc: <target>" breadcrumb segment (escTarget == ""): when that
+// segment is present it already shows esc-goes-back (and where to), so repeating
+// it in the hints is redundant. "? help" always closes the list — the bottom bar
+// is help's permanent home, so the '?' panel itself omits it.
+func joinHints(parts []string, escTarget string) string {
+	if escTarget == "" {
+		parts = append(parts, "esc back")
+	}
+	parts = append(parts, "? help")
+	return strings.Join(parts, " · ")
+}
+
 func (m appModel) statusBarModel() statusBar {
 	st := newStyles()
 	w := m.common.width
@@ -564,11 +577,11 @@ func (m appModel) statusBarModel() statusBar {
 	}
 
 	if m.inputFocused {
-		// Editing the address over existing content: Enter fetches, Esc cancels
-		// the edit (it does not navigate), so don't offer a back-to-previous
-		// target hint here.
+		// Editing the address over existing content: Enter goes (fetches the
+		// typed target), Esc cancels the edit (it does not navigate), so don't
+		// offer a back-to-previous target hint here.
 		bar.escTarget = ""
-		bar.hints = "↵ fetch · esc cancel"
+		bar.hints = "↵ go · esc cancel"
 		if m.flash != "" {
 			bar.hints = m.flash
 		}
@@ -590,22 +603,23 @@ func (m appModel) statusBarModel() statusBar {
 	switch node.state {
 	case stateList:
 		bar.meta = fmt.Sprintf("%d users", node.listUsers)
-		bar.hints = "↵ open · / filter · esc back · ? help"
+		parts := []string{"↵ go", "/ filter"}
 		if node.listGeneric {
 			bar.flags = append(bar.flags, "auto-detected")
-			bar.hints = "↵ open · / filter · r raw · esc back · ? help"
+			parts = append(parts, "r raw")
 		}
 		if node.entry.Err != nil {
 			bar.flags = append(bar.flags, "partial (error)")
 		} else if node.entry.Meta.Truncated {
 			bar.flags = append(bar.flags, "partial (truncated)")
 		}
+		bar.hints = joinHints(parts, bar.escTarget)
 		if tp := m.list.list.Paginator.TotalPages; tp > 1 {
 			bar.page = fmt.Sprintf("page %d/%d", m.list.list.Paginator.Page+1, tp)
 		}
 	default: // stateReader
 		bar.meta = formatBytes(len(node.entry.Body))
-		bar.hints = "↑↓ scroll · esc back · ? help"
+		bar.hints = joinHints([]string{"↑↓ scroll"}, bar.escTarget)
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
 			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))
 		}

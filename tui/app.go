@@ -96,7 +96,7 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 	in.CharLimit = 256
 	in.SetWidth(40)
 	in.Focus() // landing starts focused
-	return appModel{
+	app := appModel{
 		common:       common,
 		state:        stateReader,
 		reader:       newReader(profile),
@@ -107,6 +107,8 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		pos:          -1,
 	}
+	app.updateKeymap() // first frame reflects the landing's enabled set
+	return app
 }
 
 // push records a newly-landed screen, truncating any forward tail first.
@@ -257,6 +259,10 @@ func (m appModel) Init() tea.Cmd {
 }
 
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Sync the enabled set to the current state before handleKey: key.Matches
+	// ignores a disabled binding, so a stale enabled set would drop keys (e.g.
+	// 'i'/'?' after a fetch left the landing's enablement in place).
+	(&m).updateKeymap()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.common.width = msg.Width
@@ -504,6 +510,37 @@ func (m *appModel) copyAddress() tea.Cmd {
 }
 
 // statusBarModel assembles the bottom bar from the current node + history.
+// updateKeymap enables only the bindings usable in the current state. It is the
+// single source of truth with two effects: the expanded '?' help panel skips
+// disabled bindings (bubbles/help), and key.Matches treats a disabled binding as
+// no-match — so a content key is inert (types literally) while the input is
+// focused. It must run before both handleKey (routing) and the render path
+// (help panel); Update and View call it. Pattern: pop's updateKeymap
+// (~/pop/keymap.go).
+func (m *appModel) updateKeymap() {
+	content := !m.inputFocused
+	hasResult := m.pos >= 0
+	inList := content && m.state == stateList && !m.showingRaw
+
+	// Dual-mode commands — handleKey matches them in BOTH the input-focused and
+	// content branches, so they must stay live while typing: Open=Enter (submit
+	// a target / drill a list row), Back=Esc (cancel the edit / history back /
+	// quit at the bare landing), Help='?'.
+	m.keys.Help.SetEnabled(true)
+	m.keys.Open.SetEnabled(m.inputFocused || inList)
+	m.keys.Back.SetEnabled(m.inputFocused || (content && hasResult))
+
+	// Content-only keys — inert while the input is focused (they type literally).
+	m.keys.FocusInput.SetEnabled(content)
+	m.keys.Quit.SetEnabled(content)
+	m.keys.Copy.SetEnabled(content && hasResult)
+	m.keys.Raw.SetEnabled(content && hasResult)
+	m.keys.Filter.SetEnabled(inList)
+	m.keys.Move.SetEnabled(content)
+	m.keys.Page.SetEnabled(content)
+	m.keys.Jump.SetEnabled(content)
+}
+
 func (m appModel) statusBarModel() statusBar {
 	st := newStyles()
 	w := m.common.width
@@ -524,6 +561,18 @@ func (m appModel) statusBarModel() statusBar {
 	bar.host, bar.user = breadcrumbParts(node.entry.Target)
 	if m.pos >= 1 {
 		bar.escTarget = m.history[m.pos-1].entry.Target.Raw
+	}
+
+	if m.inputFocused {
+		// Editing the address over existing content: Enter fetches, Esc cancels
+		// the edit (it does not navigate), so don't offer a back-to-previous
+		// target hint here.
+		bar.escTarget = ""
+		bar.hints = "↵ fetch · esc cancel"
+		if m.flash != "" {
+			bar.hints = m.flash
+		}
+		return bar
 	}
 
 	if m.showingRaw {
@@ -573,6 +622,7 @@ func (m *appModel) helpHeight() int {
 	if !m.help {
 		return 0
 	}
+	m.updateKeymap() // measure the same enabled set the View will render
 	return lipgloss.Height(m.helpModel.View(m.keys))
 }
 
@@ -590,6 +640,7 @@ func (m *appModel) resizeForHelp() {
 }
 
 func (m appModel) View() tea.View {
+	(&m).updateKeymap() // sync the help panel's enabled set to current state
 	var content string
 	switch m.state {
 	case stateList:

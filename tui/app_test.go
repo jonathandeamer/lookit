@@ -1150,3 +1150,78 @@ func TestClearFlashMsgClearsFlash(t *testing.T) {
 		t.Fatalf("flash = %q after clearFlashMsg, want empty", got)
 	}
 }
+
+// --- Task 8: state-driven binding enablement (updateKeymap) ---
+
+// TestUpdateKeymapGatesByState: enablement mirrors what handleKey actually does
+// in each state, so the '?' help panel advertises only live keys.
+func TestUpdateKeymapGatesByState(t *testing.T) {
+	// Landing: input focused, no result. Content-only keys (i/y/r/q) disable so
+	// they type literally; the dual-mode commands (Enter/Esc/?) stay live.
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	(&m).updateKeymap()
+	if m.keys.FocusInput.Enabled() || m.keys.Copy.Enabled() || m.keys.Raw.Enabled() || m.keys.Quit.Enabled() {
+		t.Fatal("content-only keys (focus/copy/raw/quit) should be disabled while the input is focused")
+	}
+	if !m.keys.Open.Enabled() || !m.keys.Back.Enabled() || !m.keys.Help.Enabled() {
+		t.Fatal("dual-mode commands (Enter/Esc/?) must stay enabled while the input is focused")
+	}
+
+	// Host list lands → content focused, list state: open/filter/back/copy/focus live.
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	m = step.(appModel)
+	(&m).updateKeymap()
+	if !m.keys.Open.Enabled() || !m.keys.Filter.Enabled() || !m.keys.Back.Enabled() ||
+		!m.keys.Copy.Enabled() || !m.keys.FocusInput.Enabled() {
+		t.Fatal("list content keys (open/filter/back/copy/focus) should be enabled")
+	}
+
+	// Profile reader → no Open/Filter (nothing to drill or filter); raw/copy/back live.
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m = step.(appModel)
+	(&m).updateKeymap()
+	if m.keys.Open.Enabled() || m.keys.Filter.Enabled() {
+		t.Fatal("open/filter should be disabled in a profile reader")
+	}
+	if !m.keys.Raw.Enabled() || !m.keys.Copy.Enabled() || !m.keys.Back.Enabled() {
+		t.Fatal("raw/copy/back should be enabled in a content reader with a result")
+	}
+}
+
+// TestHelpPanelHidesInertKeys: the expanded '?' panel omits keys that do nothing
+// in the current state (bubbles/help skips disabled bindings).
+func TestHelpPanelHidesInertKeys(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m = step.(appModel)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+	view := m.View().Content
+	if strings.Contains(view, "open") || strings.Contains(view, "filter") {
+		t.Fatalf("profile-reader help must not advertise open/filter:\n%s", view)
+	}
+	if !strings.Contains(view, "back") || !strings.Contains(view, "raw") {
+		t.Fatalf("help should still show the live keys (back/raw):\n%s", view)
+	}
+}
+
+// TestInputFocusedBarShowsFetchCancel: focusing the input over existing content
+// shows a target-entry hint, not the stale content hints.
+func TestInputFocusedBarShowsFetchCancel(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width = 80
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'i'})
+	m = step.(appModel)
+	if !m.inputFocused {
+		t.Fatal("'i' should focus the input")
+	}
+	bar := m.statusBarModel().render()
+	if !strings.Contains(bar, "fetch") || !strings.Contains(bar, "cancel") {
+		t.Fatalf("input-focused bar should show fetch/cancel:\n%s", bar)
+	}
+}

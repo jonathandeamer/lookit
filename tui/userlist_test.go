@@ -517,3 +517,24 @@ func TestStructuredLogin(t *testing.T) {
 		})
 	}
 }
+
+func TestParseUsers_NoLiveEscapeInParsedFields(t *testing.T) {
+	// A host user list whose display column already passed through finger
+	// ingress sanitization (ESC -> "^["). ParseUsers must never resurrect a
+	// raw ESC into a field the list delegate will render.
+	body := []byte("Login     Name\n" +
+		"alice     ^[[31mAlice^[[0m\n" +
+		"bob       Bob\n")
+
+	users, ok := ParseUsers(body)
+	if !ok {
+		t.Fatalf("ParseUsers declined a columnar list it should accept")
+	}
+	for _, u := range users {
+		for _, field := range []string{u.Login, u.Name, u.Target} {
+			if strings.ContainsRune(field, 0x1b) {
+				t.Errorf("parsed field contains a raw ESC: %q", field)
+			}
+		}
+	}
+}

@@ -234,12 +234,15 @@ git commit -m "feat(finger): add control-char sanitizer for RFC 1288 §3.3"
 
 ---
 
-### Task 2: Wire `sanitize` into `queryWith`
+### Task 2: Wire `sanitize` into `queryWith` (and update the superseded binary-bytes test)
 
 **Files:**
 - Modify: `finger/client.go` (the `CRLF→LF` line in `queryWith`, currently around line 88)
+- Modify: `finger/client_test.go` (`TestQuery_BinaryBytesPreserved`, currently at line 297 — its old contract is intentionally replaced by §3.3 defanging)
 
-- [ ] **Step 1: Make the change**
+**Important context — a pre-existing test will break, and that is correct.** `TestQuery_BinaryBytesPreserved` currently asserts that an invalid-UTF-8 byte `0xE9` (Latin-1 'é') round-trips **verbatim** through `Query`. The §3.3 sanitizer deliberately rewrites invalid UTF-8 bytes to `\xe9` hex (spec: "any invalid UTF-8 byte → `\xXX`"). That old "preserve binary bytes" contract is exactly what this feature supersedes, so this task updates the test to assert the new defanged output. Every other `finger` test uses clean ASCII bodies and is unaffected (`sanitize` is a no-op on clean input).
+
+- [ ] **Step 1: Make the source change**
 
 In `finger/client.go`, find this line in `queryWith`:
 
@@ -258,15 +261,48 @@ Insert the `sanitize` call between them so byte count and truncation logic see t
 
 Leave everything else (the `truncatedByCap` handling, the `readErr` branch, and the trailing-`\n` truncation check) unchanged — sanitize never alters `\n`, so the "last byte is newline?" test in the `readErr` branch still behaves correctly.
 
-- [ ] **Step 2: Run the full finger suite to verify nothing regressed**
+- [ ] **Step 2: Run the finger suite and confirm the expected single failure**
 
 Run: `go test ./finger/ -count=1`
-Expected: PASS. In particular `TestQuery_Success` (which asserts a clean `Login:/Name:` body round-trips to `"Login: alice\nName: Alice\n"`) still passes, because `sanitize` is a no-op on clean bodies.
+Expected: FAIL — exactly one test, `TestQuery_BinaryBytesPreserved`, now fails because `0xE9` comes back as the four bytes `\xe9` instead of the raw byte. Every other `finger` test passes. (If anything *other* than `TestQuery_BinaryBytesPreserved` fails, STOP — that means `sanitize` is altering content it shouldn't, a bug in Task 1.)
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Update the superseded test to the new contract**
+
+In `finger/client_test.go`, replace the whole `TestQuery_BinaryBytesPreserved` function (lines ~297–312) with this renamed test asserting the defanged output. Note the response also keeps a valid UTF-8 character (`ü` = bytes `0xC3 0xBC`) to prove valid multibyte data is *not* touched while the lone Latin-1 `0xE9` is:
+
+```go
+func TestQuery_DefangsInvalidUTF8Bytes(t *testing.T) {
+	// Server emits a lone Latin-1 byte (0xE9, 'é') that is not valid UTF-8,
+	// alongside a valid UTF-8 'ü' (0xC3 0xBC). Per RFC 1288 §3.3 the client
+	// defangs the invalid byte to "\xe9" while leaving valid UTF-8 intact.
+	fs := newFakeServer(t, func(line string) []byte {
+		return []byte{'P', 'l', 'a', 'n', ':', '\r', '\n',
+			'c', 'a', 'f', 0xE9, ' ', 0xC3, 0xBC, '\r', '\n'}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	body, _, err := Query(ctx, Target{HostPort: fs.addr})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	want := "Plan:\ncaf\\xe9 ü\n"
+	if string(body) != want {
+		t.Errorf("body:\n  got:  %q\n  want: %q", string(body), want)
+	}
+}
+```
+
+This test no longer needs the `bytes` package for its own assertion. **Before removing the `bytes` import**, check whether any *other* test in `finger/client_test.go` still uses `bytes` (the helper `fakeServer` and other tests may). Run: `grep -n "bytes\." finger/client_test.go`. If there are no remaining `bytes.` references, remove `"bytes"` from the import block; if there are, leave the import.
+
+- [ ] **Step 4: Run the finger suite — now fully green**
+
+Run: `go test ./finger/ -count=1 -v`
+Expected: PASS, including `TestSanitize` (Task 1) and the new `TestQuery_DefangsInvalidUTF8Bytes`.
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add finger/client.go
+git add finger/client.go finger/client_test.go
 git commit -m "feat(finger): sanitize response body at ingress in Query"
 ```
 

@@ -19,7 +19,7 @@ func Render(t finger.Target, body []byte, meta finger.Meta, queryErr error, prof
 		sb.WriteString(theme.Footer.Render("(no response body)"))
 		sb.WriteByte('\n')
 	} else {
-		sb.WriteString(highlightFields(theme, body))
+		sb.WriteString(highlightFields(theme, body, extraFieldPrefixes(t)))
 		if len(body) > 0 && body[len(body)-1] != '\n' {
 			sb.WriteByte('\n')
 		}

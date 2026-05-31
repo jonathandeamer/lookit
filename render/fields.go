@@ -20,9 +20,9 @@ var fieldPrefixes = []string{
 }
 
 // highlightFields walks body line by line and re-emits each line. If a line
-// begins with one of fieldPrefixes, the prefix is wrapped in theme.Field;
-// the rest of the line is untouched.
-func highlightFields(theme Theme, body []byte) string {
+// begins with one of fieldPrefixes (or extra), the prefix is wrapped in
+// theme.Field; the rest of the line is untouched.
+func highlightFields(theme Theme, body []byte, extra []string) string {
 	if theme.NoColor {
 		return string(body)
 	}
@@ -36,6 +36,16 @@ func highlightFields(theme Theme, body []byte) string {
 				sb.WriteString(line[len(prefix):])
 				matched = true
 				break
+			}
+		}
+		if !matched {
+			for _, prefix := range extra {
+				if strings.HasPrefix(line, prefix) {
+					sb.WriteString(theme.Field.Render(prefix))
+					sb.WriteString(line[len(prefix):])
+					matched = true
+					break
+				}
 			}
 		}
 		if !matched {

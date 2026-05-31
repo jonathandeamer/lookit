@@ -30,6 +30,41 @@ func TestParseTarget(t *testing.T) {
 			want:  Target{User: "", HostPort: "example.com:7979", Raw: "@example.com:7979"},
 		},
 		{
+			name:  "finger:// scheme with path",
+			input: "finger://via.sour.is/xuu",
+			want:  Target{User: "xuu", HostPort: "via.sour.is:79", Raw: "xuu@via.sour.is"},
+		},
+		{
+			name:  "path-style, no scheme",
+			input: "via.sour.is/xuu",
+			want:  Target{User: "xuu", HostPort: "via.sour.is:79", Raw: "xuu@via.sour.is"},
+		},
+		{
+			name:  "path-style with explicit port",
+			input: "via.sour.is:7979/xuu",
+			want:  Target{User: "xuu", HostPort: "via.sour.is:7979", Raw: "xuu@via.sour.is:7979"},
+		},
+		{
+			name:  "finger:// scheme, host only -> host query",
+			input: "finger://plan.cat",
+			want:  Target{User: "", HostPort: "plan.cat:79", Raw: "@plan.cat"},
+		},
+		{
+			name:  "finger:// scheme with userinfo",
+			input: "finger://user@host",
+			want:  Target{User: "user", HostPort: "host:79", Raw: "user@host"},
+		},
+		{
+			name:  "path-style, trailing slash, empty user -> host query",
+			input: "plan.cat/",
+			want:  Target{User: "", HostPort: "plan.cat:79", Raw: "@plan.cat"},
+		},
+		{
+			name:  "mixed-case scheme is stripped",
+			input: "FINGER://via.sour.is/xuu",
+			want:  Target{User: "xuu", HostPort: "via.sour.is:79", Raw: "xuu@via.sour.is"},
+		},
+		{
 			name:    "missing @",
 			input:   "alice",
 			wantErr: true,

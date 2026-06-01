@@ -507,7 +507,7 @@ In `tui/app.go`, replace the body of `View` (around line 837-855) with a landing
 func (m appModel) View() tea.View {
 	(&m).updateKeymap() // sync the help panel's enabled set to current state
 
-	if m.landing {
+	if m.landing && m.pos < 0 { // pos<0 keeps the hero gone once anything lands, even for results delivered without a prior submit
 		bottom := m.statusBarModel().render()
 		if m.help {
 			bottom = m.helpView() + "\n" + bottom

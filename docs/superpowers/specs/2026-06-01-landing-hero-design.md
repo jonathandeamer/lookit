@@ -92,10 +92,16 @@ fetch/network dependency:
 
 - Add `landing bool`, initialised `true` in `newApp`.
 - In `submit`, set `landing = false` at the point a fetch command is produced
-  (the one-time transition trigger). No other site clears or sets it.
+  (the one-time transition trigger). `landing` is a pure user-intent flag —
+  no other site clears or sets it.
 - `View()` branches **before** building the normal stack. The two branches are
   mutually exclusive about who renders the input:
-  - **Landing branch (`m.landing`):** does **not** prepend `m.input.View()` as a
+  - **Landing branch (`m.landing && m.pos < 0`):** the compound guard is
+    deliberate. `landing` alone would let the hero reappear for a fetch result
+    delivered without a prior `submit` (the path several existing model tests
+    take); pairing it with `pos < 0` ("nothing fetched yet") keeps the hero gone
+    the instant anything lands, so `landing` can stay a pure user-intent flag
+    cleared only in `submit`. This branch does **not** prepend `m.input.View()` as a
     top row. Instead it builds `bottom` (status bar, plus the help panel if
     open) and renders `heroView(styles, profile, width, height-Height(bottom),
     inputView) + "\n" + bottom`, where `inputView` is a width-bounded copy of

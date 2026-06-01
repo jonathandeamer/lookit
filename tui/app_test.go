@@ -1566,3 +1566,46 @@ func TestCopyAddressSuccessSetsCopiedFlash(t *testing.T) {
 		t.Fatalf("flash = %q, want %q", m.flash, want)
 	}
 }
+
+func TestBackClearsFlash(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan: hi\n"),
+	}})
+	m = step.(appModel) // pos == 0 now, so back() steps back rather than quitting
+
+	m.flash = "copied alice@plan.cat"
+	(&m).back()
+	if m.flash != "" {
+		t.Fatalf("flash = %q after back, want empty", m.flash)
+	}
+}
+
+func TestDrillClearsFlash(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.state = stateList
+	m.list = newList(m.common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs"}})
+	m.listReady = true
+
+	m.flash = "copied alrs@tilde.team"
+	_, got, _ := m.drill() // value receiver: the clear lands on the returned model
+	if got.flash != "" {
+		t.Fatalf("flash = %q after drill, want empty", got.flash)
+	}
+}
+
+func TestFocusInputPreservesErrorFlash(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan: hi\n"),
+	}})
+	m = step.(appModel)
+
+	m.flash = "error: bad target"
+	(&m).focusInput() // on the parse-error recovery path: must NOT clear the flash
+	if m.flash != "error: bad target" {
+		t.Fatalf("flash = %q after focusInput, want it preserved", m.flash)
+	}
+}

@@ -248,6 +248,7 @@ func (m *appModel) stepBack() {
 
 // back is Esc semantics: step back, or quit when already at the landing.
 func (m *appModel) back() tea.Cmd {
+	m.flash = ""
 	if m.pos < 0 {
 		return tea.Quit
 	}
@@ -483,6 +484,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 
 // drill fingers the highlighted user as login@host and switches to the reader.
 func (m appModel) drill() (bool, appModel, tea.Cmd) {
+	m.flash = ""
 	sel, ok := m.list.selected()
 	if !ok {
 		return true, m, nil

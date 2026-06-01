@@ -1482,3 +1482,62 @@ func TestCopyAddressPinsServerTarget(t *testing.T) {
 		t.Fatalf("copied = %q, want it to contain the pinned port :79", copied)
 	}
 }
+
+func TestLandingTrueAtLaunchAndHeroRendered(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	if !m.landing {
+		t.Fatal("landing should be true at launch")
+	}
+	content := m.View().Content
+	if !strings.Contains(content, heroManicule) {
+		t.Fatalf("launch view missing hero manicule:\n%s", content)
+	}
+	if !strings.Contains(content, heroTagline) {
+		t.Fatalf("launch view missing tagline:\n%s", content)
+	}
+}
+
+func TestSubmitDismissesLandingHero(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	m.input.SetValue("@tilde.team")
+	(&m).submit() // returns a fetch cmd we deliberately do not run, so stubFetch is never called
+	if m.landing {
+		t.Fatal("submit should dismiss the landing hero")
+	}
+	if strings.Contains(m.View().Content, heroManicule) {
+		t.Fatalf("hero should be gone after submit:\n%s", m.View().Content)
+	}
+}
+
+func TestHeroDoesNotReturnOnBackToLanding(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	m.input.SetValue("alice@plan.cat")
+	(&m).submit() // landing=false, reqSeq=1, loading
+	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Login: alice\n"),
+	}})
+	m = step.(appModel)
+	if m.landing {
+		t.Fatal("landing should be false after a fetch")
+	}
+
+	(&m).back() // pos 0 -> -1, returns to the empty landing
+	if m.pos != -1 {
+		t.Fatalf("want pos -1 after back-to-landing, got %d", m.pos)
+	}
+	if m.landing {
+		t.Fatal("hero must not return on back-navigation")
+	}
+	if strings.Contains(m.View().Content, heroManicule) {
+		t.Fatalf("hero reappeared on back-to-landing:\n%s", m.View().Content)
+	}
+}

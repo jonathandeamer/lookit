@@ -111,6 +111,7 @@ type appModel struct {
 	help       bool // help panel open
 	helpModel  help.Model
 	listReady  bool
+	landing    bool // true until the first fetch is dispatched; gates the hero
 }
 
 func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
@@ -141,6 +142,7 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		helpModel:    help.New(),
 		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.spinner)),
 		pos:          -1,
+		landing:      true,
 	}
 	app.reader.setBackground(common.darkBackground)
 	app.reader.styles = st
@@ -314,6 +316,7 @@ func (m *appModel) submit() tea.Cmd {
 		return nil
 	}
 	m.flash = "" // clear any stale parse-error flash from a prior failed submit
+	m.landing = false
 	m.blurInput()
 	return m.startFetch(target)
 }
@@ -836,6 +839,24 @@ func maxLineWidth(lines []string) int {
 
 func (m appModel) View() tea.View {
 	(&m).updateKeymap() // sync the help panel's enabled set to current state
+
+	if m.landing && m.pos < 0 {
+		bottom := m.statusBarModel().render()
+		if m.help {
+			bottom = m.helpView() + "\n" + bottom
+		}
+		heroH := m.common.height - lipgloss.Height(bottom)
+		if heroH < 1 {
+			heroH = 1
+		}
+		in := m.input // value copy: bounding its width must not mutate the live input
+		in.SetWidth(heroInputWidth(m.common.width))
+		hero := heroView(m.common.styles, m.common.profile, m.common.width, heroH, in.View())
+		v := tea.NewView(hero + "\n" + bottom)
+		v.AltScreen = true
+		return v
+	}
+
 	var content string
 	switch m.state {
 	case stateList:

@@ -723,6 +723,12 @@ func (m appModel) statusBarModel() statusBar {
 		}
 	default: // stateReader
 		bar.meta = formatBytes(len(node.entry.Body))
+		// The render footer (which carried the truncation notice) is suppressed
+		// in the TUI. The error message still renders in the viewport via the
+		// ErrLine, but truncation had no other home, so surface it here.
+		if node.entry.Meta.Truncated {
+			bar.flags = append(bar.flags, "partial (truncated)")
+		}
 		bar.hints = joinHints([]string{"↑↓ scroll"}, bar.escTarget)
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
 			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))

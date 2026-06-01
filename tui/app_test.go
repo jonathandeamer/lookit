@@ -399,6 +399,15 @@ func TestTruncatedHostFetchMarksListIncomplete(t *testing.T) {
 	}
 }
 
+func TestTruncatedReaderFetchMarksReaderTruncated(t *testing.T) {
+	target := hostTarget(t, "alice@plan.cat")
+	bar := barFor(t, Entry{Target: target, Body: []byte("Plan: hi\n"),
+		Meta: finger.Meta{Addr: target.HostPort, Truncated: true}})
+	if !strings.Contains(bar, "partial (truncated)") {
+		t.Fatalf("bar = %q, want partial (truncated)", bar)
+	}
+}
+
 func TestErroredHostFetchWithBodyMarksListIncomplete(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
 	bar := barFor(t, Entry{Target: host, Body: []byte(hostListBody()),

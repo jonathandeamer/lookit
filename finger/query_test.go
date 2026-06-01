@@ -79,6 +79,21 @@ func TestParseTarget(t *testing.T) {
 			input:   "alice@",
 			wantErr: true,
 		},
+		{
+			name:    "control char CR+LF in user",
+			input:   "a\r\nb@host",
+			wantErr: true,
+		},
+		{
+			name:    "control char NUL in host",
+			input:   "u@ho\x00st",
+			wantErr: true,
+		},
+		{
+			name:    "DEL in user",
+			input:   "a\x7f@host",
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {

@@ -41,7 +41,22 @@ func ParseTarget(arg string) (Target, error) {
 	if !strings.Contains(hostport, ":") {
 		hostport = hostport + ":79"
 	}
+	if hasControl(user) || hasControl(hostport) {
+		return Target{}, errors.New("target contains control characters")
+	}
 	return Target{User: user, HostPort: hostport, Raw: arg}, nil
+}
+
+// hasControl reports whether s contains an ASCII C0 control (< 0x20, including
+// CR and LF) or DEL (0x7f). Such bytes in a query token would let a hostile or
+// malformed target smuggle extra RFC 1288 query lines onto the wire.
+func hasControl(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeTarget rewrites scheme-prefixed and path-style addresses into the

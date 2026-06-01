@@ -15,6 +15,11 @@ import (
 const listChromeRows = 1
 const maxPreambleRows = 12
 
+// maxListEntries bounds how many parsed users we turn into Bubble list items.
+// A hostile host can pack a 1 MiB response with tens of thousands of distinct
+// logins; capping keeps list/filter state bounded so the TUI can't be frozen.
+const maxListEntries = 2000
+
 // userItem is one selectable user in the list.
 type userItem struct {
 	login  string
@@ -53,6 +58,9 @@ type listModel struct {
 }
 
 func newList(common *commonModel, host finger.Target, users []User) listModel {
+	if len(users) > maxListEntries {
+		users = users[:maxListEntries]
+	}
 	items := make([]list.Item, len(users))
 	for i, u := range users {
 		items[i] = userItem{login: u.Login, name: u.Name, target: u.Target}
@@ -84,6 +92,7 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 }
 
 func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, generic bool) listModel {
+	total := len(users)
 	m := newList(common, host, users)
 	m.generic = generic
 	if parsed, ok := parseUserList(body); ok {
@@ -93,6 +102,14 @@ func newListWithPreamble(common *commonModel, host finger.Target, users []User, 
 	}
 	if generic {
 		note := "Auto-detected user list from an unrecognized response — press r to view raw."
+		if m.preamble != "" {
+			m.preamble = note + "\n\n" + m.preamble
+		} else {
+			m.preamble = note
+		}
+	}
+	if total > maxListEntries {
+		note := fmt.Sprintf("List truncated — showing first %d of %d", maxListEntries, total)
 		if m.preamble != "" {
 			m.preamble = note + "\n\n" + m.preamble
 		} else {

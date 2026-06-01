@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -311,6 +312,38 @@ func TestQuery_DefangsInvalidUTF8Bytes(t *testing.T) {
 	want := "Plan:\ncaf\\xe9 ü\n"
 	if string(body) != want {
 		t.Errorf("body:\n  got:  %q\n  want: %q", string(body), want)
+	}
+}
+
+func TestQueryRejectsControlCharsInUser(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	received := make(chan []byte, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			received <- nil
+			return
+		}
+		defer c.Close()
+		// Give the client a generous window to write anything it wants to.
+		_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		buf, _ := io.ReadAll(c)
+		received <- buf
+	}()
+
+	tgt := Target{User: "a\r\nb", HostPort: ln.Addr().String()}
+	_, _, queryErr := Query(context.Background(), tgt)
+
+	if queryErr == nil {
+		t.Fatal("Query with control char in user = nil error, want error")
+	}
+	if got := <-received; len(got) != 0 {
+		t.Errorf("server received %d bytes %q; guard must fire before any write", len(got), got)
 	}
 }
 

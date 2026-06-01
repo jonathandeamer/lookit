@@ -17,6 +17,7 @@ type Entry struct {
 type FetchFunc func(context.Context, finger.Target) ([]byte, finger.Meta, error)
 
 type fetchResultMsg struct {
+	reqID uint64
 	entry Entry
 }
 
@@ -24,10 +25,11 @@ func defaultFetch(ctx context.Context, target finger.Target) ([]byte, finger.Met
 	return finger.Query(ctx, target)
 }
 
-func fetchCmd(ctx context.Context, fetch FetchFunc, target finger.Target) tea.Cmd {
+func fetchCmd(ctx context.Context, fetch FetchFunc, target finger.Target, reqID uint64) tea.Cmd {
 	return func() tea.Msg {
 		body, meta, err := fetch(ctx, target)
 		return fetchResultMsg{
+			reqID: reqID,
 			entry: Entry{
 				Target: target,
 				Body:   body,

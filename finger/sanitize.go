@@ -1,7 +1,9 @@
 package finger
 
 import (
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -14,7 +16,10 @@ import (
 //   - C0 controls (U+0000–U+001F except tab/newline) and DEL (U+007F) become
 //     caret notation (ESC -> "^[", BEL -> "^G", DEL -> "^?");
 //   - C1 controls (U+0080–U+009F, even when validly UTF-8-encoded) and any
-//     invalid UTF-8 byte become lowercase "\xXX" hex.
+//     invalid UTF-8 byte become lowercase "\xXX" hex;
+//   - non-printing Unicode format controls (category Cf — bidi overrides and
+//     isolates, zero-width chars, BOM, soft hyphen, tag chars) and line/
+//     paragraph separators (Zl/Zp) become lowercase "\u{X…}" (variable width).
 //
 // We deliberately keep UTF-8 rather than honoring §3.3's literal "7-bit"
 // wording: stripping bytes >= 0x80 would delete legitimate modern content,
@@ -43,6 +48,12 @@ func sanitize(body []byte) []byte {
 		case r >= 0x80 && r <= 0x9f:
 			// C1 control, however it was encoded.
 			writeHex(&b, byte(r))
+		case unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp):
+			// Non-printing Unicode format controls (bidi overrides/isolates,
+			// zero-width, BOM, soft hyphen, tag chars) and line/paragraph
+			// separators. These reorder or hide text without any terminal
+			// escape, so visualize them rather than emit them verbatim.
+			writeUnicodeEscape(&b, r)
 		default:
 			b.WriteRune(r)
 		}
@@ -73,6 +84,14 @@ func isClean(body []byte) bool {
 func writeCaret(b *strings.Builder, r rune) {
 	b.WriteByte('^')
 	b.WriteByte(byte(r) ^ 0x40)
+}
+
+// writeUnicodeEscape writes a rune as lowercase `\u{X…}` (variable width) — the
+// notation for a defanged code point, distinct from writeHex's byte-oriented `\xXX`.
+func writeUnicodeEscape(b *strings.Builder, r rune) {
+	b.WriteString("\\u{")
+	b.WriteString(strconv.FormatInt(int64(r), 16))
+	b.WriteByte('}')
 }
 
 // writeHex writes a single byte as lowercase `\xXX`.

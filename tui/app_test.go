@@ -1514,6 +1514,62 @@ func TestSubmitDismissesLandingHero(t *testing.T) {
 	}
 }
 
+func TestFocusedInputChromeShowsHeaderMarkAboveTargetRow(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	m.input.SetValue("alice@plan.cat")
+	(&m).submit()
+	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Login: alice\n"),
+	}})
+	m = step.(appModel)
+
+	(&m).focusInput()
+	view := stripANSIForLandingTest(m.View().Content)
+	lines := strings.Split(view, "\n")
+	markLine := -1
+	targetLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, heroManicule+" "+heroWordmark) {
+			markLine = i
+		}
+		if strings.Contains(line, "target:") {
+			targetLine = i
+		}
+	}
+	if markLine < 0 {
+		t.Fatalf("focused input chrome missing header mark:\n%s", view)
+	}
+	if targetLine < 0 {
+		t.Fatalf("focused input chrome missing target row:\n%s", view)
+	}
+	if targetLine != markLine+1 {
+		t.Fatalf("target row should immediately follow header mark, mark=%d target=%d:\n%s", markLine, targetLine, view)
+	}
+}
+
+func TestBlurredResultChromeDoesNotSpendHeaderRow(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	m.input.SetValue("alice@plan.cat")
+	(&m).submit()
+	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Login: alice\n"),
+	}})
+	m = step.(appModel)
+
+	view := stripANSIForLandingTest(m.View().Content)
+	if strings.Contains(view, heroManicule+" "+heroWordmark) {
+		t.Fatalf("blurred result view should not spend a row on the header mark:\n%s", view)
+	}
+}
+
 func TestHeroDoesNotReturnOnBackToLanding(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -1537,8 +1593,26 @@ func TestHeroDoesNotReturnOnBackToLanding(t *testing.T) {
 	if m.landing {
 		t.Fatal("hero must not return on back-navigation")
 	}
-	if strings.Contains(m.View().Content, heroManicule) {
-		t.Fatalf("hero reappeared on back-to-landing:\n%s", m.View().Content)
+	view := stripANSIForLandingTest(m.View().Content)
+	if strings.Contains(view, heroTagline) {
+		t.Fatalf("centered hero splash reappeared on back-to-landing:\n%s", view)
+	}
+	lines := strings.Split(view, "\n")
+	markLine := -1
+	targetLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, heroManicule+" "+heroWordmark) {
+			markLine = i
+		}
+		if strings.Contains(line, "target:") {
+			targetLine = i
+		}
+	}
+	if markLine < 0 {
+		t.Fatalf("back-to-landing focused chrome missing header mark:\n%s", view)
+	}
+	if targetLine != markLine+1 {
+		t.Fatalf("back-to-landing target row should immediately follow header mark, mark=%d target=%d:\n%s", markLine, targetLine, view)
 	}
 }
 

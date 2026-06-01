@@ -758,6 +758,13 @@ func (m appModel) helpView() string {
 	return fullWidthHelpView(m.keys.FullHelp(), m.common.styles, m.common.width, m.helpModel.FullSeparator)
 }
 
+func (m appModel) inputChromeView() string {
+	if !m.inputFocused {
+		return m.input.View()
+	}
+	return headerMark(m.common.styles, m.common.profile) + "\n" + m.input.View()
+}
+
 func fullWidthHelpView(groups [][]key.Binding, st styles, width int, separator string) string {
 	var columns [][]string
 	var widths []int
@@ -871,7 +878,7 @@ func (m appModel) View() tea.View {
 	if m.help {
 		bottom = m.helpView() + "\n" + bottom
 	}
-	full := m.input.View() + "\n" + content + "\n" + bottom
+	full := m.inputChromeView() + "\n" + content + "\n" + bottom
 
 	v := tea.NewView(full)
 	v.AltScreen = true

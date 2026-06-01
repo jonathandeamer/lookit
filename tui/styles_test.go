@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"fmt"
 	"image/color"
 	"math"
+	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
@@ -93,4 +95,54 @@ func sameColor(a, b color.Color) bool {
 	ar, ag, ab, aa := a.RGBA()
 	br, bg, bb, ba := b.RGBA()
 	return ar == br && ag == bg && ab == bb && aa == ba
+}
+
+func backgroundSequence(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
+func lineContaining(t *testing.T, view, text string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, text) {
+			return line
+		}
+	}
+	t.Fatalf("view missing line containing %q:\n%s", text, view)
+	return ""
+}
+
+func lineIndexContaining(t *testing.T, view, text string) int {
+	t.Helper()
+	for i, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, text) {
+			return i
+		}
+	}
+	t.Fatalf("view missing line containing %q:\n%s", text, view)
+	return -1
+}
+
+func assertFullWidthStyledLine(t *testing.T, name, line string, width int, bg color.Color) {
+	t.Helper()
+	if got := lipgloss.Width(line); got != width {
+		t.Fatalf("%s width = %d, want %d\n%q", name, got, width, line)
+	}
+	if !strings.Contains(line, backgroundSequence(bg)) {
+		t.Fatalf("%s missing background %s:\n%q", name, backgroundSequence(bg), line)
+	}
+	if hasPlainTrailingAfterFinalReset(line) {
+		t.Fatalf("%s has plain trailing cells after the final ANSI reset:\n%q", name, line)
+	}
+}
+
+func hasPlainTrailingAfterFinalReset(line string) bool {
+	end := -1
+	for _, reset := range []string{"\x1b[0m", "\x1b[m"} {
+		if i := strings.LastIndex(line, reset); i >= 0 && i+len(reset) > end {
+			end = i + len(reset)
+		}
+	}
+	return end >= 0 && end < len(line)
 }

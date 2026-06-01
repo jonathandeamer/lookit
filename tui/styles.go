@@ -2,6 +2,7 @@ package tui
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/list"
@@ -42,6 +43,7 @@ type styles struct {
 
 	input    textinput.Styles
 	help     help.Styles
+	helpBand lipgloss.Style
 	spinner  lipgloss.Style
 	list     list.Styles
 	listItem list.DefaultItemStyles
@@ -182,10 +184,23 @@ func newStyles(dark bool) styles {
 			Background(p.AccentViolet).
 			Foreground(hexColor("#ffffff")).
 			Bold(true),
-		input:    inputStyles,
-		help:     helpStyles,
+		input: inputStyles,
+		help:  helpStyles,
+		helpBand: lipgloss.NewStyle().
+			Background(p.SubtleBg).
+			Foreground(p.BarText),
 		spinner:  lipgloss.NewStyle().Foreground(p.AccentMint),
 		list:     listStyles,
 		listItem: itemStyles,
 	}
+}
+
+func padStyledLine(line string, width int, fill lipgloss.Style) string {
+	if width <= 0 {
+		return line
+	}
+	if pad := width - lipgloss.Width(line); pad > 0 {
+		return line + fill.Render(strings.Repeat(" ", pad))
+	}
+	return line
 }

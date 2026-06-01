@@ -766,6 +766,19 @@ func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {
 	}
 }
 
+func TestHelpPanelRowsSpanFullWidth(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 24})
+	m = step.(appModel)
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+
+	line := lineContaining(t, m.View().Content, "raw")
+	assertFullWidthStyledLine(t, "help row", line, m.common.width, m.common.styles.palette.SubtleBg)
+}
+
 func TestQuestionMarkOpensHelpWhileInputFocused(t *testing.T) {
 	// On the landing the input is focused; '?' (never valid in a finger address)
 	// should still open help rather than typing a literal '?'.

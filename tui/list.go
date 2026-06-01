@@ -2,10 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -74,11 +77,51 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 	return listModel{common: common, list: l, host: host}
 }
 
-func defaultUserDelegate(st styles) list.DefaultDelegate {
+type userDelegate struct {
+	list.DefaultDelegate
+}
+
+func defaultUserDelegate(st styles) userDelegate {
 	d := list.NewDefaultDelegate()
 	d.Styles = st.listItem
 	d.SetSpacing(0) // drop the blank line between items: 3 rows/item -> 2 (tighter)
-	return d
+	return userDelegate{DefaultDelegate: d}
+}
+
+func (d userDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	if index != m.Index() || m.FilterState() == list.Filtering {
+		d.DefaultDelegate.Render(w, m, index, item)
+		return
+	}
+
+	i, ok := item.(list.DefaultItem)
+	if !ok || m.Width() <= 0 {
+		return
+	}
+
+	title := renderSelectedShelfLine(i.Title(), d.Styles.SelectedTitle, m.Width())
+	if !d.ShowDescription {
+		fmt.Fprint(w, title) //nolint:errcheck
+		return
+	}
+
+	desc := firstDescriptionLine(i.Description())
+	fmt.Fprintf(w, "%s\n%s", title, renderSelectedShelfLine(desc, d.Styles.SelectedDesc, m.Width())) //nolint:errcheck
+}
+
+func firstDescriptionLine(desc string) string {
+	if desc == "" {
+		return ""
+	}
+	return strings.Split(desc, "\n")[0]
+}
+
+func renderSelectedShelfLine(text string, st lipgloss.Style, width int) string {
+	contentWidth := width - st.GetHorizontalFrameSize()
+	if contentWidth < 0 {
+		contentWidth = 0
+	}
+	return st.Width(width).MaxWidth(width).Render(ansi.Truncate(text, contentWidth, "..."))
 }
 
 func applyListStyles(l *list.Model, st styles) {

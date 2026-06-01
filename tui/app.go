@@ -16,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -662,7 +663,7 @@ func (m *appModel) helpHeight() int {
 		return 0
 	}
 	m.updateKeymap() // measure the same enabled set the View will render
-	return lipgloss.Height(m.helpModel.View(m.keys))
+	return lipgloss.Height(m.helpView())
 }
 
 // resizeForHelp re-sizes the active sub-model to leave room for the help block.
@@ -678,6 +679,92 @@ func (m *appModel) resizeForHelp() {
 	}
 }
 
+func (m appModel) helpView() string {
+	return fullWidthHelpView(m.keys.FullHelp(), m.common.styles, m.common.width, m.helpModel.FullSeparator)
+}
+
+func fullWidthHelpView(groups [][]key.Binding, st styles, width int, separator string) string {
+	var columns [][]string
+	var widths []int
+	maxRows := 0
+	for _, group := range groups {
+		rows := helpColumnRows(group, st)
+		if len(rows) == 0 {
+			continue
+		}
+		columnWidth := maxLineWidth(rows)
+		for i, row := range rows {
+			rows[i] = padStyledLine(row, columnWidth, st.helpBand)
+		}
+		columns = append(columns, rows)
+		widths = append(widths, columnWidth)
+		if len(rows) > maxRows {
+			maxRows = len(rows)
+		}
+	}
+	if maxRows == 0 {
+		return ""
+	}
+
+	lines := make([]string, maxRows)
+	sep := st.help.FullSeparator.Render(separator)
+	for row := range maxRows {
+		var line strings.Builder
+		for col, rows := range columns {
+			if col > 0 {
+				line.WriteString(sep)
+			}
+			if row < len(rows) {
+				line.WriteString(rows[row])
+				continue
+			}
+			line.WriteString(st.helpBand.Render(strings.Repeat(" ", widths[col])))
+		}
+		out := line.String()
+		if width > 0 && lipgloss.Width(out) > width {
+			out = ansi.Truncate(out, width, "...")
+		}
+		lines[row] = padStyledLine(out, width, st.helpBand)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func helpColumnRows(group []key.Binding, st styles) []string {
+	keyWidth := 0
+	for _, binding := range group {
+		if !binding.Enabled() {
+			continue
+		}
+		if w := lipgloss.Width(binding.Help().Key); w > keyWidth {
+			keyWidth = w
+		}
+	}
+	if keyWidth == 0 {
+		return nil
+	}
+
+	var rows []string
+	for _, binding := range group {
+		if !binding.Enabled() {
+			continue
+		}
+		help := binding.Help()
+		key := st.help.FullKey.Render(help.Key + strings.Repeat(" ", keyWidth-lipgloss.Width(help.Key)))
+		rows = append(rows, key+st.helpBand.Render(" ")+st.help.FullDesc.Render(help.Desc))
+	}
+	return rows
+}
+
+func maxLineWidth(lines []string) int {
+	width := 0
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > width {
+			width = w
+		}
+	}
+	return width
+}
+
 func (m appModel) View() tea.View {
 	(&m).updateKeymap() // sync the help panel's enabled set to current state
 	var content string
@@ -689,7 +776,7 @@ func (m appModel) View() tea.View {
 	}
 	bottom := m.statusBarModel().render()
 	if m.help {
-		bottom = m.helpModel.View(m.keys) + "\n" + bottom
+		bottom = m.helpView() + "\n" + bottom
 	}
 	full := m.input.View() + "\n" + content + "\n" + bottom
 

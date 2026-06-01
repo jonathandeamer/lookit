@@ -181,6 +181,29 @@ func TestNewListUsesSharedStyles(t *testing.T) {
 	}
 }
 
+func TestSelectedListItemShelfSpansFullWidth(t *testing.T) {
+	common := testCommon()
+	common.width = 32
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
+
+	view := m.View()
+	assertFullWidthStyledLine(t, "selected title", lineContaining(t, view, "alrs"), m.list.Width(), common.styles.palette.SelectionBg)
+	assertFullWidthStyledLine(t, "selected description", lineContaining(t, view, "Alvaro"), m.list.Width(), common.styles.palette.SelectionBg)
+}
+
+func TestSelectedListItemShelfIncludesBlankDescriptionLine(t *testing.T) {
+	common := testCommon()
+	common.width = 32
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs"}})
+
+	lines := strings.Split(m.View(), "\n")
+	titleIndex := lineIndexContaining(t, m.View(), "alrs")
+	if len(lines) <= titleIndex+1 {
+		t.Fatalf("list view has %d lines, want selected title and description rows:\n%s", len(lines), m.View())
+	}
+	assertFullWidthStyledLine(t, "selected blank description", lines[titleIndex+1], m.list.Width(), common.styles.palette.SelectionBg)
+}
+
 func TestListApplyStylesUpdatesExistingList(t *testing.T) {
 	common := testCommon()
 	common.styles = newStyles(true)

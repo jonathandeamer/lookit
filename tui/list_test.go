@@ -221,6 +221,18 @@ func TestNewListUsesSharedStyles(t *testing.T) {
 	}
 }
 
+func TestNewListInitializesMissingSharedStyles(t *testing.T) {
+	common := &commonModel{width: 32, height: 12}
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
+
+	if common.styles.palette.BaseBg == nil {
+		t.Fatal("newList should initialize missing shared styles on commonModel")
+	}
+	view := m.View()
+	assertFullWidthStyledLine(t, "fallback selected title", lineContaining(t, view, "alrs"), m.list.Width(), common.styles.palette.SelectionBg)
+	assertFullWidthStyledLine(t, "fallback selected description", lineContaining(t, view, "Alvaro"), m.list.Width(), common.styles.palette.SelectionBg)
+}
+
 func TestSelectedListItemShelfSpansFullWidth(t *testing.T) {
 	common := testCommon()
 	common.width = 32
@@ -242,6 +254,29 @@ func TestSelectedListItemShelfIncludesBlankDescriptionLine(t *testing.T) {
 		t.Fatalf("list view has %d lines, want selected title and description rows:\n%s", len(lines), m.View())
 	}
 	assertFullWidthStyledLine(t, "selected blank description", lines[titleIndex+1], m.list.Width(), common.styles.palette.SelectionBg)
+}
+
+func TestCappedListWithFallbackStylesKeepsFullWidthSelection(t *testing.T) {
+	users := make([]User, maxListEntries+2)
+	users[0] = User{Login: "u0000", Name: "Alvaro"}
+	for i := 1; i < len(users); i++ {
+		users[i] = User{Login: fmt.Sprintf("u%04d", i)}
+	}
+	common := &commonModel{width: 36, height: 14}
+	m := newListWithPreamble(common, finger.Target{Raw: "@big.example"}, users, nil, false)
+
+	if got := len(m.list.Items()); got != maxListEntries {
+		t.Fatalf("newListWithPreamble kept %d items, want exactly %d", got, maxListEntries)
+	}
+	if !strings.Contains(m.preamble, "truncated") {
+		t.Fatalf("preamble = %q, want a truncation note", m.preamble)
+	}
+	if common.styles.palette.SelectionBg == nil {
+		t.Fatal("newListWithPreamble should initialize missing shared styles on commonModel")
+	}
+	view := m.View()
+	assertFullWidthStyledLine(t, "capped selected title", lineContaining(t, view, "u0000"), m.list.Width(), common.styles.palette.SelectionBg)
+	assertFullWidthStyledLine(t, "capped selected description", lineContaining(t, view, "Alvaro"), m.list.Width(), common.styles.palette.SelectionBg)
 }
 
 func TestListApplyStylesUpdatesExistingList(t *testing.T) {

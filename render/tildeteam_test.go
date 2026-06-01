@@ -65,7 +65,7 @@ func TestRender_PronounsReflowedOnTildeOnly(t *testing.T) {
 
 func TestRender_PronounsHighlightedOnTildeOnly(t *testing.T) {
 	body := []byte("Pronouns: he/him\n")
-	theme := NewTheme(colorprofile.TrueColor, true)
+	theme := NewThemeWithBackground(colorprofile.TrueColor, true)
 	styledLabel := theme.Field.Render("Pronouns:")
 
 	tilde := finger.Target{HostPort: "tilde.team:79", Raw: "@tilde.team"}

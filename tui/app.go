@@ -67,6 +67,13 @@ func (c *commonModel) bodyHeight() int {
 	return 1
 }
 
+func (c *commonModel) ensureStyles() styles {
+	if c.styles.palette.BaseBg == nil {
+		c.styles = newStyles(c.darkBackground)
+	}
+	return c.styles
+}
+
 // histNode snapshots a landed screen so back restores instead of re-fetching.
 // listUsers/listGeneric are cached so View needn't re-parse.
 type histNode struct {
@@ -149,7 +156,7 @@ func (m *appModel) setBackground(dark bool) {
 }
 
 func (m *appModel) applyStyles() {
-	st := m.common.styles
+	st := m.common.ensureStyles()
 	m.input.SetStyles(st.input)
 	m.helpModel.Styles = st.help
 	m.spin.Style = st.spinner

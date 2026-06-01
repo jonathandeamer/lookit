@@ -86,10 +86,16 @@ func fromHexNibble(b byte) byte {
 	}
 }
 
-// NewTheme builds a Theme for the given profile and terminal
+// NewTheme builds a Theme for the given profile using Lip Gloss v1's detected
+// terminal background.
+func NewTheme(p colorprofile.Profile) Theme {
+	return NewThemeWithBackground(p, lipgloss.HasDarkBackground())
+}
+
+// NewThemeWithBackground builds a Theme for the given profile and terminal
 // background. On Ascii/NoTTY profiles, it returns a no-color theme that still
 // preserves spacing.
-func NewTheme(p colorprofile.Profile, darkBackground bool) Theme {
+func NewThemeWithBackground(p colorprofile.Profile, darkBackground bool) Theme {
 	noColor := p <= colorprofile.Ascii
 	pal := renderPaletteFor(darkBackground)
 	renderer := lipgloss.NewRenderer(io.Discard)

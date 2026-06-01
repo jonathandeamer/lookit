@@ -41,13 +41,23 @@ func TestRenderPaletteContrast(t *testing.T) {
 }
 
 func TestRenderThemeLightDarkColoursDiffer(t *testing.T) {
-	dark := NewTheme(colorprofile.TrueColor, true)
-	light := NewTheme(colorprofile.TrueColor, false)
+	dark := NewThemeWithBackground(colorprofile.TrueColor, true)
+	light := NewThemeWithBackground(colorprofile.TrueColor, false)
 	if sameColor(dark.Field.GetForeground(), light.Field.GetForeground()) {
 		t.Fatal("field foreground should differ between dark and light backgrounds")
 	}
 	if sameColor(dark.Warning.GetForeground(), light.Warning.GetForeground()) {
 		t.Fatal("warning foreground should differ between dark and light backgrounds")
+	}
+}
+
+func TestNewThemeUsesDetectedBackground(t *testing.T) {
+	theme := NewTheme(colorprofile.NoTTY)
+	if !theme.NoColor {
+		t.Fatal("NoTTY profile should produce a no-color theme")
+	}
+	if theme.Profile != colorprofile.NoTTY {
+		t.Fatalf("theme profile = %v, want NoTTY", theme.Profile)
 	}
 }
 

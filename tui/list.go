@@ -73,7 +73,7 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 		height = 1
 	}
 
-	st := common.styles
+	st := common.ensureStyles()
 	d := defaultUserDelegate(st)
 	l := list.New(items, d, width, height)
 	applyListStyles(&l, st)

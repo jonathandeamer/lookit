@@ -1404,7 +1404,7 @@ func TestJoinHintsDropsEscBackWhenBreadcrumbPresent(t *testing.T) {
 }
 
 func TestStaleFetchResultDropped(t *testing.T) {
-	common := &commonModel{width: 80, height: 24}
+	common := testCommon()
 	m := appModel{common: common}
 	m.reqSeq = 2
 	m.loading = true

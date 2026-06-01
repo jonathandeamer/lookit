@@ -18,7 +18,7 @@ func Render(t finger.Target, body []byte, meta finger.Meta, queryErr error, prof
 // background mode. The TUI uses this so tea.BackgroundColorMsg can restyle a
 // live session deterministically.
 func RenderWithBackground(t finger.Target, body []byte, meta finger.Meta, queryErr error, profile colorprofile.Profile, darkBackground bool) string {
-	theme := NewTheme(profile, darkBackground)
+	theme := NewThemeWithBackground(profile, darkBackground)
 	var sb strings.Builder
 
 	success := queryErr == nil

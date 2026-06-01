@@ -27,7 +27,7 @@ func TestTUIPaletteContrast(t *testing.T) {
 			assertContrast(t, "gold on base", tt.p.AccentGold, tt.p.BaseBg, 4.5)
 			assertContrast(t, "red on base", tt.p.AccentRed, tt.p.BaseBg, 4.5)
 			assertContrast(t, "status text on subtle bg", tt.p.BarText, tt.p.SubtleBg, 4.5)
-			assertContrast(t, "help key on subtle bg", tt.p.Text, tt.p.SubtleBg, 4.5)
+			assertContrast(t, "help key on subtle bg", tt.p.AccentViolet, tt.p.SubtleBg, 4.5)
 			assertContrast(t, "help desc on subtle bg", tt.p.BarText, tt.p.SubtleBg, 4.5)
 			assertContrast(t, "selected login on selected bg", tt.p.SelectionLogin, tt.p.SelectionBg, 4.5)
 			assertContrast(t, "selected desc on selected bg", tt.p.SelectionDesc, tt.p.SelectionBg, 4.5)
@@ -82,9 +82,15 @@ func linearizedChannel(v uint32) float64 {
 
 func assertSameColor(t *testing.T, name string, got, want color.Color) {
 	t.Helper()
-	gr, gg, gb, ga := got.RGBA()
-	wr, wg, wb, wa := want.RGBA()
-	if gr != wr || gg != wg || gb != wb || ga != wa {
+	if !sameColor(got, want) {
+		gr, gg, gb, ga := got.RGBA()
+		wr, wg, wb, wa := want.RGBA()
 		t.Fatalf("%s = rgba(%d,%d,%d,%d), want rgba(%d,%d,%d,%d)", name, gr, gg, gb, ga, wr, wg, wb, wa)
 	}
+}
+
+func sameColor(a, b color.Color) bool {
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
 }

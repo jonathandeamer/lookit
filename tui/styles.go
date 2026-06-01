@@ -53,7 +53,7 @@ func paletteFor(dark bool) palette {
 			Text:           hexColor("#f0edf5"),
 			Dim:            hexColor("#8c8792"),
 			AccentPink:     hexColor("#ff5fa2"),
-			AccentViolet:   hexColor("#8a63ff"),
+			AccentViolet:   hexColor("#9878ff"),
 			AccentMint:     hexColor("#38e7ad"),
 			AccentGold:     hexColor("#eed76d"),
 			AccentRed:      hexColor("#ff6f87"),
@@ -88,12 +88,7 @@ func hexColor(s string) color.Color {
 	return lipgloss.Color(s)
 }
 
-func newStyles(darkMode ...bool) styles {
-	dark := true
-	if len(darkMode) > 0 {
-		dark = darkMode[0]
-	}
-
+func newStyles(dark bool) styles {
 	p := paletteFor(dark)
 	bar := lipgloss.NewStyle().Background(p.SubtleBg)
 
@@ -110,11 +105,11 @@ func newStyles(darkMode ...bool) styles {
 	inputStyles.Cursor.Shape = tea.CursorBar
 
 	helpStyles := help.DefaultStyles(dark)
-	helpStyles.ShortKey = helpStyles.ShortKey.Foreground(p.Text).Background(p.SubtleBg)
+	helpStyles.ShortKey = helpStyles.ShortKey.Foreground(p.AccentViolet).Background(p.SubtleBg)
 	helpStyles.ShortDesc = helpStyles.ShortDesc.Foreground(p.BarText).Background(p.SubtleBg)
 	helpStyles.ShortSeparator = helpStyles.ShortSeparator.Foreground(p.BarText).Background(p.SubtleBg)
 	helpStyles.Ellipsis = helpStyles.Ellipsis.Foreground(p.BarText).Background(p.SubtleBg)
-	helpStyles.FullKey = helpStyles.FullKey.Foreground(p.Text).Background(p.SubtleBg)
+	helpStyles.FullKey = helpStyles.FullKey.Foreground(p.AccentViolet).Background(p.SubtleBg)
 	helpStyles.FullDesc = helpStyles.FullDesc.Foreground(p.BarText).Background(p.SubtleBg)
 	helpStyles.FullSeparator = helpStyles.FullSeparator.Foreground(p.BarText).Background(p.SubtleBg)
 

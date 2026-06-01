@@ -32,10 +32,12 @@ const (
 
 // commonModel is state shared across sub-models.
 type commonModel struct {
-	width   int
-	height  int
-	profile colorprofile.Profile
-	fetch   FetchFunc
+	width          int
+	height         int
+	profile        colorprofile.Profile
+	darkBackground bool
+	styles         styles
+	fetch          FetchFunc
 }
 
 // bodyHeight is the height available to a sub-model after reserving the top
@@ -89,12 +91,19 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 	if fetch == nil {
 		fetch = defaultFetch
 	}
-	common := &commonModel{profile: profile, fetch: fetch}
+	st := newStyles(true)
+	common := &commonModel{
+		profile:        profile,
+		darkBackground: true,
+		styles:         st,
+		fetch:          fetch,
+	}
 	in := textinput.New()
 	in.Placeholder = "alice@plan.cat"
 	in.Prompt = "target: "
 	in.CharLimit = 256
 	in.SetWidth(40)
+	in.SetStyles(st.input)
 	in.Focus() // landing starts focused
 	app := appModel{
 		common:       common,
@@ -104,11 +113,36 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		inputFocused: true,
 		keys:         newKeyMap(),
 		helpModel:    help.New(),
-		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.spinner)),
 		pos:          -1,
 	}
+	app.reader.setBackground(common.darkBackground)
+	app.reader.styles = st
+	app.helpModel.Styles = st.help
 	app.updateKeymap() // first frame reflects the landing's enabled set
 	return app
+}
+
+func (m *appModel) setBackground(dark bool) {
+	m.common.darkBackground = dark
+	m.common.styles = newStyles(dark)
+	m.applyStyles()
+}
+
+func (m *appModel) applyStyles() {
+	st := m.common.styles
+	m.input.SetStyles(st.input)
+	m.helpModel.Styles = st.help
+	m.spin.Style = st.spinner
+	m.reader.styles = st
+	if m.showingRaw {
+		m.reader.darkBackground = m.common.darkBackground
+	} else {
+		m.reader.setBackground(m.common.darkBackground)
+	}
+	if m.listReady {
+		m.list.applyStyles(st)
+	}
 }
 
 // push records a newly-landed screen, truncating any forward tail first.
@@ -253,6 +287,7 @@ func (m *appModel) submit() tea.Cmd {
 func (m appModel) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
+		tea.RequestBackgroundColor,
 		tea.RequestCapability("RGB"),
 		tea.RequestCapability("Tc"),
 	)
@@ -279,6 +314,10 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.ColorProfileMsg:
 		m.common.profile = msg.Profile
 		m.reader.setProfile(msg.Profile)
+		return m, nil
+
+	case tea.BackgroundColorMsg:
+		m.setBackground(msg.IsDark())
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -542,7 +581,7 @@ func (m *appModel) updateKeymap() {
 }
 
 func (m appModel) statusBarModel() statusBar {
-	st := newStyles()
+	st := m.common.styles
 	w := m.common.width
 	if m.loading {
 		bar := statusBar{width: w, styles: st}

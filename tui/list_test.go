@@ -9,7 +9,7 @@ import (
 )
 
 func testCommon() *commonModel {
-	return &commonModel{width: 80, height: 24}
+	return &commonModel{width: 80, height: 24, darkBackground: true, styles: newStyles(true)}
 }
 
 func hostTarget(t *testing.T, raw string) finger.Target {
@@ -155,11 +155,42 @@ func TestUserItemDescription(t *testing.T) {
 }
 
 func TestDefaultDelegateRendersLoginAndName(t *testing.T) {
-	common := &commonModel{width: 80, height: 20}
+	common := &commonModel{width: 80, height: 20, darkBackground: true, styles: newStyles(true)}
 	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
 	m.setSize(80, 18)
 	view := m.View()
 	if !strings.Contains(view, "alrs") || !strings.Contains(view, "Alvaro") {
 		t.Fatalf("list view missing login/name:\n%s", view)
+	}
+}
+
+func TestNewListUsesSharedStyles(t *testing.T) {
+	common := testCommon()
+	common.styles = newStyles(false)
+	common.darkBackground = false
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
+
+	if !sameColor(m.list.Styles.Filter.Focused.Prompt.GetForeground(), common.styles.input.Focused.Prompt.GetForeground()) {
+		t.Fatal("list filter prompt should use shared input prompt colour")
+	}
+	if !sameColor(m.list.Styles.Spinner.GetForeground(), common.styles.spinner.GetForeground()) {
+		t.Fatal("list spinner should use shared spinner colour")
+	}
+	if !strings.Contains(m.View(), "\x1b[38;2;168;31;98") {
+		t.Fatalf("light selected row should contain selected login colour:\n%s", m.View())
+	}
+}
+
+func TestListApplyStylesUpdatesExistingList(t *testing.T) {
+	common := testCommon()
+	common.styles = newStyles(true)
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
+
+	m.applyStyles(newStyles(false))
+	if !sameColor(m.list.Styles.Filter.Focused.Prompt.GetForeground(), newStyles(false).input.Focused.Prompt.GetForeground()) {
+		t.Fatal("applyStyles should update list filter prompt")
+	}
+	if !strings.Contains(m.View(), "\x1b[38;2;168;31;98") {
+		t.Fatalf("applyStyles should update selected row render:\n%s", m.View())
 	}
 }

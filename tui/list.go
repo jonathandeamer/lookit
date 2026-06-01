@@ -6,8 +6,6 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -64,23 +62,36 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 		height = 1
 	}
 
-	d := list.NewDefaultDelegate()
-	d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(compat.AdaptiveColor{
-		Light: lipgloss.Color("#1a1a1a"),
-		Dark:  lipgloss.Color("#dddddd"),
-	})
-	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("#8affc1")).BorderForeground(lipgloss.Color("#8affc1"))
-	d.Styles.SelectedDesc = d.Styles.SelectedDesc.Foreground(lipgloss.Color("#8fb7ff"))
-	d.Styles.NormalDesc = d.Styles.NormalDesc.Foreground(lipgloss.Color("#808080"))
-	d.SetSpacing(0) // drop the blank line between items: 3 rows/item -> 2 (tighter)
+	st := common.styles
+	d := defaultUserDelegate(st)
 	l := list.New(items, d, width, height)
+	applyListStyles(&l, st)
 	l.Title = fmt.Sprintf("%s — %d users", host.Raw, len(users))
 	l.SetShowStatusBar(false)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
 
 	return listModel{common: common, list: l, host: host}
+}
+
+func defaultUserDelegate(st styles) list.DefaultDelegate {
+	d := list.NewDefaultDelegate()
+	d.Styles = st.listItem
+	d.SetSpacing(0) // drop the blank line between items: 3 rows/item -> 2 (tighter)
+	return d
+}
+
+func applyListStyles(l *list.Model, st styles) {
+	l.Styles = st.list
+	l.FilterInput.SetStyles(st.list.Filter)
+	l.Help.Styles = st.help
+	l.Paginator.ActiveDot = st.list.ActivePaginationDot.String()
+	l.Paginator.InactiveDot = st.list.InactivePaginationDot.String()
+	l.SetDelegate(defaultUserDelegate(st))
+}
+
+func (m *listModel) applyStyles(st styles) {
+	applyListStyles(&m.list, st)
 }
 
 func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, generic bool) listModel {

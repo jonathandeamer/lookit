@@ -26,21 +26,75 @@ type Theme struct {
 	NoColor bool // true if the profile is Ascii or NoTTY
 }
 
-// pink, cyan, gold, red, dim — base palette (truecolor source values).
-var (
-	colPink = color.RGBA{0xff, 0x6f, 0xd5, 0xff}
-	colCyan = color.RGBA{0x6b, 0xe1, 0xff, 0xff}
-	colGold = color.RGBA{0xff, 0xd0, 0x6b, 0xff}
-	colRed  = color.RGBA{0xff, 0x6b, 0x6b, 0xff}
-	colDim  = color.RGBA{0x80, 0x80, 0x80, 0xff}
-)
+type renderPalette struct {
+	Text, Dim, AccentPink, AccentViolet color.Color
+	AccentMint, AccentGold, AccentRed   color.Color
+	BaseBg                              color.Color
+}
 
-// NewTheme builds a Theme appropriate for the given profile. On Ascii/NoTTY
-// profiles, returns a no-color theme that still preserves spacing.
-func NewTheme(p colorprofile.Profile) Theme {
+func renderPaletteFor(darkBackground bool) renderPalette {
+	if darkBackground {
+		return renderPalette{
+			Text:         hexColor("#f0edf5"),
+			Dim:          hexColor("#8c8792"),
+			AccentPink:   hexColor("#ff5fa2"),
+			AccentViolet: hexColor("#9878ff"),
+			AccentMint:   hexColor("#38e7ad"),
+			AccentGold:   hexColor("#eed76d"),
+			AccentRed:    hexColor("#ff6f87"),
+			BaseBg:       hexColor("#171719"),
+		}
+	}
+	return renderPalette{
+		Text:         hexColor("#25222a"),
+		Dim:          hexColor("#766f7d"),
+		AccentPink:   hexColor("#c92870"),
+		AccentViolet: hexColor("#6d43d6"),
+		AccentMint:   hexColor("#007f62"),
+		AccentGold:   hexColor("#765f00"),
+		AccentRed:    hexColor("#c82f4d"),
+		BaseBg:       hexColor("#fbfafc"),
+	}
+}
+
+func hexColor(s string) color.RGBA {
+	if len(s) != 7 || s[0] != '#' {
+		panic("invalid colour literal: " + s)
+	}
+	return color.RGBA{
+		R: fromHexByte(s[1], s[2]),
+		G: fromHexByte(s[3], s[4]),
+		B: fromHexByte(s[5], s[6]),
+		A: 0xff,
+	}
+}
+
+func fromHexByte(hi, lo byte) byte {
+	return fromHexNibble(hi)<<4 | fromHexNibble(lo)
+}
+
+func fromHexNibble(b byte) byte {
+	switch {
+	case b >= '0' && b <= '9':
+		return b - '0'
+	case b >= 'a' && b <= 'f':
+		return b - 'a' + 10
+	case b >= 'A' && b <= 'F':
+		return b - 'A' + 10
+	default:
+		panic("invalid colour literal")
+	}
+}
+
+// NewTheme builds a Theme for the given profile and terminal
+// background. On Ascii/NoTTY profiles, it returns a no-color theme that still
+// preserves spacing.
+func NewTheme(p colorprofile.Profile, darkBackground bool) Theme {
 	noColor := p <= colorprofile.Ascii
+	pal := renderPaletteFor(darkBackground)
 	renderer := lipgloss.NewRenderer(io.Discard)
 	renderer.SetColorProfile(termProfile(p))
+	renderer.SetHasDarkBackground(darkBackground)
 
 	style := func(c color.Color, bold bool) lipgloss.Style {
 		if noColor {
@@ -54,14 +108,14 @@ func NewTheme(p colorprofile.Profile) Theme {
 	return Theme{
 		Profile: p,
 		NoColor: noColor,
-		Arrow:   style(colPink, true),
-		Target:  style(colPink, true),
-		Latency: style(colDim, false),
-		Sparkle: style(colGold, false),
-		Footer:  style(colDim, false),
-		Warning: style(colGold, false),
-		Field:   style(colCyan, true),
-		ErrLine: style(colRed, false),
+		Arrow:   style(pal.AccentViolet, true),
+		Target:  style(pal.AccentPink, true),
+		Latency: style(pal.Dim, false),
+		Sparkle: style(pal.AccentGold, false),
+		Footer:  style(pal.Dim, false),
+		Warning: style(pal.AccentGold, false),
+		Field:   style(pal.AccentPink, false),
+		ErrLine: style(pal.AccentRed, false),
 	}
 }
 

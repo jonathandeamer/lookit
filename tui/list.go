@@ -2,12 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -72,23 +73,76 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 		height = 1
 	}
 
-	d := list.NewDefaultDelegate()
-	d.Styles.NormalTitle = d.Styles.NormalTitle.Foreground(compat.AdaptiveColor{
-		Light: lipgloss.Color("#1a1a1a"),
-		Dark:  lipgloss.Color("#dddddd"),
-	})
-	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("#8affc1")).BorderForeground(lipgloss.Color("#8affc1"))
-	d.Styles.SelectedDesc = d.Styles.SelectedDesc.Foreground(lipgloss.Color("#8fb7ff"))
-	d.Styles.NormalDesc = d.Styles.NormalDesc.Foreground(lipgloss.Color("#808080"))
-	d.SetSpacing(0) // drop the blank line between items: 3 rows/item -> 2 (tighter)
+	st := common.styles
+	d := defaultUserDelegate(st)
 	l := list.New(items, d, width, height)
+	applyListStyles(&l, st)
 	l.Title = fmt.Sprintf("%s — %d users", host.Raw, len(users))
 	l.SetShowStatusBar(false)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
 
 	return listModel{common: common, list: l, host: host}
+}
+
+type userDelegate struct {
+	list.DefaultDelegate
+}
+
+func defaultUserDelegate(st styles) userDelegate {
+	d := list.NewDefaultDelegate()
+	d.Styles = st.listItem
+	d.SetSpacing(0) // drop the blank line between items: 3 rows/item -> 2 (tighter)
+	return userDelegate{DefaultDelegate: d}
+}
+
+func (d userDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	if index != m.Index() || m.FilterState() == list.Filtering {
+		d.DefaultDelegate.Render(w, m, index, item)
+		return
+	}
+
+	i, ok := item.(list.DefaultItem)
+	if !ok || m.Width() <= 0 {
+		return
+	}
+
+	title := renderSelectedShelfLine(i.Title(), d.Styles.SelectedTitle, m.Width())
+	if !d.ShowDescription {
+		fmt.Fprint(w, title) //nolint:errcheck
+		return
+	}
+
+	desc := firstDescriptionLine(i.Description())
+	fmt.Fprintf(w, "%s\n%s", title, renderSelectedShelfLine(desc, d.Styles.SelectedDesc, m.Width())) //nolint:errcheck
+}
+
+func firstDescriptionLine(desc string) string {
+	if desc == "" {
+		return ""
+	}
+	return strings.Split(desc, "\n")[0]
+}
+
+func renderSelectedShelfLine(text string, st lipgloss.Style, width int) string {
+	contentWidth := width - st.GetHorizontalFrameSize()
+	if contentWidth < 0 {
+		contentWidth = 0
+	}
+	return st.Width(width).MaxWidth(width).Render(ansi.Truncate(text, contentWidth, "..."))
+}
+
+func applyListStyles(l *list.Model, st styles) {
+	l.Styles = st.list
+	l.FilterInput.SetStyles(st.list.Filter)
+	l.Help.Styles = st.help
+	l.Paginator.ActiveDot = st.list.ActivePaginationDot.String()
+	l.Paginator.InactiveDot = st.list.InactivePaginationDot.String()
+	l.SetDelegate(defaultUserDelegate(st))
+}
+
+func (m *listModel) applyStyles(st styles) {
+	applyListStyles(&m.list, st)
 }
 
 func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, generic bool) listModel {

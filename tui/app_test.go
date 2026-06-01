@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"strings"
 	"testing"
 
@@ -788,6 +789,41 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	}
 }
 
+func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+
+	if !m.helpModel.ShowAll {
+		t.Fatal("precondition: help panel should be expanded")
+	}
+	if !sameColor(m.helpModel.Styles.FullKey.GetForeground(), m.common.styles.palette.AccentViolet) {
+		t.Fatal("help key colour should use accent violet")
+	}
+	if !sameColor(m.helpModel.Styles.FullDesc.GetForeground(), m.common.styles.palette.BarText) {
+		t.Fatal("help description colour should use bar text")
+	}
+	view := m.View().Content
+	if !strings.Contains(view, "back") || !strings.Contains(view, "raw") {
+		t.Fatalf("help panel should still render enabled keys:\n%s", view)
+	}
+}
+
+func TestHelpPanelRowsSpanFullWidth(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 24})
+	m = step.(appModel)
+	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+
+	line := lineContaining(t, m.View().Content, "raw")
+	assertFullWidthStyledLine(t, "help row", line, m.common.width, m.common.styles.palette.SubtleBg)
+}
+
 func TestQuestionMarkOpensHelpWhileInputFocused(t *testing.T) {
 	// On the landing the input is focused; '?' (never valid in a finger address)
 	// should still open help rather than typing a literal '?'.
@@ -1012,6 +1048,65 @@ func TestLoadingShowsSpinnerTarget(t *testing.T) {
 	}
 	if !strings.Contains(m.statusBarModel().render(), "bob@sdf.org") {
 		t.Fatalf("loading bar should name the target:\n%s", m.statusBarModel().render())
+	}
+}
+
+func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	oldBg := m.common.styles.palette.BaseBg
+
+	next, _ := m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
+	got := next.(appModel)
+
+	if got.common.darkBackground {
+		t.Fatal("darkBackground = true after light background message, want false")
+	}
+	if sameColor(got.common.styles.palette.BaseBg, oldBg) {
+		t.Fatal("palette base background did not change")
+	}
+	if !sameColor(got.helpModel.Styles.FullKey.GetForeground(), got.common.styles.help.FullKey.GetForeground()) {
+		t.Fatal("help styles were not reapplied")
+	}
+	if !sameColor(got.spin.Style.GetForeground(), got.common.styles.spinner.GetForeground()) {
+		t.Fatal("spinner style was not reapplied")
+	}
+	if !sameColor(got.input.Styles().Focused.Prompt.GetForeground(), got.common.styles.input.Focused.Prompt.GetForeground()) {
+		t.Fatal("input styles were not reapplied")
+	}
+}
+
+func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	target := hostTarget(t, "alice@plan.cat")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\n")}})
+	m = step.(appModel)
+	if !strings.Contains(m.reader.viewport.View(), "\x1b[38;2;255;95;162mLogin:\x1b[0m") {
+		t.Fatalf("precondition: reader did not render dark field colour:\n%q", m.reader.viewport.View())
+	}
+
+	step, _ = m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
+	got := step.(appModel)
+	if !strings.Contains(got.reader.viewport.View(), "\x1b[38;2;201;40;112mLogin:\x1b[0m") {
+		t.Fatalf("reader did not re-render with light field colour:\n%q", got.reader.viewport.View())
+	}
+}
+
+func TestBackgroundColorMsgPreservesRawView(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	target := hostTarget(t, "alice@plan.cat")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\nPlan: raw\n")}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'r'})
+	m = step.(appModel)
+
+	step, _ = m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
+	got := step.(appModel)
+	if !got.showingRaw {
+		t.Fatal("background update should not exit raw mode")
+	}
+	view := got.reader.viewport.View()
+	if strings.Contains(view, "\x1b[") || !strings.Contains(view, "Plan: raw") {
+		t.Fatalf("background update should preserve raw body, got %q", view)
 	}
 }
 

@@ -54,7 +54,7 @@ func TestRender_BasicTrueColor(t *testing.T) {
 		Elapsed: 123 * time.Millisecond,
 		Bytes:   len(body),
 	}
-	got := Render(target, body, meta, nil, colorprofile.TrueColor)
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "basic", "truecolor", got)
 }
 
@@ -84,11 +84,25 @@ func TestRender_NoTTY_HasNoANSI(t *testing.T) {
 	}
 }
 
+func TestRenderWithBackgroundNoTTYHasNoANSI(t *testing.T) {
+	body := []byte("Login: alice\nPlan: hello\n")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
+
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.NoTTY, false)
+	if strings.Contains(got, "\x1b[") {
+		t.Fatalf("NoTTY output contains ANSI escape sequence: %q", got)
+	}
+	if !strings.Contains(got, "Login: alice") {
+		t.Fatalf("NoTTY output should preserve body text: %q", got)
+	}
+}
+
 func TestRender_AsciiArtPreserved(t *testing.T) {
 	body := loadInput(t, "ascii-art")
 	target := finger.Target{User: "bob", HostPort: "example.com:79", Raw: "bob@example.com"}
 	meta := finger.Meta{Addr: "example.com:79", Elapsed: 90 * time.Millisecond, Bytes: len(body)}
-	got := Render(target, body, meta, nil, colorprofile.TrueColor)
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "ascii-art", "truecolor", got)
 
 	// Programmatic check: every input line that is not a field-prefixed line
@@ -108,7 +122,7 @@ func TestRender_EmptyResponse(t *testing.T) {
 	body := loadInput(t, "empty")
 	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 42 * time.Millisecond, Bytes: 0}
-	got := Render(target, body, meta, nil, colorprofile.TrueColor)
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "empty", "truecolor", got)
 }
 
@@ -121,7 +135,7 @@ func TestRender_Truncated(t *testing.T) {
 		Bytes:     len(body),
 		Truncated: true,
 	}
-	got := Render(target, body, meta, nil, colorprofile.TrueColor)
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "truncated", "truecolor", got)
 }
 
@@ -135,6 +149,28 @@ func TestRender_Timeout(t *testing.T) {
 		Truncated: true,
 	}
 	queryErr := errors.New("read response timed out after 30s")
-	got := Render(target, body, meta, queryErr, colorprofile.TrueColor)
+	got := RenderWithBackground(target, body, meta, queryErr, colorprofile.TrueColor, true)
 	compareGolden(t, "timeout", "truecolor", got)
+}
+
+func TestRenderWithBackgroundUsesLightPalette(t *testing.T) {
+	body := []byte("Login: alice\nPlan: hello\n")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
+
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, false)
+	if !strings.Contains(got, "\x1b[38;2;201;40;112mLogin:\x1b[0m") {
+		t.Fatalf("light render missing light field colour escape:\n%q", got)
+	}
+}
+
+func TestRenderWithBackgroundUsesDarkPalette(t *testing.T) {
+	body := []byte("Login: alice\nPlan: hello\n")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
+
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+	if !strings.Contains(got, "\x1b[38;2;255;95;162mLogin:\x1b[0m") {
+		t.Fatalf("dark render missing dark field colour escape:\n%q", got)
+	}
 }

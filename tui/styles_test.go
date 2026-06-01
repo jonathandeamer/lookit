@@ -1,0 +1,148 @@
+package tui
+
+import (
+	"fmt"
+	"image/color"
+	"math"
+	"strings"
+	"testing"
+
+	"charm.land/lipgloss/v2"
+)
+
+func TestTUIPaletteContrast(t *testing.T) {
+	tests := []struct {
+		name string
+		p    palette
+	}{
+		{name: "dark", p: paletteFor(true)},
+		{name: "light", p: paletteFor(false)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertContrast(t, "text on base", tt.p.Text, tt.p.BaseBg, 4.5)
+			assertContrast(t, "dim on base", tt.p.Dim, tt.p.BaseBg, 4.5)
+			assertContrast(t, "pink on base", tt.p.AccentPink, tt.p.BaseBg, 4.5)
+			assertContrast(t, "violet on base", tt.p.AccentViolet, tt.p.BaseBg, 4.5)
+			assertContrast(t, "mint on base", tt.p.AccentMint, tt.p.BaseBg, 4.5)
+			assertContrast(t, "gold on base", tt.p.AccentGold, tt.p.BaseBg, 4.5)
+			assertContrast(t, "red on base", tt.p.AccentRed, tt.p.BaseBg, 4.5)
+			assertContrast(t, "status text on subtle bg", tt.p.BarText, tt.p.SubtleBg, 4.5)
+			assertContrast(t, "help key on subtle bg", tt.p.AccentViolet, tt.p.SubtleBg, 4.5)
+			assertContrast(t, "help desc on subtle bg", tt.p.BarText, tt.p.SubtleBg, 4.5)
+			assertContrast(t, "selected login on selected bg", tt.p.SelectionLogin, tt.p.SelectionBg, 4.5)
+			assertContrast(t, "selected desc on selected bg", tt.p.SelectionDesc, tt.p.SelectionBg, 4.5)
+			assertContrast(t, "selection rail on selected bg", tt.p.AccentViolet, tt.p.SelectionBg, 3.0)
+		})
+	}
+}
+
+func TestNewStylesUsesFunctionalBrightRoles(t *testing.T) {
+	st := newStyles(true)
+	p := paletteFor(true)
+
+	assertSameColor(t, "barBadge background", st.barBadge.GetBackground(), p.AccentViolet)
+	assertSameColor(t, "spinner foreground", st.spinner.GetForeground(), p.AccentMint)
+	assertSameColor(t, "selected title border", st.listItem.SelectedTitle.GetBorderLeftForeground(), p.AccentViolet)
+	assertSameColor(t, "selected title background", st.listItem.SelectedTitle.GetBackground(), p.SelectionBg)
+	assertSameColor(t, "selected title foreground", st.listItem.SelectedTitle.GetForeground(), p.SelectionLogin)
+}
+
+func TestHexColorAcceptsFunctionalBrightValues(t *testing.T) {
+	assertSameColor(t, "functional bright violet", hexColor("#9878ff"), lipgloss.Color("#9878ff"))
+}
+
+func assertContrast(t *testing.T, name string, fg, bg color.Color, minimum float64) {
+	t.Helper()
+	if got := contrastRatio(fg, bg); got < minimum {
+		t.Fatalf("%s contrast = %.2f, want >= %.2f", name, got, minimum)
+	}
+}
+
+func contrastRatio(fg, bg color.Color) float64 {
+	l1 := relativeLuminance(fg)
+	l2 := relativeLuminance(bg)
+	if l1 < l2 {
+		l1, l2 = l2, l1
+	}
+	return (l1 + 0.05) / (l2 + 0.05)
+}
+
+func relativeLuminance(c color.Color) float64 {
+	r, g, b, _ := c.RGBA()
+	return 0.2126*linearizedChannel(r) + 0.7152*linearizedChannel(g) + 0.0722*linearizedChannel(b)
+}
+
+func linearizedChannel(v uint32) float64 {
+	c := float64(v) / math.MaxUint16
+	if c <= 0.04045 {
+		return c / 12.92
+	}
+	return math.Pow((c+0.055)/1.055, 2.4)
+}
+
+func assertSameColor(t *testing.T, name string, got, want color.Color) {
+	t.Helper()
+	if !sameColor(got, want) {
+		gr, gg, gb, ga := got.RGBA()
+		wr, wg, wb, wa := want.RGBA()
+		t.Fatalf("%s = rgba(%d,%d,%d,%d), want rgba(%d,%d,%d,%d)", name, gr, gg, gb, ga, wr, wg, wb, wa)
+	}
+}
+
+func sameColor(a, b color.Color) bool {
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
+}
+
+func backgroundSequence(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
+func lineContaining(t *testing.T, view, text string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, text) {
+			return line
+		}
+	}
+	t.Fatalf("view missing line containing %q:\n%s", text, view)
+	return ""
+}
+
+func lineIndexContaining(t *testing.T, view, text string) int {
+	t.Helper()
+	for i, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, text) {
+			return i
+		}
+	}
+	t.Fatalf("view missing line containing %q:\n%s", text, view)
+	return -1
+}
+
+func assertFullWidthStyledLine(t *testing.T, name, line string, width int, bg color.Color) {
+	t.Helper()
+	if got := lipgloss.Width(line); got != width {
+		t.Fatalf("%s width = %d, want %d\n%q", name, got, width, line)
+	}
+	if !strings.Contains(line, backgroundSequence(bg)) {
+		t.Fatalf("%s missing background %s:\n%q", name, backgroundSequence(bg), line)
+	}
+	if hasPlainTrailingAfterFinalReset(line) {
+		t.Fatalf("%s has plain trailing cells after the final ANSI reset:\n%q", name, line)
+	}
+}
+
+func hasPlainTrailingAfterFinalReset(line string) bool {
+	end := -1
+	for _, reset := range []string{"\x1b[0m", "\x1b[m"} {
+		if i := strings.LastIndex(line, reset); i >= 0 && i+len(reset) > end {
+			end = i + len(reset)
+		}
+	}
+	return end >= 0 && end < len(line)
+}

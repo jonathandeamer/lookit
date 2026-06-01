@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -49,10 +50,12 @@ const (
 
 // commonModel is state shared across sub-models.
 type commonModel struct {
-	width   int
-	height  int
-	profile colorprofile.Profile
-	fetch   FetchFunc
+	width          int
+	height         int
+	profile        colorprofile.Profile
+	darkBackground bool
+	styles         styles
+	fetch          FetchFunc
 }
 
 // bodyHeight is the height available to a sub-model after reserving the top
@@ -107,12 +110,19 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 	if fetch == nil {
 		fetch = defaultFetch
 	}
-	common := &commonModel{profile: profile, fetch: fetch}
+	st := newStyles(true)
+	common := &commonModel{
+		profile:        profile,
+		darkBackground: true,
+		styles:         st,
+		fetch:          fetch,
+	}
 	in := textinput.New()
 	in.Placeholder = pickSample()
 	in.Prompt = "target: "
 	in.CharLimit = 256
 	in.SetWidth(40)
+	in.SetStyles(st.input)
 	in.Focus() // landing starts focused
 	app := appModel{
 		common:       common,
@@ -122,11 +132,36 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		inputFocused: true,
 		keys:         newKeyMap(),
 		helpModel:    help.New(),
-		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.spinner)),
 		pos:          -1,
 	}
+	app.reader.setBackground(common.darkBackground)
+	app.reader.styles = st
+	app.helpModel.Styles = st.help
 	app.updateKeymap() // first frame reflects the landing's enabled set
 	return app
+}
+
+func (m *appModel) setBackground(dark bool) {
+	m.common.darkBackground = dark
+	m.common.styles = newStyles(dark)
+	m.applyStyles()
+}
+
+func (m *appModel) applyStyles() {
+	st := m.common.styles
+	m.input.SetStyles(st.input)
+	m.helpModel.Styles = st.help
+	m.spin.Style = st.spinner
+	m.reader.styles = st
+	if m.showingRaw {
+		m.reader.darkBackground = m.common.darkBackground
+	} else {
+		m.reader.setBackground(m.common.darkBackground)
+	}
+	if m.listReady {
+		m.list.applyStyles(st)
+	}
 }
 
 // push records a newly-landed screen, truncating any forward tail first.
@@ -279,6 +314,7 @@ func (m *appModel) submit() tea.Cmd {
 func (m appModel) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
+		tea.RequestBackgroundColor,
 		tea.RequestCapability("RGB"),
 		tea.RequestCapability("Tc"),
 	)
@@ -305,6 +341,10 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.ColorProfileMsg:
 		m.common.profile = msg.Profile
 		m.reader.setProfile(msg.Profile)
+		return m, nil
+
+	case tea.BackgroundColorMsg:
+		m.setBackground(msg.IsDark())
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -603,7 +643,7 @@ func joinHints(parts []string, escTarget string) string {
 }
 
 func (m appModel) statusBarModel() statusBar {
-	st := newStyles()
+	st := m.common.styles
 	w := m.common.width
 	if m.loading {
 		bar := statusBar{width: w, styles: st}
@@ -685,7 +725,7 @@ func (m *appModel) helpHeight() int {
 		return 0
 	}
 	m.updateKeymap() // measure the same enabled set the View will render
-	return lipgloss.Height(m.helpModel.View(m.keys))
+	return lipgloss.Height(m.helpView())
 }
 
 // resizeForHelp re-sizes the active sub-model to leave room for the help block.
@@ -701,6 +741,92 @@ func (m *appModel) resizeForHelp() {
 	}
 }
 
+func (m appModel) helpView() string {
+	return fullWidthHelpView(m.keys.FullHelp(), m.common.styles, m.common.width, m.helpModel.FullSeparator)
+}
+
+func fullWidthHelpView(groups [][]key.Binding, st styles, width int, separator string) string {
+	var columns [][]string
+	var widths []int
+	maxRows := 0
+	for _, group := range groups {
+		rows := helpColumnRows(group, st)
+		if len(rows) == 0 {
+			continue
+		}
+		columnWidth := maxLineWidth(rows)
+		for i, row := range rows {
+			rows[i] = padStyledLine(row, columnWidth, st.helpBand)
+		}
+		columns = append(columns, rows)
+		widths = append(widths, columnWidth)
+		if len(rows) > maxRows {
+			maxRows = len(rows)
+		}
+	}
+	if maxRows == 0 {
+		return ""
+	}
+
+	lines := make([]string, maxRows)
+	sep := st.help.FullSeparator.Render(separator)
+	for row := range maxRows {
+		var line strings.Builder
+		for col, rows := range columns {
+			if col > 0 {
+				line.WriteString(sep)
+			}
+			if row < len(rows) {
+				line.WriteString(rows[row])
+				continue
+			}
+			line.WriteString(st.helpBand.Render(strings.Repeat(" ", widths[col])))
+		}
+		out := line.String()
+		if width > 0 && lipgloss.Width(out) > width {
+			out = ansi.Truncate(out, width, "...")
+		}
+		lines[row] = padStyledLine(out, width, st.helpBand)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func helpColumnRows(group []key.Binding, st styles) []string {
+	keyWidth := 0
+	for _, binding := range group {
+		if !binding.Enabled() {
+			continue
+		}
+		if w := lipgloss.Width(binding.Help().Key); w > keyWidth {
+			keyWidth = w
+		}
+	}
+	if keyWidth == 0 {
+		return nil
+	}
+
+	var rows []string
+	for _, binding := range group {
+		if !binding.Enabled() {
+			continue
+		}
+		help := binding.Help()
+		key := st.help.FullKey.Render(help.Key + strings.Repeat(" ", keyWidth-lipgloss.Width(help.Key)))
+		rows = append(rows, key+st.helpBand.Render(" ")+st.help.FullDesc.Render(help.Desc))
+	}
+	return rows
+}
+
+func maxLineWidth(lines []string) int {
+	width := 0
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > width {
+			width = w
+		}
+	}
+	return width
+}
+
 func (m appModel) View() tea.View {
 	(&m).updateKeymap() // sync the help panel's enabled set to current state
 	var content string
@@ -712,7 +838,7 @@ func (m appModel) View() tea.View {
 	}
 	bottom := m.statusBarModel().render()
 	if m.help {
-		bottom = m.helpModel.View(m.keys) + "\n" + bottom
+		bottom = m.helpView() + "\n" + bottom
 	}
 	full := m.input.View() + "\n" + content + "\n" + bottom
 

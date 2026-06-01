@@ -1,7 +1,7 @@
-[1;38;2;255;111;213m➜[0m [1;38;2;255;111;213malice@plan.cat[0m [38;2;128;128;128m30.00s[0m
-[1;38;2;107;225;255mLogin:[0m alice
-[1;38;2;107;225;255mPlan:[0m
+[1;38;2;152;120;255m➜[0m [1;38;2;255;95;162malice@plan.cat[0m [38;2;140;135;146m30.00s[0m
+[38;2;255;95;162mLogin:[0m alice
+[38;2;255;95;162mPlan:[0m
 partial content before the read deadline fired
 
-[38;2;128;128;128m66 B · 30.00s[0m [38;2;128;128;128m·[0m [38;2;255;208;107mtruncated[0m
-[38;2;255;107;107mread response timed out after 30s[0m
+[38;2;140;135;146m66 B · 30.00s[0m [38;2;140;135;146m·[0m [38;2;238;215;109mtruncated[0m
+[38;2;255;111;135mread response timed out after 30s[0m

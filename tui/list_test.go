@@ -10,7 +10,7 @@ import (
 )
 
 func testCommon() *commonModel {
-	return &commonModel{width: 80, height: 24}
+	return &commonModel{width: 80, height: 24, darkBackground: true, styles: newStyles(true)}
 }
 
 func hostTarget(t *testing.T, raw string) finger.Target {
@@ -156,7 +156,7 @@ func TestUserItemDescription(t *testing.T) {
 }
 
 func TestDefaultDelegateRendersLoginAndName(t *testing.T) {
-	common := &commonModel{width: 80, height: 20}
+	common := &commonModel{width: 80, height: 20, darkBackground: true, styles: newStyles(true)}
 	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
 	m.setSize(80, 18)
 	view := m.View()
@@ -170,7 +170,7 @@ func TestNewListCapsEntries(t *testing.T) {
 	for i := range users {
 		users[i] = User{Login: fmt.Sprintf("u%d", i)}
 	}
-	common := &commonModel{width: 80, height: 24}
+	common := testCommon()
 	m := newList(common, finger.Target{Raw: "@big.example"}, users)
 	if got := len(m.list.Items()); got != maxListEntries {
 		t.Fatalf("newList kept %d items, want exactly %d", got, maxListEntries)
@@ -182,7 +182,7 @@ func TestNewListWithPreambleNoNoteAtCap(t *testing.T) {
 	for i := range users {
 		users[i] = User{Login: fmt.Sprintf("u%d", i)}
 	}
-	common := &commonModel{width: 80, height: 24}
+	common := testCommon()
 	m := newListWithPreamble(common, finger.Target{Raw: "@big.example"}, users, nil, false)
 	if got := len(m.list.Items()); got != maxListEntries {
 		t.Fatalf("at cap: kept %d items, want %d", got, maxListEntries)
@@ -197,9 +197,63 @@ func TestNewListWithPreambleNotesTruncation(t *testing.T) {
 	for i := range users {
 		users[i] = User{Login: fmt.Sprintf("u%d", i)}
 	}
-	common := &commonModel{width: 80, height: 24}
+	common := testCommon()
 	m := newListWithPreamble(common, finger.Target{Raw: "@big.example"}, users, nil, false)
 	if !strings.Contains(m.preamble, "truncated") {
 		t.Fatalf("preamble = %q, want a truncation note", m.preamble)
+	}
+}
+
+func TestNewListUsesSharedStyles(t *testing.T) {
+	common := testCommon()
+	common.styles = newStyles(false)
+	common.darkBackground = false
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
+
+	if !sameColor(m.list.Styles.Filter.Focused.Prompt.GetForeground(), common.styles.input.Focused.Prompt.GetForeground()) {
+		t.Fatal("list filter prompt should use shared input prompt colour")
+	}
+	if !sameColor(m.list.Styles.Spinner.GetForeground(), common.styles.spinner.GetForeground()) {
+		t.Fatal("list spinner should use shared spinner colour")
+	}
+	if !strings.Contains(m.View(), "\x1b[38;2;168;31;98") {
+		t.Fatalf("light selected row should contain selected login colour:\n%s", m.View())
+	}
+}
+
+func TestSelectedListItemShelfSpansFullWidth(t *testing.T) {
+	common := testCommon()
+	common.width = 32
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
+
+	view := m.View()
+	assertFullWidthStyledLine(t, "selected title", lineContaining(t, view, "alrs"), m.list.Width(), common.styles.palette.SelectionBg)
+	assertFullWidthStyledLine(t, "selected description", lineContaining(t, view, "Alvaro"), m.list.Width(), common.styles.palette.SelectionBg)
+}
+
+func TestSelectedListItemShelfIncludesBlankDescriptionLine(t *testing.T) {
+	common := testCommon()
+	common.width = 32
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs"}})
+
+	lines := strings.Split(m.View(), "\n")
+	titleIndex := lineIndexContaining(t, m.View(), "alrs")
+	if len(lines) <= titleIndex+1 {
+		t.Fatalf("list view has %d lines, want selected title and description rows:\n%s", len(lines), m.View())
+	}
+	assertFullWidthStyledLine(t, "selected blank description", lines[titleIndex+1], m.list.Width(), common.styles.palette.SelectionBg)
+}
+
+func TestListApplyStylesUpdatesExistingList(t *testing.T) {
+	common := testCommon()
+	common.styles = newStyles(true)
+	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})
+
+	m.applyStyles(newStyles(false))
+	if !sameColor(m.list.Styles.Filter.Focused.Prompt.GetForeground(), newStyles(false).input.Focused.Prompt.GetForeground()) {
+		t.Fatal("applyStyles should update list filter prompt")
+	}
+	if !strings.Contains(m.View(), "\x1b[38;2;168;31;98") {
+		t.Fatalf("applyStyles should update selected row render:\n%s", m.View())
 	}
 }

@@ -762,7 +762,7 @@ func (m appModel) helpView() string {
 }
 
 func (m appModel) topChromeHeight() int {
-	if m.inputFocused && !(m.landing && m.pos < 0) {
+	if m.inputFocused && (!m.landing || m.pos >= 0) {
 		return 2
 	}
 	return 1

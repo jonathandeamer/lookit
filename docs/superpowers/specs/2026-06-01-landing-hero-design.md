@@ -124,8 +124,13 @@ fetch/network dependency:
     inputView) + "\n" + bottom`, where `inputView` is a width-bounded copy of
     the input (see Degradation → narrow terminals). The input appears **once**,
     centered inside the hero — never at the top.
-  - **Normal branch:** the existing `input \n content \n bottom` stack,
-    unchanged, where the input is the pinned top row.
+  - **Normal branch:** `inputChromeView() + "\n" + content + "\n" + bottom`.
+    When the target input is focused outside the launch splash,
+    `inputChromeView()` renders `headerMark(...)` on its own row directly above
+    `m.input.View()`. When content is blurred, it renders only `m.input.View()`,
+    so reader/list result views do not spend a row on the mark. `resizeForHelp`
+    reserves `topChromeHeight()` rows so the focused two-row chrome and blurred
+    one-row chrome both fit inside the terminal height.
 - The status bar while landing is the existing `landingBar` path (`pos < 0`);
   `helpHeight`/`resizeForHelp` continue to work because the hero occupies
   the same body region a sub-model would.

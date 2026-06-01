@@ -30,6 +30,8 @@ func TestTUIPaletteContrast(t *testing.T) {
 			assertContrast(t, "red on base", tt.p.AccentRed, tt.p.BaseBg, 4.5)
 			assertContrast(t, "status text on subtle bg", tt.p.BarText, tt.p.SubtleBg, 4.5)
 			assertContrast(t, "help key on subtle bg", tt.p.AccentViolet, tt.p.SubtleBg, 4.5)
+			assertContrast(t, "breadcrumb leaf pink on subtle bg", tt.p.AccentPink, tt.p.SubtleBg, 3.0)
+			assertContrast(t, "breadcrumb leaf mint on subtle bg", tt.p.AccentMint, tt.p.SubtleBg, 3.0)
 			assertContrast(t, "help desc on subtle bg", tt.p.BarText, tt.p.SubtleBg, 4.5)
 			assertContrast(t, "selected login on selected bg", tt.p.SelectionLogin, tt.p.SelectionBg, 4.5)
 			assertContrast(t, "selected desc on selected bg", tt.p.SelectionDesc, tt.p.SelectionBg, 4.5)

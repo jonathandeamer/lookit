@@ -5,15 +5,17 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestStatusBarProfileShowsBreadcrumb(t *testing.T) {
 	b := statusBar{host: "@tilde.team", user: "jonathan", escTarget: "@tilde.team",
 		meta: "1.2 KB", hints: "esc back · ? help", width: 80, styles: newStyles(true)}
 	out := b.render()
+	stripped := ansi.Strip(out)
 	for _, want := range []string{"@tilde.team", "jonathan", "◂ esc: @tilde.team", "1.2 KB", "? help"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("bar %q missing %q", out, want)
+		if !strings.Contains(stripped, want) {
+			t.Fatalf("bar %q missing %q", stripped, want)
 		}
 	}
 	if w := lipgloss.Width(out); w != 80 {
@@ -119,5 +121,38 @@ func TestStatusBarUsesBadgeStyle(t *testing.T) {
 	}
 	if !sameColor(st.barBadge.GetBackground(), st.palette.AccentViolet) {
 		t.Fatal("bar badge should use accent violet")
+	}
+}
+
+func TestStatusBarLeafIsGradient(t *testing.T) {
+	b := statusBar{host: "@tilde.team", user: "jonathan", width: 80, styles: newStyles(true)}
+	crumb := b.styleCrumb(60) // 60 > width of "@tilde.team / jonathan", so it fits
+	if got := ansi.Strip(crumb); got != "@tilde.team / jonathan" {
+		t.Fatalf("stripped crumb = %q, want %q", got, "@tilde.team / jonathan")
+	}
+	if got := len(foregroundSequences(crumb)); got < 3 {
+		t.Fatalf("expected a gradient leaf (>=3 distinct fg colours), got %d: %q", got, crumb)
+	}
+}
+
+func TestStatusBarLeafCollapsesToDimWhenOverBudget(t *testing.T) {
+	b := statusBar{host: "@a-very-long-hostname.example.org", user: "verylonguser", width: 80, styles: newStyles(true)}
+	crumb := b.styleCrumb(10) // narrow budget forces the dim collapse
+	if !strings.Contains(crumb, "…") {
+		t.Fatalf("expected ellipsis collapse: %q", crumb)
+	}
+	if got := len(foregroundSequences(crumb)); got != 1 {
+		t.Fatalf("collapsed crumb should be a single dim colour, got %d: %q", got, crumb)
+	}
+}
+
+func TestStatusBarDirectoryLeafHasNoGradient(t *testing.T) {
+	b := statusBar{host: "@tilde.team", width: 80, styles: newStyles(true)}
+	crumb := b.styleCrumb(60)
+	if got := ansi.Strip(crumb); got != "@tilde.team" {
+		t.Fatalf("stripped crumb = %q, want %q", got, "@tilde.team")
+	}
+	if got := len(foregroundSequences(crumb)); got != 1 {
+		t.Fatalf("directory crumb should be a single dim colour, got %d: %q", got, crumb)
 	}
 }

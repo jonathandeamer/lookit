@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/jonathandeamer/lookit/finger"
 )
@@ -1548,6 +1549,32 @@ func TestFocusedInputChromeShowsHeaderMarkAboveTargetRow(t *testing.T) {
 	}
 	if targetLine != markLine+1 {
 		t.Fatalf("target row should immediately follow header mark, mark=%d target=%d:\n%s", markLine, targetLine, view)
+	}
+}
+
+func TestFocusedInputHeaderKeepsTotalViewHeightStable(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = sized.(appModel)
+
+	m.input.SetValue("alice@plan.cat")
+	(&m).submit()
+	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte(strings.Repeat("line\n", 20)),
+	}})
+	m = step.(appModel)
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'i'})
+	m = step.(appModel)
+	if got := lipgloss.Height(m.View().Content); got != m.common.height {
+		t.Fatalf("view height = %d, want terminal height %d:\n%s", got, m.common.height, m.View().Content)
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = step.(appModel)
+	if got := lipgloss.Height(m.View().Content); got != m.common.height {
+		t.Fatalf("view height after Esc = %d, want terminal height %d:\n%s", got, m.common.height, m.View().Content)
 	}
 }
 

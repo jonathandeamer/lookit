@@ -229,6 +229,7 @@ func (m *appModel) gotoLanding() {
 	m.inputFocused = true
 	m.input.SetValue("")
 	m.input.Focus() // discard the blink cmd; the cursor still shows
+	m.resizeForHelp()
 }
 
 // stepBack moves one step toward history root, or to the landing from pos 0.
@@ -264,6 +265,7 @@ func (m *appModel) focusInput() tea.Cmd {
 	}
 	m.inputFocused = true
 	m.input.CursorEnd()
+	m.resizeForHelp()
 	return m.input.Focus()
 }
 
@@ -281,6 +283,7 @@ func (m *appModel) startFetch(target finger.Target) tea.Cmd {
 func (m *appModel) blurInput() {
 	m.inputFocused = false
 	m.input.Blur()
+	m.resizeForHelp()
 }
 
 // enterRaw shows the current node's unprocessed body ("view source") in the
@@ -744,7 +747,7 @@ func (m *appModel) helpHeight() int {
 // resizeForHelp re-sizes the active sub-model to leave room for the help block.
 // Called after toggling m.help so sub-models can fill the available height.
 func (m *appModel) resizeForHelp() {
-	h := m.common.bodyHeight() - m.helpHeight()
+	h := m.common.height - m.topChromeHeight() - 1 - m.helpHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -756,6 +759,13 @@ func (m *appModel) resizeForHelp() {
 
 func (m appModel) helpView() string {
 	return fullWidthHelpView(m.keys.FullHelp(), m.common.styles, m.common.width, m.helpModel.FullSeparator)
+}
+
+func (m appModel) topChromeHeight() int {
+	if m.inputFocused && !(m.landing && m.pos < 0) {
+		return 2
+	}
+	return 1
 }
 
 func (m appModel) inputChromeView() string {

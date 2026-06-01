@@ -13,12 +13,12 @@ const (
 	heroTagline  = "a finger client for the modern terminal"
 )
 
-// gradientWordmark renders "☞ lookit": the manicule in AccentPink, and the
+// headerMark renders "☞ lookit": the manicule in AccentPink, and the
 // wordmark with a per-rune pink->violet->mint gradient on truecolor/ANSI256.
 // On ANSI (16-colour) and below the gradient muddies, so it falls back to a
 // solid AccentViolet wordmark. The gradient is decorative; the wordmark is
 // always legible.
-func gradientWordmark(st styles, profile colorprofile.Profile) string {
+func headerMark(st styles, profile colorprofile.Profile) string {
 	manicule := lipgloss.NewStyle().Foreground(st.palette.AccentPink).Render(heroManicule)
 	if profile < colorprofile.ANSI256 {
 		word := lipgloss.NewStyle().Foreground(st.palette.AccentViolet).Bold(true).Render(heroWordmark)
@@ -55,7 +55,7 @@ func heroView(st styles, profile colorprofile.Profile, width, height int, input 
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	parts := []string{gradientWordmark(st, profile)}
+	parts := []string{headerMark(st, profile)}
 	// The tagline only fits comfortably beside/below the wordmark at 40+ columns.
 	if width >= 40 {
 		parts = append(parts, lipgloss.NewStyle().Foreground(st.palette.Dim).Render(heroTagline))

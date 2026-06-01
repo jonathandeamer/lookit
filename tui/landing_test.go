@@ -49,25 +49,45 @@ func foregroundSequences(s string) map[string]bool {
 	return out
 }
 
-func TestGradientWordmarkTrueColorVariesPerRune(t *testing.T) {
+func stripANSIForLandingTest(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if s[i] == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func TestHeaderMarkRendersFingerAndWordmark(t *testing.T) {
 	st := newStyles(true)
-	out := gradientWordmark(st, colorprofile.TrueColor)
-	if !strings.Contains(out, heroManicule) {
-		t.Fatalf("missing manicule:\n%q", out)
+	out := headerMark(st, colorprofile.TrueColor)
+	plain := stripANSIForLandingTest(out)
+	if plain != heroManicule+" "+heroWordmark {
+		t.Fatalf("header mark = %q, want %q", plain, heroManicule+" "+heroWordmark)
 	}
 	if got := len(foregroundSequences(out)); got < 3 {
-		t.Fatalf("expected a per-rune sweep, got %d distinct colours:\n%q", got, out)
+		t.Fatalf("expected per-rune colour sweep, got %d distinct colours:\n%q", got, out)
 	}
 }
 
-func TestGradientWordmarkAnsiFallsBackToSolid(t *testing.T) {
+func TestHeaderMarkAnsiFallsBackToSolid(t *testing.T) {
 	st := newStyles(true)
-	out := gradientWordmark(st, colorprofile.ANSI)
-	if !strings.Contains(out, heroManicule) {
-		t.Fatalf("missing manicule:\n%q", out)
+	out := headerMark(st, colorprofile.ANSI)
+	if plain := stripANSIForLandingTest(out); plain != heroManicule+" "+heroWordmark {
+		t.Fatalf("header mark = %q, want %q", plain, heroManicule+" "+heroWordmark)
 	}
 	if got := len(foregroundSequences(out)); got > 2 {
-		t.Fatalf("ANSI should be solid, got %d distinct colours:\n%q", got, out)
+		t.Fatalf("ANSI should not use the truecolor sweep, got %d distinct colours:\n%q", got, out)
 	}
 }
 
@@ -120,9 +140,9 @@ func TestHeroInputWidthBounds(t *testing.T) {
 	}
 }
 
-func TestGradientWordmarkANSI256VariesPerRune(t *testing.T) {
+func TestHeaderMarkANSI256VariesPerRune(t *testing.T) {
 	st := newStyles(true)
-	out := gradientWordmark(st, colorprofile.ANSI256)
+	out := headerMark(st, colorprofile.ANSI256)
 	if !strings.Contains(out, heroManicule) {
 		t.Fatalf("missing manicule:\n%q", out)
 	}

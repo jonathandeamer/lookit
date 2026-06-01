@@ -52,23 +52,32 @@ m.clearFlashCmd())`) is unchanged.
 
 A flash currently survives a screen change until its 2s timer fires, so a
 "copied …" message can linger on a screen that didn't produce it. Clear
-`m.flash` at the three navigation entry points, so transient feedback stays
-tied to the screen that produced it:
+`m.flash` at the two **screen-changing** navigation entry points, so transient
+feedback stays tied to the screen that produced it:
 
 - `back()` — Esc / back navigation,
-- `drill()` — Enter into a list user (starts a new fetch),
-- `focusInput()` — `i` / begin editing a target.
+- `drill()` — Enter into a list user (starts a new fetch).
 
-This does not interfere with the parse-error flash: a parse error keeps the
-input focused and is cleared by the next `submit`, and none of `back()` /
-`drill()` / `focusInput()` lie on the path between a failed submit and the
-correction. (`drill` has a value receiver returning the model, so the clear is
-applied to the returned `appModel`; `back` and `focusInput` have pointer
-receivers.)
+(`drill` has a value receiver returning the model, so the clear is applied to
+the returned `appModel`; `back` has a pointer receiver.)
 
-Raw-view toggling (`r`) is deliberately excluded: it is a view change on the
-same history node, not navigation, and is not a source of cross-screen flash
-bleed worth special-casing.
+**`focusInput()` is deliberately excluded** — and this is the important
+constraint. `focusInput()` lies directly on the parse-error recovery path: a
+failed submit leaves the input focused with the error flash set; the user may
+Esc to blur (`blurInput()`, which does not clear the flash) and then press `i`
+(`focusInput()`) to correct. Clearing the flash in `focusInput()` would wipe the
+error before the user resubmits, contradicting the "errors persist until the
+next submit" non-goal. `focusInput()` is only a same-screen focus change, not a
+screen change, and any lingering copy flash there self-clears via its existing
+2s timer — so excluding it costs nothing and protects error persistence.
+
+Note that `back()` is safe with respect to that recovery path: when the input
+is focused, Esc is handled by `blurInput()`, **not** `back()`, so `back()` is
+never invoked between a failed submit and its correction.
+
+Raw-view toggling (`r`) is also excluded: it is a view change on the same
+history node, not navigation, and is not a source of cross-screen flash bleed
+worth special-casing.
 
 ## Testing
 
@@ -81,7 +90,11 @@ fetch, no real TTY):
 - **success unchanged:** with a fetched profile at `pos >= 0`, `copyAddress`
   still sets `m.flash == "copied " + target.Raw`.
 - **stale-flash clearing:** after setting `m.flash = "copied x"`, each of
-  `back()`, `drill()`, and `focusInput()` leaves `m.flash == ""`.
+  `back()` and `drill()` leaves `m.flash == ""`.
+- **error survives refocus (regression guard):** after setting
+  `m.flash = "error: bad target"`, calling `focusInput()` leaves the flash
+  **unchanged** (`m.flash == "error: bad target"`) — locking in that the parse
+  error is not wiped on the recovery path.
 - Existing copy/flash/error and navigation tests stay green.
 - `make check` is the final gate.
 

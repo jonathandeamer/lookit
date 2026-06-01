@@ -84,6 +84,20 @@ func TestRender_NoTTY_HasNoANSI(t *testing.T) {
 	}
 }
 
+func TestRenderWithBackgroundNoTTYHasNoANSI(t *testing.T) {
+	body := []byte("Login: alice\nPlan: hello\n")
+	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
+
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.NoTTY, false)
+	if strings.Contains(got, "\x1b[") {
+		t.Fatalf("NoTTY output contains ANSI escape sequence: %q", got)
+	}
+	if !strings.Contains(got, "Login: alice") {
+		t.Fatalf("NoTTY output should preserve body text: %q", got)
+	}
+}
+
 func TestRender_AsciiArtPreserved(t *testing.T) {
 	body := loadInput(t, "ascii-art")
 	target := finger.Target{User: "bob", HostPort: "example.com:79", Raw: "bob@example.com"}

@@ -744,6 +744,28 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	}
 }
 
+func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+
+	if !m.helpModel.ShowAll {
+		t.Fatal("precondition: help panel should be expanded")
+	}
+	if !sameColor(m.helpModel.Styles.FullKey.GetForeground(), m.common.styles.palette.AccentViolet) {
+		t.Fatal("help key colour should use accent violet")
+	}
+	if !sameColor(m.helpModel.Styles.FullDesc.GetForeground(), m.common.styles.palette.BarText) {
+		t.Fatal("help description colour should use bar text")
+	}
+	view := m.View().Content
+	if !strings.Contains(view, "back") || !strings.Contains(view, "raw") {
+		t.Fatalf("help panel should still render enabled keys:\n%s", view)
+	}
+}
+
 func TestQuestionMarkOpensHelpWhileInputFocused(t *testing.T) {
 	// On the landing the input is focused; '?' (never valid in a finger address)
 	// should still open help rather than typing a literal '?'.

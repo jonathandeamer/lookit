@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 )
 
@@ -118,5 +119,54 @@ func TestGradientWordmarkAnsiFallsBackToSolid(t *testing.T) {
 	}
 	if got := len(foregroundSequences(out)); got > 2 {
 		t.Fatalf("ANSI should be solid, got %d distinct colours:\n%q", got, out)
+	}
+}
+
+func TestHeroViewCentersWordmarkTaglineAndInput(t *testing.T) {
+	st := newStyles(true)
+	out := heroView(st, colorprofile.TrueColor, 60, 12, "target: ")
+	if h := lipgloss.Height(out); h != 12 {
+		t.Fatalf("hero height = %d, want 12", h)
+	}
+	if w := lipgloss.Width(out); w != 60 {
+		t.Fatalf("hero width = %d, want 60", w)
+	}
+	for _, want := range []string{heroManicule, heroTagline, "target:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("hero missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestHeroViewHidesTaglineWhenNarrow(t *testing.T) {
+	st := newStyles(true)
+	out := heroView(st, colorprofile.TrueColor, 30, 12, "target: ")
+	if strings.Contains(out, heroTagline) {
+		t.Fatalf("tagline should be hidden under 40 cols:\n%s", out)
+	}
+	if !strings.Contains(out, heroManicule) {
+		t.Fatalf("wordmark should still render when narrow:\n%s", out)
+	}
+}
+
+func TestHeroViewEmptyOnZeroDimensions(t *testing.T) {
+	st := newStyles(true)
+	if out := heroView(st, colorprofile.TrueColor, 0, 12, "target: "); out != "" {
+		t.Fatalf("zero width should render empty, got %q", out)
+	}
+	if out := heroView(st, colorprofile.TrueColor, 60, 0, "target: "); out != "" {
+		t.Fatalf("zero height should render empty, got %q", out)
+	}
+}
+
+func TestHeroInputWidthBounds(t *testing.T) {
+	if got := heroInputWidth(200); got != 40 {
+		t.Fatalf("wide terminal width = %d, want 40", got)
+	}
+	if got := heroInputWidth(20); got != 16 {
+		t.Fatalf("narrow terminal width = %d, want 16", got)
+	}
+	if got := heroInputWidth(4); got != 12 {
+		t.Fatalf("tiny terminal width = %d, want floor 12", got)
 	}
 }

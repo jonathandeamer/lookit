@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -161,5 +162,44 @@ func TestDefaultDelegateRendersLoginAndName(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "alrs") || !strings.Contains(view, "Alvaro") {
 		t.Fatalf("list view missing login/name:\n%s", view)
+	}
+}
+
+func TestNewListCapsEntries(t *testing.T) {
+	users := make([]User, 5000)
+	for i := range users {
+		users[i] = User{Login: fmt.Sprintf("u%d", i)}
+	}
+	common := &commonModel{width: 80, height: 24}
+	m := newList(common, finger.Target{Raw: "@big.example"}, users)
+	if got := len(m.list.Items()); got != maxListEntries {
+		t.Fatalf("newList kept %d items, want exactly %d", got, maxListEntries)
+	}
+}
+
+func TestNewListWithPreambleNoNoteAtCap(t *testing.T) {
+	users := make([]User, maxListEntries)
+	for i := range users {
+		users[i] = User{Login: fmt.Sprintf("u%d", i)}
+	}
+	common := &commonModel{width: 80, height: 24}
+	m := newListWithPreamble(common, finger.Target{Raw: "@big.example"}, users, nil, false)
+	if got := len(m.list.Items()); got != maxListEntries {
+		t.Fatalf("at cap: kept %d items, want %d", got, maxListEntries)
+	}
+	if strings.Contains(m.preamble, "truncated") {
+		t.Fatalf("at cap: preamble = %q, want no truncation note", m.preamble)
+	}
+}
+
+func TestNewListWithPreambleNotesTruncation(t *testing.T) {
+	users := make([]User, 5000)
+	for i := range users {
+		users[i] = User{Login: fmt.Sprintf("u%d", i)}
+	}
+	common := &commonModel{width: 80, height: 24}
+	m := newListWithPreamble(common, finger.Target{Raw: "@big.example"}, users, nil, false)
+	if !strings.Contains(m.preamble, "truncated") {
+		t.Fatalf("preamble = %q, want a truncation note", m.preamble)
 	}
 }

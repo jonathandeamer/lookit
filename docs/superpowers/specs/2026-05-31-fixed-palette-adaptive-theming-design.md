@@ -46,14 +46,14 @@ without changing the approved Functional Bright direction.
 | `SubtleBg` | graphite-purple | pale lavender-gray | status/help/list selection backgrounds |
 | `Rule` | dark separator | light separator | rules, help separators, status separators |
 
-Source values from the approved mockups:
+Implementation values derived from the approved mockups:
 
 | Role | Dark | Light |
 |---|---|---|
 | `Text` | `#f0edf5` | `#25222a` |
 | `Dim` | `#8c8792` | `#766f7d` |
 | `AccentPink` | `#ff5fa2` | `#c92870` |
-| `AccentViolet` | `#8a63ff` | `#6d43d6` |
+| `AccentViolet` | `#9878ff` | `#6d43d6` |
 | `AccentMint` | `#38e7ad` | `#007f62` |
 | `AccentGold` | `#eed76d` | `#765f00` |
 | `AccentRed` | `#ff6f87` | `#c82f4d` |

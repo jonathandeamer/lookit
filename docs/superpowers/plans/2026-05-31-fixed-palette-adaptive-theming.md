@@ -177,7 +177,7 @@ func renderPaletteFor(darkBackground bool) renderPalette {
 			Text:         hexColor("#f0edf5"),
 			Dim:          hexColor("#8c8792"),
 			AccentPink:   hexColor("#ff5fa2"),
-			AccentViolet: hexColor("#8a63ff"),
+			AccentViolet: hexColor("#9878ff"),
 			AccentMint:   hexColor("#38e7ad"),
 			AccentGold:   hexColor("#eed76d"),
 			AccentRed:    hexColor("#ff6f87"),
@@ -472,7 +472,7 @@ func sameColor(a, b color.Color) bool {
 }
 
 func TestHexColorAcceptsFunctionalBrightValues(t *testing.T) {
-	if !sameColor(hexColor("#8a63ff"), lipgloss.Color("#8a63ff")) {
+	if !sameColor(hexColor("#9878ff"), lipgloss.Color("#9878ff")) {
 		t.Fatal("hexColor should produce the same RGBA value as lipgloss.Color")
 	}
 }
@@ -536,7 +536,7 @@ func paletteFor(dark bool) palette {
 			Text:           lipgloss.Color("#f0edf5"),
 			Dim:            lipgloss.Color("#8c8792"),
 			AccentPink:     lipgloss.Color("#ff5fa2"),
-			AccentViolet:   lipgloss.Color("#8a63ff"),
+			AccentViolet:   lipgloss.Color("#9878ff"),
 			AccentMint:     lipgloss.Color("#38e7ad"),
 			AccentGold:     lipgloss.Color("#eed76d"),
 			AccentRed:      lipgloss.Color("#ff6f87"),

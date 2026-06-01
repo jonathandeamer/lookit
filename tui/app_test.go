@@ -1322,3 +1322,40 @@ func TestPickSampleIsMember(t *testing.T) {
 		}
 	}
 }
+
+// TestCopyAddressPinsServerTarget verifies that copying (y) a list item whose
+// target was supplied by the server is pinned to port 79 before being placed on
+// the clipboard, mirroring the protection applied in the drill path.
+func TestCopyAddressPinsServerTarget(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@thebackupbox.net")
+	// A server-supplied entry pointing at a non-finger port.
+	users := []User{{Login: "evil", Target: "finger://example.com:22/evil"}}
+	m.history = []histNode{{entry: Entry{Target: host}, state: stateList}}
+	m.pos = 0
+	m.listReady = true
+	m.list = newList(m.common, host, users)
+	m.list.list.Select(0)
+	m.state = stateList
+	m.inputFocused = false
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: 'y'})
+	m = step.(appModel)
+
+	if strings.Contains(m.flash, ":22") {
+		t.Fatalf("flash = %q, must not contain the hostile port :22", m.flash)
+	}
+	if !strings.Contains(m.flash, ":79") {
+		t.Fatalf("flash = %q, want it to contain the pinned port :79", m.flash)
+	}
+	if strings.Contains(copied, ":22") {
+		t.Fatalf("copied = %q, must not contain the hostile port :22", copied)
+	}
+	if !strings.Contains(copied, ":79") {
+		t.Fatalf("copied = %q, want it to contain the pinned port :79", copied)
+	}
+}

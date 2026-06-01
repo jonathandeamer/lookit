@@ -521,8 +521,16 @@ func (m *appModel) copyAddress() tea.Cmd {
 	var addr string
 	if m.state == stateList {
 		if sel, ok := m.list.selected(); ok {
-			addr = sel.target
-			if addr == "" {
+			if sel.target != "" {
+				// Mirror drill's safety: a server-supplied target could point at
+				// an arbitrary host:port. Pin to finger's port 79 before copying
+				// so a pasted-back address can't be steered at another service.
+				// sel.target is pre-validated by ParseUsers, so a parse error here
+				// is effectively unreachable; on error we simply copy nothing.
+				if t, err := finger.ParseTarget(sel.target); err == nil {
+					addr = rawFromTarget(pinFingerPort(t))
+				}
+			} else {
 				addr = sel.login + "@" + strings.TrimPrefix(m.list.host.Raw, "@")
 			}
 		}

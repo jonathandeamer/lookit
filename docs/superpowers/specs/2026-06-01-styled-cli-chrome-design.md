@@ -35,9 +35,19 @@ one-shot output already lives. They build from the existing v1
 called from `main.go` in place of the current plain prints.
 
 **Critical invariant — plain output is byte-identical to today.** On
-`Ascii`/`NoTTY` profiles (which is what a non-TTY writer, `NO_COLOR`, or a pipe
-resolves to), each function returns exactly the current plain text. This keeps
-piped output grep-friendly and lets every existing test pass unchanged.
+`Ascii`/`NoTTY` profiles, each function returns exactly the current plain text.
+This keeps the common piped/redirected case grep-friendly and lets the existing
+tests assert exact strings.
+
+**One documented exception: forced colour.** `colorprofile.Detect` honours
+`CLICOLOR_FORCE` (and friends), so it returns a colour profile *even for a
+non-TTY writer or a pipe* when the user has explicitly forced colour. That is
+correct, idiomatic behaviour and lookit keeps it — the invariant therefore
+holds "absent a forced-colour signal," not unconditionally. The consequence is
+that the *tests* must not depend on ambient environment (a developer or CI with
+`CLICOLOR_FORCE=1` would otherwise get ANSI and fail exact-string assertions);
+this is handled by a detection seam, below — not by reading the real
+environment in tests.
 
 ## Components
 
@@ -83,14 +93,23 @@ plain output.
 - Both `fmt.Fprintf(stderr, "lookit: %v\n", err)` sites become
   `fmt.Fprintln(stderr, render.ErrorLine(err.Error(), profile))`.
 
-**Profile detection is per-writer.** `run` detects the profile from the writer
-it is about to use — `colorprofile.Detect(stdout, os.Environ())` for the
-version line, `colorprofile.Detect(stderr, os.Environ())` for help and errors —
-rather than a hardcoded `os.Stdout`. In production `main` passes the real
-`os.Stdout`/`os.Stderr` (a TTY resolves to a colour profile → styled output);
-in tests `run` receives `bytes.Buffer`s (not a TTY → `NoTTY` → plain output),
-so the existing exact-string assertions in `main_test.go` keep passing with no
-changes. The one-shot path keeps detecting against `os.Stdout` as it does today.
+**Profile detection is per-writer, through a stub-able seam.** Detection goes
+through a package var `detectProfile = colorprofile.Detect` (mirroring the
+existing `startTUI`/`runOneShotFunc` seams). `run` detects from the writer it is
+about to use — `detectProfile(stdout, os.Environ())` for the version line,
+`detectProfile(stderr, os.Environ())` for help and errors — rather than a
+hardcoded `os.Stdout`. In production `main` passes the real
+`os.Stdout`/`os.Stderr` (a TTY, or `CLICOLOR_FORCE`, resolves to a colour
+profile → styled output). The one-shot path keeps detecting against `os.Stdout`
+as it does today.
+
+The seam exists so tests are **hermetic with respect to the environment**: the
+`main_test.go` cases that assert exact plain strings set
+`detectProfile = func(io.Writer, []string) colorprofile.Profile { return colorprofile.NoTTY }`
+(restored via `t.Cleanup`), so they produce plain output regardless of whether
+the developer's or CI's environment has `CLICOLOR_FORCE`/`NO_COLOR` set. This is
+the controlled-environment fix the per-writer approach requires; without it the
+exact-string assertions would be ambient-env-dependent.
 
 ## Testing
 
@@ -99,8 +118,13 @@ changes. The one-shot path keeps detecting against `os.Stdout` as it does today.
     plain equals its input; `ErrorLine(NoTTY, "x")` equals `"lookit: x"`.
   - Truecolor variants contain the literal text after ANSI-stripping, and
     contain the expected accent SGR (e.g. the `Target` foreground for `lookit`).
-- `main_test.go` is unchanged and must still pass (buffers → plain): usage text,
-  `version` output, invalid-target → 64, no-arg → TUI, TUI failure → 2.
+- `main_test.go`: the exit-code/seam tests (no-arg → TUI, TUI failure → 2,
+  invalid-target → 64) are unchanged. The tests that assert exact CLI text
+  (usage block, `version` line, error line) pin `detectProfile` to `NoTTY` via
+  the seam so they are deterministic regardless of ambient
+  `CLICOLOR_FORCE`/`NO_COLOR`. Add one test that, with `detectProfile` pinned to
+  `TrueColor`, the usage/version/error output is styled (contains ANSI), proving
+  the wiring passes the profile through.
 - `make check` is the final gate.
 
 ## Accepted residual risk

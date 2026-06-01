@@ -90,6 +90,7 @@ type appModel struct {
 
 	loading       bool
 	loadingTarget finger.Target
+	reqSeq        uint64 // monotonic id of the most recently started fetch
 	spin          spinner.Model
 
 	flash string
@@ -221,6 +222,16 @@ func (m *appModel) focusInput() tea.Cmd {
 	return m.input.Focus()
 }
 
+// startFetch marks loading for target, advances the request id so any
+// still-in-flight earlier fetch's result will be discarded on arrival, and
+// returns the command batch that performs the fetch and ticks the spinner.
+func (m *appModel) startFetch(target finger.Target) tea.Cmd {
+	m.loading = true
+	m.loadingTarget = target
+	m.reqSeq++
+	return tea.Batch(fetchCmd(context.Background(), m.common.fetch, target, m.reqSeq), m.spin.Tick)
+}
+
 // blurInput returns the keyboard to the content.
 func (m *appModel) blurInput() {
 	m.inputFocused = false
@@ -262,9 +273,7 @@ func (m *appModel) submit() tea.Cmd {
 	}
 	m.flash = "" // clear any stale parse-error flash from a prior failed submit
 	m.blurInput()
-	m.loading = true
-	m.loadingTarget = target
-	return tea.Batch(fetchCmd(context.Background(), m.common.fetch, target), m.spin.Tick)
+	return m.startFetch(target)
 }
 
 func (m appModel) Init() tea.Cmd {
@@ -308,6 +317,11 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case fetchResultMsg:
+		if msg.reqID != m.reqSeq {
+			// A superseded in-flight fetch finished late; drop it so it cannot
+			// replace the current view/history with stale (or hostile) output.
+			return m, nil
+		}
 		return m.routeFetch(msg.entry), nil
 
 	case clearFlashMsg:
@@ -443,12 +457,11 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 		// host:22). User-typed targets keep their explicit port.
 		target = pinFingerPort(target)
 	}
-	m.loading = true
-	m.loadingTarget = target
 	// Keep the current view (the list) on screen while loading; routeFetch sets
 	// the final state when the result lands. Switching to the reader eagerly here
 	// flashed the previous profile for a frame before the new one arrived.
-	return true, m, tea.Batch(fetchCmd(context.Background(), m.common.fetch, target), m.spin.Tick)
+	cmd := m.startFetch(target)
+	return true, m, cmd
 }
 
 // routeFetch is the single decision point for a completed fetch: a host

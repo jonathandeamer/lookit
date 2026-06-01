@@ -172,7 +172,7 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 		t.Fatalf("fetched targets = %v, want [alrs@tilde.team]", *seen)
 	}
 	// When the result lands it routes to the reader.
-	landed, _ := got.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alrs@tilde.team"), Body: []byte("Plan: hi\n")}})
+	landed, _ := got.Update(fetchResultMsg{reqID: got.reqSeq, entry: Entry{Target: hostTarget(t, "alrs@tilde.team"), Body: []byte("Plan: hi\n")}})
 	if landed.(appModel).state != stateReader {
 		t.Fatalf("after the drilled result lands, state = %d, want stateReader", landed.(appModel).state)
 	}
@@ -1018,8 +1018,9 @@ func TestLoadingShowsSpinnerTarget(t *testing.T) {
 func TestResultClearsLoading(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.loading = true
+	m.reqSeq = 1
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := m.Update(fetchResultMsg{reqID: 1, entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	if step.(appModel).loading {
 		t.Fatal("a fetch result should clear loading")
 	}
@@ -1164,7 +1165,7 @@ func TestSuccessfulSubmitClearsStaleErrorFlash(t *testing.T) {
 
 	// Step 3: deliver the fetch result and confirm the bar shows no error text.
 	target := hostTarget(t, "alice@plan.cat")
-	result := fetchResultMsg{entry: Entry{Target: target, Body: []byte("Plan: hi\n"), Meta: finger.Meta{Addr: target.HostPort}}}
+	result := fetchResultMsg{reqID: m.reqSeq, entry: Entry{Target: target, Body: []byte("Plan: hi\n"), Meta: finger.Meta{Addr: target.HostPort}}}
 	step, _ = m.Update(result)
 	m = step.(appModel)
 	bar = m.statusBarModel().render()
@@ -1304,6 +1305,33 @@ func TestJoinHintsDropsEscBackWhenBreadcrumbPresent(t *testing.T) {
 	}
 	if noCrumb := joinHints([]string{"↑↓ scroll"}, ""); !strings.Contains(noCrumb, "esc back") {
 		t.Fatalf("esc back should be present when there is no breadcrumb: %q", noCrumb)
+	}
+}
+
+func TestStaleFetchResultDropped(t *testing.T) {
+	common := &commonModel{width: 80, height: 24}
+	m := appModel{common: common}
+	m.reqSeq = 2
+	m.loading = true
+
+	stale := fetchResultMsg{reqID: 1, entry: Entry{Target: finger.Target{Raw: "a@x"}, Body: []byte("old\n")}}
+	updated, _ := m.Update(stale)
+	got := updated.(appModel)
+	if !got.loading {
+		t.Fatal("stale result cleared loading; in-flight request should still be loading")
+	}
+
+	current := fetchResultMsg{reqID: 2, entry: Entry{Target: finger.Target{Raw: "b@x"}, Body: []byte("new\n")}}
+	updated2, _ := got.Update(current)
+	got2 := updated2.(appModel)
+	if got2.loading {
+		t.Fatal("current result did not clear loading")
+	}
+	if got2.state != stateReader {
+		t.Fatalf("current result did not route to reader: state = %d", got2.state)
+	}
+	if got2.pos < 0 {
+		t.Fatal("current result did not push history: pos < 0")
 	}
 }
 

@@ -25,6 +25,7 @@ const (
 var (
 	version        = "dev"
 	builtAt        = "unknown"
+	detectProfile  = colorprofile.Detect
 	runOneShotFunc = runOneShot
 	startTUI       = func() error {
 		profile := colorprofile.Detect(os.Stdout, os.Environ())
@@ -37,39 +38,34 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	outProfile := detectProfile(stdout, os.Environ())
+	errProfile := detectProfile(stderr, os.Environ())
+
 	if len(args) == 0 {
 		if err := startTUI(); err != nil {
-			fmt.Fprintf(stderr, "lookit: %v\n", err)
+			fmt.Fprintln(stderr, render.ErrorLine(err.Error(), errProfile))
 			return exitNetwork
 		}
 		return exitOK
 	}
 
 	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" {
-		printUsage(stderr)
+		fmt.Fprint(stderr, render.Usage(errProfile))
 		return exitUsage
 	}
 
 	if args[0] == "version" {
-		fmt.Fprintln(stdout, versionString())
+		fmt.Fprintln(stdout, render.Version(versionString(), outProfile))
 		return exitOK
 	}
 
 	target, err := finger.ParseTarget(args[0])
 	if err != nil {
-		fmt.Fprintf(stderr, "lookit: %v\n", err)
+		fmt.Fprintln(stderr, render.ErrorLine(err.Error(), errProfile))
 		return exitUsage
 	}
 
 	return runOneShotFunc(context.Background(), target, stdout)
-}
-
-func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage:")
-	fmt.Fprintln(w, "  lookit")
-	fmt.Fprintln(w, "  lookit user@host[:port]")
-	fmt.Fprintln(w, "  lookit @host[:port]")
-	fmt.Fprintln(w, "  lookit version")
 }
 
 func versionString() string {

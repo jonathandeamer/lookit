@@ -9,8 +9,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/jonathandeamer/lookit/finger"
 )
+
+// pinProfile forces detectProfile to a fixed profile for the duration of a
+// test, so CLI-text assertions don't depend on the ambient environment
+// (CLICOLOR_FORCE/NO_COLOR).
+func pinProfile(t *testing.T, p colorprofile.Profile) {
+	t.Helper()
+	old := detectProfile
+	t.Cleanup(func() { detectProfile = old })
+	detectProfile = func(io.Writer, []string) colorprofile.Profile { return p }
+}
 
 func TestExitCodeFor(t *testing.T) {
 	cases := []struct {
@@ -60,6 +73,7 @@ func TestRunVersion(t *testing.T) {
 	})
 	version = "dev"
 	builtAt = "unknown"
+	pinProfile(t, colorprofile.NoTTY)
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"version"}, &stdout, &stderr)
@@ -76,6 +90,7 @@ func TestRunVersion(t *testing.T) {
 }
 
 func TestRunUsage(t *testing.T) {
+	pinProfile(t, colorprofile.NoTTY)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--help"}, &stdout, &stderr)
 
@@ -91,6 +106,7 @@ func TestRunUsage(t *testing.T) {
 }
 
 func TestRunInvalidTarget(t *testing.T) {
+	pinProfile(t, colorprofile.NoTTY)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"just-a-name"}, &stdout, &stderr)
 
@@ -102,6 +118,29 @@ func TestRunInvalidTarget(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "lookit:") {
 		t.Fatalf("stderr = %q, want lookit error", stderr.String())
+	}
+}
+
+func TestRunVersionStyled(t *testing.T) {
+	oldVersion, oldBuiltAt := version, builtAt
+	t.Cleanup(func() {
+		version, builtAt = oldVersion, oldBuiltAt
+	})
+	version = "dev"
+	builtAt = "unknown"
+	pinProfile(t, colorprofile.TrueColor)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"version"}, &stdout, &stderr)
+
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	if !strings.Contains(stdout.String(), "\x1b[") {
+		t.Fatalf("styled version has no ANSI: %q", stdout.String())
+	}
+	if got := ansi.Strip(stdout.String()); got != "lookit dev (built unknown)\n" {
+		t.Fatalf("stripped styled version = %q, want %q", got, "lookit dev (built unknown)\n")
 	}
 }
 

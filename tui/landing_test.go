@@ -170,3 +170,28 @@ func TestHeroInputWidthBounds(t *testing.T) {
 		t.Fatalf("tiny terminal width = %d, want floor 12", got)
 	}
 }
+
+func TestGradientWordmarkANSI256VariesPerRune(t *testing.T) {
+	st := newStyles(true)
+	out := gradientWordmark(st, colorprofile.ANSI256)
+	if !strings.Contains(out, heroManicule) {
+		t.Fatalf("missing manicule:\n%q", out)
+	}
+	// ANSI256 takes the same per-rune gradient path as TrueColor.
+	if got := len(foregroundSequences(out)); got < 3 {
+		t.Fatalf("expected a per-rune sweep on ANSI256, got %d distinct colours:\n%q", got, out)
+	}
+}
+
+func TestWordmarkColorsLightPaletteSweeps(t *testing.T) {
+	p := paletteFor(false)
+	colors := wordmarkColors(p, 6)
+	if len(colors) != 6 {
+		t.Fatalf("len = %d, want 6", len(colors))
+	}
+	assertSameColor(t, "light first stop", colors[0], p.AccentPink)
+	assertSameColor(t, "light last stop", colors[5], p.AccentMint)
+	if sameColor(colors[0], colors[5]) {
+		t.Fatal("light gradient endpoints should differ")
+	}
+}

@@ -42,7 +42,15 @@ light/dark theming already shipped (see
   - a tagline in `Dim`: *"a finger client for the modern terminal"*;
   - the focused target input, reusing the existing rotating placeholder
     (`pickSample()`);
-  - a slim status-bar hint at the bottom: `↵ look up · ? help · q quit`.
+  - the existing landing status bar at the bottom (`landingBar`), unchanged.
+- **Hint honesty.** While the hero shows, the target input is **focused**, so
+  every printable key — including `q` — is typed into the input (the keymap
+  deliberately keeps `q` literal so users can type targets containing it). The
+  status bar must therefore *not* advertise `q` as a quit key. The honest,
+  already-shipped landing hint is reused verbatim: *"type a target and press ↵ ·
+  ? help"*. The actual landing controls are: **Enter** looks up, **?** opens
+  help, **Esc** quits (app.go's input-focused `Back` branch quits when
+  `pos < 0`). No new keybindings and no hint copy change.
 - **Transition (one-time):** the moment the first fetch is dispatched (the
   first `submit` that produces a fetch command), the hero is dismissed. The app
   collapses to the normal chrome (input pinned at the top, response in the
@@ -70,9 +78,12 @@ light/dark theming already shipped (see
 A new file `tui/landing.go` holds the hero as **pure render functions** with no
 fetch/network dependency:
 
-- `heroView(st styles, width, height int, input string) string` — composes the
-  centered block (wordmark + tagline + input) within the given body dimensions.
-  String in, string out, so it is golden-testable.
+- `heroView(st styles, profile colorprofile.Profile, width, height int, input string) string`
+  — composes the centered block (wordmark + tagline + input) within the given
+  body dimensions. **The hero is the sole owner of the input on the landing
+  screen:** the caller passes the already-rendered input view as `input` and the
+  hero centers it beneath the tagline. String in, string out, so it is
+  golden-testable.
 - `gradientWordmark(st styles, profile colorprofile.Profile) string` — renders
   the `☞ lookit` wordmark, applying the gradient appropriate to the profile
   (see Degradation).
@@ -82,11 +93,18 @@ fetch/network dependency:
 - Add `landing bool`, initialised `true` in `newApp`.
 - In `submit`, set `landing = false` at the point a fetch command is produced
   (the one-time transition trigger). No other site clears or sets it.
-- `View()` branches once: `if m.landing` renders the hero (input + hero body +
-  status-bar hint); otherwise the existing `input \n content \n bottom` stack
-  is rendered unchanged.
-- The status-bar hint while landing is produced by the existing status-bar
-  path; `helpHeight`/`resizeForHelp` continue to work because the hero occupies
+- `View()` branches **before** building the normal stack. The two branches are
+  mutually exclusive about who renders the input:
+  - **Landing branch (`m.landing`):** does **not** prepend `m.input.View()` as a
+    top row. Instead it builds `bottom` (status bar, plus the help panel if
+    open) and renders `heroView(styles, profile, width, height-Height(bottom),
+    inputView) + "\n" + bottom`, where `inputView` is a width-bounded copy of
+    the input (see Degradation → narrow terminals). The input appears **once**,
+    centered inside the hero — never at the top.
+  - **Normal branch:** the existing `input \n content \n bottom` stack,
+    unchanged, where the input is the pinned top row.
+- The status bar while landing is the existing `landingBar` path (`pos < 0`);
+  `helpHeight`/`resizeForHelp` continue to work because the hero occupies
   the same body region a sub-model would.
 
 The gradient helper lives alongside the palette (in `landing.go`, using the

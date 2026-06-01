@@ -1541,3 +1541,28 @@ func TestHeroDoesNotReturnOnBackToLanding(t *testing.T) {
 		t.Fatalf("hero reappeared on back-to-landing:\n%s", m.View().Content)
 	}
 }
+
+func TestCopyAddressNothingToCopy(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY) // landing: pos == -1, stateReader, no address
+	cmd := (&m).copyAddress()
+	if m.flash != "nothing to copy" {
+		t.Fatalf("flash = %q, want %q", m.flash, "nothing to copy")
+	}
+	if cmd == nil {
+		t.Fatal("copyAddress returned nil cmd; want a clear-flash command")
+	}
+}
+
+func TestCopyAddressSuccessSetsCopiedFlash(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan: hi\n"),
+	}})
+	m = step.(appModel)
+
+	_ = (&m).copyAddress()
+	if want := "copied alice@plan.cat"; m.flash != want {
+		t.Fatalf("flash = %q, want %q", m.flash, want)
+	}
+}

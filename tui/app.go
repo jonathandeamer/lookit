@@ -601,7 +601,8 @@ func (m *appModel) copyAddress() tea.Cmd {
 		addr = m.history[m.pos].entry.Target.Raw
 	}
 	if addr == "" {
-		return nil
+		m.flash = "nothing to copy"
+		return m.clearFlashCmd()
 	}
 	m.flash = "copied " + addr
 	return tea.Batch(setClipboard(addr), m.clearFlashCmd())

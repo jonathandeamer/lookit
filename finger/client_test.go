@@ -239,6 +239,47 @@ func TestQuery_SizeCap(t *testing.T) {
 	}
 }
 
+func TestQuery_SizeCapAfterSanitize(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = bufio.NewReader(conn).ReadString('\n')
+		buf := make([]byte, 64*1024)
+		for i := range buf {
+			buf[i] = 0xff
+		}
+		for written := 0; written < maxBodyBytes; written += len(buf) {
+			if _, err := conn.Write(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	body, meta, err := Query(ctx, Target{HostPort: ln.Addr().String()})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if !meta.Truncated {
+		t.Errorf("Truncated = false, want true after sanitize expansion exceeds cap")
+	}
+	if len(body) != maxBodyBytes {
+		t.Errorf("len(body) = %d, want %d", len(body), maxBodyBytes)
+	}
+	if meta.Bytes != len(body) {
+		t.Errorf("Bytes = %d, want %d", meta.Bytes, len(body))
+	}
+}
+
 func TestQuery_ContextCancel(t *testing.T) {
 	// Server accepts and stalls; we cancel the context.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

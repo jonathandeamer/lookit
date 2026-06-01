@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"time"
+	"unicode/utf8"
 )
 
 // Meta describes the outcome of a Query that produced a body.
@@ -91,6 +92,10 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 
 	body := bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n"))
 	body = sanitize(body)
+	if cappedBody, ok := capBody(body); ok {
+		body = cappedBody
+		truncatedByCap = true
+	}
 	meta.Bytes = len(body)
 	meta.Elapsed = time.Since(start)
 
@@ -128,4 +133,15 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 
 func Query(ctx context.Context, t Target) ([]byte, Meta, error) {
 	return queryWith(ctx, t, queryOpts{})
+}
+
+func capBody(body []byte) ([]byte, bool) {
+	if len(body) <= maxBodyBytes {
+		return body, false
+	}
+	body = body[:maxBodyBytes]
+	for !utf8.Valid(body) {
+		body = body[:len(body)-1]
+	}
+	return body, true
 }

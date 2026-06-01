@@ -48,7 +48,7 @@ func TestNewStylesUsesFunctionalBrightRoles(t *testing.T) {
 }
 
 func TestHexColorAcceptsFunctionalBrightValues(t *testing.T) {
-	assertSameColor(t, "functional bright violet", hexColor("#8a63ff"), lipgloss.Color("#8a63ff"))
+	assertSameColor(t, "functional bright violet", hexColor("#9878ff"), lipgloss.Color("#9878ff"))
 }
 
 func assertContrast(t *testing.T, name string, fg, bg color.Color, minimum float64) {

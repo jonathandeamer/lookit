@@ -73,6 +73,23 @@ light/dark theming already shipped (see
   `colorprofile.Profile` as the rest of the TUI, so light terminals get the
   light accents and the gradient stays legible.
 
+## Transitional header direction
+
+The `☞ lookit` mark is intended to survive a later splash-removal pass. In that
+future layout, the mark should become compact top chrome above the `target:` row
+on the empty/editing screen:
+
+```text
+☞ lookit
+target: @tilde.team
+```
+
+The target input stays normal terminal text, and the bottom status bar remains
+unchanged. The centered launch splash is therefore temporary presentation
+chrome; the durable asset is the finger mark plus per-rune `lookit` gradient.
+Until the splash is removed, the reusable header row appears in the normal app
+layout when the target input is focused.
+
 ## Architecture
 
 A new file `tui/landing.go` holds the hero as **pure render functions** with no
@@ -84,7 +101,7 @@ fetch/network dependency:
   screen:** the caller passes the already-rendered input view as `input` and the
   hero centers it beneath the tagline. String in, string out, so it is
   golden-testable.
-- `gradientWordmark(st styles, profile colorprofile.Profile) string` — renders
+- `headerMark(st styles, profile colorprofile.Profile) string` — renders
   the `☞ lookit` wordmark, applying the gradient appropriate to the profile
   (see Degradation).
 

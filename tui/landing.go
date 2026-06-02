@@ -10,7 +10,6 @@ import (
 const (
 	heroManicule = "☞"
 	heroWordmark = "lookit"
-	heroTagline  = "a finger client for the modern terminal"
 )
 
 // headerMark renders "☞ lookit": the manicule in AccentPink, and the
@@ -31,36 +30,4 @@ func headerMark(st styles, profile colorprofile.Profile) string {
 		b.WriteString(lipgloss.NewStyle().Foreground(colors[i]).Bold(true).Render(string(r)))
 	}
 	return manicule + " " + b.String()
-}
-
-// heroInputWidth bounds the centred landing input so it reads as a tidy box
-// rather than a full-width bar: ~40 columns, clamped to the terminal width
-// (leaving a small margin) and never below 12.
-func heroInputWidth(totalWidth int) int {
-	w := 40
-	if max := totalWidth - 4; w > max {
-		w = max
-	}
-	if w < 12 {
-		w = 12
-	}
-	return w
-}
-
-// heroView composes the centred landing hero — wordmark, tagline (hidden under
-// 40 columns), a spacer, and the already-rendered input — and places it in the
-// centre of a width x height box. It is the sole renderer of the input on the
-// landing screen. Pure: string in, string out.
-func heroView(st styles, profile colorprofile.Profile, width, height int, input string) string {
-	if width <= 0 || height <= 0 {
-		return ""
-	}
-	parts := []string{headerMark(st, profile)}
-	// The tagline only fits comfortably beside/below the wordmark at 40+ columns.
-	if width >= 40 {
-		parts = append(parts, lipgloss.NewStyle().Foreground(st.palette.Dim).Render(heroTagline))
-	}
-	parts = append(parts, "", input) // blank spacer line before the input
-	block := lipgloss.JoinVertical(lipgloss.Center, parts...)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, block)
 }

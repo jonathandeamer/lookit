@@ -302,9 +302,10 @@ func TestWindowSizeReservesBarRow(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = step.(appModel)
-	// bodyHeight = 24 - 2 (input row + bar row) = 22; reader viewport = 22 - chromeRows(0) = 22.
-	if m.reader.viewport.Height() != 22 {
-		t.Fatalf("viewport height = %d, want 22 (two rows reserved: input + bar)", m.reader.viewport.Height())
+	// At launch the input is focused, so the top chrome is two rows (header
+	// mark + target). reader viewport = 24 - 2 (chrome) - 1 (bar) = 21.
+	if m.reader.viewport.Height() != 21 {
+		t.Fatalf("viewport height = %d, want 21 (header mark + target + bar reserved)", m.reader.viewport.Height())
 	}
 }
 
@@ -1493,34 +1494,27 @@ func TestCopyAddressPinsServerTarget(t *testing.T) {
 	}
 }
 
-func TestLandingTrueAtLaunchAndHeroRendered(t *testing.T) {
-	m := newApp(stubFetch(t), colorprofile.TrueColor)
-	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = sized.(appModel)
-	if !m.landing {
-		t.Fatal("landing should be true at launch")
-	}
-	content := m.View().Content
-	if !strings.Contains(content, heroManicule) {
-		t.Fatalf("launch view missing hero manicule:\n%s", content)
-	}
-	if !strings.Contains(content, heroTagline) {
-		t.Fatalf("launch view missing tagline:\n%s", content)
-	}
-}
-
-func TestSubmitDismissesLandingHero(t *testing.T) {
+func TestLaunchShowsHeaderMarkImmediatelyAboveTargetRow(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
 
-	m.input.SetValue("@tilde.team")
-	(&m).submit() // returns a fetch cmd we deliberately do not run, so stubFetch is never called
-	if m.landing {
-		t.Fatal("submit should dismiss the landing hero")
+	view := stripANSIForLandingTest(m.View().Content)
+	lines := strings.Split(view, "\n")
+	markLine, targetLine := -1, -1
+	for i, line := range lines {
+		if strings.Contains(line, heroManicule+" "+heroWordmark) {
+			markLine = i
+		}
+		if strings.Contains(line, "target:") {
+			targetLine = i
+		}
 	}
-	if strings.Contains(m.View().Content, heroManicule) {
-		t.Fatalf("hero should be gone after submit:\n%s", m.View().Content)
+	if markLine < 0 || targetLine < 0 {
+		t.Fatalf("launch chrome missing header mark or target row:\n%s", view)
+	}
+	if targetLine != markLine+1 {
+		t.Fatalf("target row should immediately follow header mark (no centered splash), mark=%d target=%d:\n%s", markLine, targetLine, view)
 	}
 }
 
@@ -1606,33 +1600,26 @@ func TestBlurredResultChromeDoesNotSpendHeaderRow(t *testing.T) {
 	}
 }
 
-func TestHeroDoesNotReturnOnBackToLanding(t *testing.T) {
+func TestBackToLandingShowsNormalChromeNotSplash(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
 
 	m.input.SetValue("alice@plan.cat")
-	(&m).submit() // landing=false, reqSeq=1, loading
+	(&m).submit() // reqSeq=1, loading
 	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"),
 		Body:   []byte("Login: alice\n"),
 	}})
 	m = step.(appModel)
-	if m.landing {
-		t.Fatal("landing should be false after a fetch")
-	}
 
 	(&m).back() // pos 0 -> -1, returns to the empty landing
 	if m.pos != -1 {
 		t.Fatalf("want pos -1 after back-to-landing, got %d", m.pos)
 	}
-	if m.landing {
-		t.Fatal("hero must not return on back-navigation")
-	}
+	// The target row immediately following the header mark proves the normal
+	// chrome is shown, not a centered splash (which spaces them apart).
 	view := stripANSIForLandingTest(m.View().Content)
-	if strings.Contains(view, heroTagline) {
-		t.Fatalf("centered hero splash reappeared on back-to-landing:\n%s", view)
-	}
 	lines := strings.Split(view, "\n")
 	markLine := -1
 	targetLine := -1

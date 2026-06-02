@@ -2,4 +2,4 @@ Login: alice
 Name: Alice
 Plan:
 This is a body that the server kept streaming past 1 MiB. We only show
-the part lookit captured; the footer notes the truncation.
+the part lookit captured; truncation is signalled by the TUI status bar.

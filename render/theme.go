@@ -18,7 +18,7 @@ type Theme struct {
 	Target  lipgloss.Style // "alice@plan.cat"
 	Latency lipgloss.Style // "123ms"
 	Sparkle lipgloss.Style // success indicator
-	Footer  lipgloss.Style // bytes / elapsed line (dim)
+	Footer  lipgloss.Style // dim style for subdued notices and CLI help text
 	Warning lipgloss.Style // yellow notices like "truncated"
 	Field   lipgloss.Style // "Login:" labels
 	ErrLine lipgloss.Style // red error lines

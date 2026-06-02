@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -797,6 +798,34 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	if !step.(appModel).help {
 		t.Fatal("'?' should open help from content-focused reader state")
+	}
+}
+
+func TestHelpPanelShowsVersionBand(t *testing.T) {
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{Version: "lookit 1.2.3 (built 2026-06-02)"})
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	got := ansi.Strip(m.helpView())
+	if !strings.Contains(got, "lookit 1.2.3") {
+		t.Fatalf("help view missing version: %q", got)
+	}
+	if !strings.Contains(got, "A modern TUI browser for the Finger protocol") {
+		t.Fatalf("help view missing tagline: %q", got)
+	}
+	if !strings.Contains(got, "RFC 1288") {
+		t.Fatalf("help view missing protocol pointer: %q", got)
+	}
+}
+
+func TestHelpPanelNoBandWithoutVersion(t *testing.T) {
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{})
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	got := ansi.Strip(m.helpView())
+	if strings.Contains(got, "RFC 1288") {
+		t.Fatalf("help view should have no version band when version is empty: %q", got)
 	}
 }
 
@@ -1704,5 +1733,103 @@ func TestFocusInputPreservesErrorFlash(t *testing.T) {
 	(&m).focusInput() // on the parse-error recovery path: must NOT clear the flash
 	if m.flash != "error: bad target" {
 		t.Fatalf("flash = %q after focusInput, want it preserved", m.flash)
+	}
+}
+
+// collectMsgs runs a command (recursing into batches) and returns every
+// non-batch message produced. Safe for Init's commands: textinput.Blink and the
+// capability requests all return their message immediately (no timers).
+func collectMsgs(cmd tea.Cmd) []tea.Msg {
+	var out []tea.Msg
+	if cmd == nil {
+		return out
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			out = append(out, collectMsgs(c)...)
+		}
+		return out
+	}
+	if msg != nil {
+		out = append(out, msg)
+	}
+	return out
+}
+
+func hasSeedSubmit(msgs []tea.Msg) bool {
+	for _, msg := range msgs {
+		if _, ok := msg.(seedSubmitMsg); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSeededInitEmitsSeedSubmit(t *testing.T) {
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{InitialQuery: "alice@plan.cat", Seed: true})
+	if !hasSeedSubmit(collectMsgs(m.Init())) {
+		t.Fatal("Init() did not emit seedSubmitMsg when a query was seeded")
+	}
+}
+
+func TestBlankSeedStillEmitsSeedSubmit(t *testing.T) {
+	// lookit "" / lookit "   ": an arg was supplied, so it must still be replayed.
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{InitialQuery: "   ", Seed: true})
+	if !hasSeedSubmit(collectMsgs(m.Init())) {
+		t.Fatal("Init() did not emit seedSubmitMsg for a supplied-but-blank arg")
+	}
+}
+
+func TestUnseededInitOmitsSeedSubmit(t *testing.T) {
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{})
+	if hasSeedSubmit(collectMsgs(m.Init())) {
+		t.Fatal("Init() emitted seedSubmitMsg without a seed")
+	}
+}
+
+func TestSeededValidQueryFetchesAndRoutesToReader(t *testing.T) {
+	fetch, seen := fetchRecorder("Plan: hi\n")
+	m := newAppWithOptions(fetch, colorprofile.NoTTY, Options{InitialQuery: "alice@plan.cat", Seed: true})
+
+	next, cmd := m.Update(seedSubmitMsg{})
+	got := next.(appModel)
+	if !got.loading {
+		t.Fatalf("after seed submit: loading=false, want true")
+	}
+	if cmd == nil {
+		t.Fatal("seed submit cmd = nil, want a fetch command")
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != "alice@plan.cat" {
+		t.Fatalf("fetched targets = %v, want [alice@plan.cat]", *seen)
+	}
+
+	landed, _ := got.Update(fetchResultMsg{reqID: got.reqSeq, entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	if landed.(appModel).state != stateReader {
+		t.Fatalf("state = %d, want stateReader", landed.(appModel).state)
+	}
+}
+
+func TestSeededInvalidQueryShowsErrorOnLanding(t *testing.T) {
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{InitialQuery: "just-a-name", Seed: true})
+
+	next, cmd := m.Update(seedSubmitMsg{})
+	got := next.(appModel)
+
+	if got.loading {
+		t.Fatalf("invalid seed: loading=true, want false")
+	}
+	if cmd != nil {
+		t.Fatalf("invalid seed: cmd != nil, want nil (no fetch)")
+	}
+	if !got.inputFocused {
+		t.Fatalf("invalid seed: inputFocused=false, want true")
+	}
+	if !strings.Contains(got.flash, "error") {
+		t.Fatalf("invalid seed: flash=%q, want it to contain \"error\"", got.flash)
+	}
+	if got.input.Value() != "just-a-name" {
+		t.Fatalf("invalid seed: input=%q, want it to retain \"just-a-name\"", got.input.Value())
 	}
 }

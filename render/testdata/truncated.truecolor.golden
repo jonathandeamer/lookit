@@ -3,6 +3,4 @@
 [38;2;255;95;162mName:[0m Alice
 [38;2;255;95;162mPlan:[0m
 This is a body that the server kept streaming past 1 MiB. We only show
-the part lookit captured; the footer notes the truncation.
-
-[38;2;140;135;146m161 B · 800ms[0m [38;2;140;135;146m·[0m [38;2;238;215;109mtruncated[0m
+the part lookit captured; truncation is signalled by the TUI status bar.

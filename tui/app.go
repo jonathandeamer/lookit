@@ -56,6 +56,7 @@ type commonModel struct {
 	darkBackground bool
 	styles         styles
 	fetch          FetchFunc
+	version        string
 }
 
 // bodyHeight is the height available to a sub-model after reserving the top
@@ -96,6 +97,7 @@ type appModel struct {
 
 	input        textinput.Model
 	inputFocused bool
+	seeded       bool // a CLI positional arg was supplied; replay it on Init
 	keys         keyMap
 
 	loading       bool
@@ -114,6 +116,10 @@ type appModel struct {
 }
 
 func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
+	return newAppWithOptions(fetch, profile, Options{})
+}
+
+func newAppWithOptions(fetch FetchFunc, profile colorprofile.Profile, opts Options) appModel {
 	if fetch == nil {
 		fetch = defaultFetch
 	}
@@ -123,6 +129,7 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		darkBackground: true,
 		styles:         st,
 		fetch:          fetch,
+		version:        opts.Version,
 	}
 	in := textinput.New()
 	in.Placeholder = pickSample()
@@ -130,6 +137,9 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 	in.CharLimit = 256
 	in.SetWidth(40)
 	in.SetStyles(st.input)
+	if opts.Seed {
+		in.SetValue(opts.InitialQuery) // replayed via seedSubmitMsg in Init/Update
+	}
 	in.Focus() // landing starts focused
 	app := appModel{
 		common:       common,
@@ -137,6 +147,7 @@ func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
 		reader:       newReader(profile),
 		input:        in,
 		inputFocused: true,
+		seeded:       opts.Seed,
 		keys:         newKeyMap(),
 		helpModel:    help.New(),
 		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.spinner)),
@@ -322,13 +333,24 @@ func (m *appModel) submit() tea.Cmd {
 	return m.startFetch(target)
 }
 
+// seedSubmitMsg replays a command-line initial query through submit() on
+// startup, so a seeded target takes the exact path a typed one does.
+type seedSubmitMsg struct{}
+
 func (m appModel) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		textinput.Blink,
 		tea.RequestBackgroundColor,
 		tea.RequestCapability("RGB"),
 		tea.RequestCapability("Tc"),
-	)
+	}
+	if m.seeded {
+		// Replay the supplied positional arg through submit(), even when blank:
+		// a blank arg yields the same parse-error flash as Enter-on-empty does
+		// interactively, rather than silently landing.
+		cmds = append(cmds, func() tea.Msg { return seedSubmitMsg{} })
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -378,6 +400,10 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearFlashMsg:
 		m.flash = ""
 		return m, nil
+
+	case seedSubmitMsg:
+		cmd := m.submit()
+		return m, cmd
 
 	case spinner.TickMsg:
 		if m.loading {
@@ -761,7 +787,27 @@ func (m *appModel) resizeForHelp() {
 }
 
 func (m appModel) helpView() string {
-	return fullWidthHelpView(m.keys.FullHelp(), m.common.styles, m.common.width, m.helpModel.FullSeparator)
+	st := m.common.styles
+	w := m.common.width
+	body := fullWidthHelpView(m.keys.FullHelp(), st, w, m.helpModel.FullSeparator)
+	if m.common.version == "" {
+		return body
+	}
+	const tagline = "A modern TUI browser for the Finger protocol"
+	p := st.palette
+	nameStyle := lipgloss.NewStyle().Foreground(p.AccentViolet).Background(p.SubtleBg).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(p.Dim).Background(p.SubtleBg)
+	name, rest, _ := strings.Cut(m.common.version, " ")
+	// Title band: version + one-line tagline (the spec requires both).
+	titleInner := nameStyle.Render(name)
+	if rest != "" {
+		titleInner += dimStyle.Render(" " + rest)
+	}
+	titleInner += dimStyle.Render(" · " + tagline)
+	footerInner := dimStyle.Render("finger · RFC 1288 · github.com/jonathandeamer/lookit")
+	title := padStyledLine(ansi.Truncate(titleInner, w, "…"), w, st.helpBand)
+	footer := padStyledLine(ansi.Truncate(footerInner, w, "…"), w, st.helpBand)
+	return title + "\n" + body + "\n" + footer
 }
 
 func (m appModel) topChromeHeight() int {

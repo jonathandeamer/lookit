@@ -2,34 +2,31 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/colorprofile"
 
-	"github.com/jonathandeamer/lookit/finger"
 	"github.com/jonathandeamer/lookit/render"
 	"github.com/jonathandeamer/lookit/tui"
 )
 
-// Exit codes per sysexits.h-ish conventions.
+// Exit codes: lookit is a TUI-only finger browser, so there is no per-result
+// network exit code. 0 is a clean session; 1 is any startup/usage failure.
 const (
-	exitOK      = 0
-	exitNetwork = 2
-	exitUsage   = 64 // EX_USAGE
+	exitOK    = 0
+	exitError = 1
 )
 
 var (
-	version        = "dev"
-	builtAt        = "unknown"
-	detectProfile  = colorprofile.Detect
-	runOneShotFunc = runOneShot
-	startTUI       = func() error {
+	version       = "dev"
+	builtAt       = "unknown"
+	detectProfile = colorprofile.Detect
+	startTUI      = func(opts tui.Options) error {
 		profile := colorprofile.Detect(os.Stdout, os.Environ())
-		return tui.Run(context.Background(), profile)
+		return tui.Run(context.Background(), profile, opts)
 	}
 )
 
@@ -37,57 +34,51 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// run is the testable router. lookit always opens the TUI; a single positional
+// argument seeds it. -h/--help and -v/--version are the only flags.
 func run(args []string, stdout, stderr io.Writer) int {
 	outProfile := detectProfile(stdout, os.Environ())
 	errProfile := detectProfile(stderr, os.Environ())
 
-	if len(args) == 0 {
-		if err := startTUI(); err != nil {
-			fmt.Fprintln(stderr, render.ErrorLine(err.Error(), errProfile))
-			return exitNetwork
+	var positional []string
+	for _, a := range args {
+		switch a {
+		case "-h", "--help":
+			fmt.Fprint(stdout, render.Usage(outProfile))
+			return exitOK
+		case "-v", "--version":
+			fmt.Fprintln(stdout, render.Version(versionString(), outProfile))
+			return exitOK
+		default:
+			if strings.HasPrefix(a, "-") {
+				fmt.Fprint(stderr, render.Usage(errProfile))
+				return exitError
+			}
+			positional = append(positional, a)
 		}
-		return exitOK
 	}
 
-	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" {
+	if len(positional) > 1 {
 		fmt.Fprint(stderr, render.Usage(errProfile))
-		return exitUsage
+		return exitError
 	}
 
-	if args[0] == "version" {
-		fmt.Fprintln(stdout, render.Version(versionString(), outProfile))
-		return exitOK
+	// Seed is true whenever a positional arg was supplied, even a blank one
+	// (lookit ""): the TUI replays it through submit() so a blank/malformed arg
+	// shows its parse error in-place rather than silently landing.
+	seed := len(positional) == 1
+	query := ""
+	if seed {
+		query = positional[0]
 	}
 
-	target, err := finger.ParseTarget(args[0])
-	if err != nil {
+	if err := startTUI(tui.Options{InitialQuery: query, Seed: seed, Version: versionString()}); err != nil {
 		fmt.Fprintln(stderr, render.ErrorLine(err.Error(), errProfile))
-		return exitUsage
-	}
-
-	return runOneShotFunc(context.Background(), target, stdout)
-}
-
-func versionString() string {
-	return fmt.Sprintf("lookit %s (built %s)", version, builtAt)
-}
-
-func runOneShot(ctx context.Context, target finger.Target, stdout io.Writer) int {
-	profile := colorprofile.Detect(os.Stdout, os.Environ())
-	body, meta, queryErr := finger.Query(ctx, target)
-	fmt.Fprint(stdout, render.Render(target, body, meta, queryErr, profile))
-	if queryErr != nil {
-		return exitCodeFor(queryErr)
+		return exitError
 	}
 	return exitOK
 }
 
-// exitCodeFor maps Query errors to process exit codes. Network failures
-// (refused, timeout, DNS) return 2; everything else returns 2 as well for now.
-func exitCodeFor(err error) int {
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return exitNetwork
-	}
-	return exitNetwork
+func versionString() string {
+	return fmt.Sprintf("lookit %s (built %s)", version, builtAt)
 }

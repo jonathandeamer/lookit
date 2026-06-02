@@ -19,7 +19,9 @@ func Usage(profile colorprofile.Profile) string {
 	fmt.Fprintf(&b, "  %s\n", cmd)
 	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Field.Render("user@host[:port]"))
 	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Field.Render("@host[:port]"))
-	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Footer.Render("version"))
+	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Footer.Render("--version"))
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, t.Footer.Render("press ? in lookit for keys"))
 	return b.String()
 }
 

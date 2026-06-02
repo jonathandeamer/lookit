@@ -801,31 +801,40 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	}
 }
 
-func TestHelpPanelShowsVersionBand(t *testing.T) {
+func TestHelpPanelShowsVersionRightAligned(t *testing.T) {
 	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{Version: "lookit 1.2.3 (built 2026-06-02)"})
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
 
 	got := ansi.Strip(m.helpView())
-	if !strings.Contains(got, "lookit 1.2.3") {
-		t.Fatalf("help view missing version: %q", got)
+	if !strings.Contains(got, "1.2.3 (built 2026-06-02)") {
+		t.Fatalf("help view missing version details: %q", got)
 	}
-	if !strings.Contains(got, "A modern TUI browser for the Finger protocol") {
-		t.Fatalf("help view missing tagline: %q", got)
+	if strings.Contains(got, "lookit") {
+		t.Fatalf("help view should drop the lookit name: %q", got)
 	}
-	if !strings.Contains(got, "RFC 1288") {
-		t.Fatalf("help view missing protocol pointer: %q", got)
+	if strings.Contains(got, "RFC 1288") || strings.Contains(got, "modern TUI browser") {
+		t.Fatalf("help view should not carry the tagline or pointer: %q", got)
+	}
+	// The version row is right-aligned: padded with leading space, version flush right.
+	verLine := lineContaining(t, got, "1.2.3")
+	if !strings.HasPrefix(verLine, " ") {
+		t.Fatalf("version row should be right-aligned (leading pad): %q", verLine)
+	}
+	if !strings.HasSuffix(verLine, "1.2.3 (built 2026-06-02)") {
+		t.Fatalf("version should be flush to the right edge: %q", verLine)
 	}
 }
 
-func TestHelpPanelNoBandWithoutVersion(t *testing.T) {
+func TestHelpPanelOmitsVersionRowWhenUnset(t *testing.T) {
 	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{})
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
 
-	got := ansi.Strip(m.helpView())
-	if strings.Contains(got, "RFC 1288") {
-		t.Fatalf("help view should have no version band when version is empty: %q", got)
+	got := m.helpView()
+	want := fullWidthHelpView(m.keys.FullHelp(), m.common.styles, m.common.width, m.helpModel.FullSeparator)
+	if got != want {
+		t.Fatalf("help view with no version should be just the keybindings body, got:\n%q", got)
 	}
 }
 

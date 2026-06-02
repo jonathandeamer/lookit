@@ -793,21 +793,19 @@ func (m appModel) helpView() string {
 	if m.common.version == "" {
 		return body
 	}
-	const tagline = "A modern TUI browser for the Finger protocol"
-	p := st.palette
-	nameStyle := lipgloss.NewStyle().Foreground(p.AccentViolet).Background(p.SubtleBg).Bold(true)
-	dimStyle := lipgloss.NewStyle().Foreground(p.Dim).Background(p.SubtleBg)
-	name, rest, _ := strings.Cut(m.common.version, " ")
-	// Title band: version + one-line tagline (the spec requires both).
-	titleInner := nameStyle.Render(name)
-	if rest != "" {
-		titleInner += dimStyle.Render(" " + rest)
+	// A single dim row with just the version details (drop the "lookit" name),
+	// right-aligned to the far edge of the panel.
+	_, rest, found := strings.Cut(m.common.version, " ")
+	if !found {
+		rest = m.common.version
 	}
-	titleInner += dimStyle.Render(" · " + tagline)
-	footerInner := dimStyle.Render("finger · RFC 1288 · github.com/jonathandeamer/lookit")
-	title := padStyledLine(ansi.Truncate(titleInner, w, "…"), w, st.helpBand)
-	footer := padStyledLine(ansi.Truncate(footerInner, w, "…"), w, st.helpBand)
-	return title + "\n" + body + "\n" + footer
+	dim := lipgloss.NewStyle().Foreground(st.palette.Dim).Background(st.palette.SubtleBg)
+	inner := dim.Render(ansi.Truncate(rest, w, "…"))
+	verRow := inner
+	if pad := w - lipgloss.Width(inner); pad > 0 {
+		verRow = st.helpBand.Render(strings.Repeat(" ", pad)) + inner
+	}
+	return verRow + "\n" + body
 }
 
 func (m appModel) topChromeHeight() int {

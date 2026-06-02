@@ -46,6 +46,37 @@ hatches are exactly the "browser that is also a pipe" model we are rejecting. No
 - **No protocol / parsing / rendering-of-finger-body changes.** Only the entry
   surface and the chrome around it change.
 
+## Why not cobra / viper / fang
+
+The pivot makes the command surface *smaller* — one optional positional and two
+flags (`-h`/`--help`, `-v`/`--version`), zero subcommands — which weakens, not
+strengthens, the case for a CLI framework. Each tool earns its weight on a
+feature we just deleted or never had:
+
+- **cobra** exists for command *trees*; we have one command. Its best
+  discoverability win (shell completions) is near-worthless here — no
+  subcommands to complete, and a `user@host` target isn't completable. It would
+  also replace the ~30-line table-testable `run(...)` router and wants to own
+  the exit path right after we collapsed to `{0, 1}`.
+- **viper** manages layered config; lookit has *zero* configuration today and
+  this spec adds none. It would solve a problem we don't have (YAGNI).
+- **fang** is the Charm-native CLI skin, and is the genuinely tempting one — but
+  it *requires* cobra (it wraps it), and it styles to fang's theme, whereas
+  `render/cli.go` (shipped in `2026-06-01-styled-cli-chrome`) already styles the
+  CLI to lookit's own `Theme`. Adopting fang means taking the cobra weight *and*
+  deleting recent working code in exchange for *less* palette coherence with the
+  TUI — a regression on the one thing fang is meant to win.
+
+**Decision: keep the hand-rolled launcher.** A TUI-only lookit's "CLI" is
+honestly just a launcher; a small router that calls `tui.Run` represents that
+more truthfully than a one-command cobra tree.
+
+**Revisit trigger:** the day lookit grows genuine subcommands (e.g. `lookit
+bookmarks`, `lookit config`) or a persistent config/bookmarks store, cobra+viper
+begin to pay for themselves and fang becomes the right Charm-native skin
+(superseding `render/cli.go`). Not before. This is the same line
+`2026-06-01-styled-cli-chrome` drew; the pivot does not move it.
+
 ## Architecture after the change
 
 The three-package direction (`finger/` → `render/` → `tui/`, wired by

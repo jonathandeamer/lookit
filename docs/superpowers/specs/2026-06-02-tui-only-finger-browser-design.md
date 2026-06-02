@@ -228,3 +228,24 @@ CLAUDE.md); OSC-52 clipboard via the `setClipboard` seam; `NO_COLOR` /
 - **render:** drop any footer-on test; update the `Usage` test for the new
   block; keep the `Version`/`ErrorLine` tests.
 - `make check` is the final gate.
+
+## Deferred: licensing & packaging (out of scope)
+
+Recorded here so it is not lost, but **explicitly deferred** — it is a
+packaging/release-layer concern, not part of this entry-surface change, and per
+CLAUDE.md ("keep specs focused") it does not belong in this spec's
+implementation. None of it touches the version-surfacing UI.
+
+- **lookit's own license: already done.** `LICENSE` is MIT (Copyright (c) 2026
+  Jonathan Deamer). No action needed. (For the record, an earlier draft of this
+  spec wrongly claimed there was no license; there is.)
+- **`README.md` license stub:** the `## License` section currently reads
+  `TBD.` — should point at the MIT `LICENSE`. Trivial, standalone, not blocking.
+- **Third-party notices:** shipping release binaries that statically link
+  MIT/BSD/Apache dependencies carries those licenses' redistribution clause (the
+  same clause lookit's own MIT license contains). Best practice is a generated
+  `THIRD_PARTY_NOTICES` file shipped with releases — e.g. via
+  `google/go-licenses`, ideally wired into goreleaser if/when release tooling is
+  added. This is a *distribution* obligation, satisfied by a file, **not** an
+  in-app credits/licenses screen and **not** the `?` help band or `--version`
+  output. At most an optional one-line pointer from `--version`; not required.

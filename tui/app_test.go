@@ -552,18 +552,18 @@ func TestGenericHostFetchOpensFlaggedList(t *testing.T) {
 	}
 }
 
-func TestRViewsRawBodyOnGenericList(t *testing.T) {
+func TestVViewsSourceOnGenericList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@unknown.host")
 	entry := Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}
 	opened, _ := m.Update(fetchResultMsg{entry: entry})
 	m = opened.(appModel)
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
 	got := next.(appModel)
 
 	if got.state != stateReader {
-		t.Fatalf("state = %d, want stateReader after r", got.state)
+		t.Fatalf("state = %d, want stateReader after v", got.state)
 	}
 	if !got.showingRaw {
 		t.Fatal("showingRaw = false, want true after viewing raw")
@@ -578,18 +578,18 @@ func TestRViewsRawBodyOnGenericList(t *testing.T) {
 	}
 }
 
-func TestRViewsRawBodyOnRecognizedList(t *testing.T) {
-	// 'r' views the raw response on any list, recognized ones included.
+func TestVViewsSourceOnRecognizedList(t *testing.T) {
+	// 'v' views the source on any list, recognized ones included.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: target.HostPort}}
 	opened, _ := m.Update(fetchResultMsg{entry: entry})
 	m = opened.(appModel)
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
 	got := next.(appModel)
 	if !got.showingRaw || got.state != stateReader {
-		t.Fatalf("r should view raw on a recognized list: showingRaw=%v state=%d", got.showingRaw, got.state)
+		t.Fatalf("v should view source on a recognized list: showingRaw=%v state=%d", got.showingRaw, got.state)
 	}
 	// The raw body carries the header line the parsed list view omits.
 	if !strings.Contains(got.reader.viewport.View(), "users currently logged in are:") {
@@ -614,10 +614,10 @@ func TestRTogglesRawBodyOnProfile(t *testing.T) {
 	}
 	rendered := m.reader.viewport.View()
 
-	raw, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	raw, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
 	gotRaw := raw.(appModel)
 	if !gotRaw.showingRaw {
-		t.Fatal("r should enter raw view on a profile")
+		t.Fatal("v should enter source view on a profile")
 	}
 	rawView := gotRaw.reader.viewport.View()
 	if !strings.Contains(rawView, "hello from the raw body") {
@@ -627,7 +627,7 @@ func TestRTogglesRawBodyOnProfile(t *testing.T) {
 		t.Fatal("raw view should differ from the rendered profile (view source)")
 	}
 
-	off, _ := gotRaw.Update(tea.KeyPressMsg{Code: 'r'})
+	off, _ := gotRaw.Update(tea.KeyPressMsg{Code: 'v'})
 	gotOff := off.(appModel)
 	if gotOff.showingRaw {
 		t.Fatal("a second r should exit raw view")
@@ -889,10 +889,10 @@ func TestEscFromRawViewClearsRawState(t *testing.T) {
 	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
 	m = opened.(appModel)
 
-	raw, _ := m.Update(tea.KeyPressMsg{Code: 'r'})
+	raw, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
 	m = raw.(appModel)
 	if !m.showingRaw {
-		t.Fatal("precondition: r should enter raw view on a generic list")
+		t.Fatal("precondition: v should enter source view on a generic list")
 	}
 
 	// Esc must exit raw view, returning to the list at the same history position.
@@ -1136,7 +1136,7 @@ func TestBackgroundColorMsgPreservesRawView(t *testing.T) {
 	target := hostTarget(t, "alice@plan.cat")
 	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\nPlan: raw\n")}})
 	m = step.(appModel)
-	step, _ = m.Update(tea.KeyPressMsg{Code: 'r'})
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'v'})
 	m = step.(appModel)
 
 	step, _ = m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})

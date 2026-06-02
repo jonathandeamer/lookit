@@ -13,7 +13,7 @@ func TestKeyMapBindings(t *testing.T) {
 	cases := map[string]key.Binding{
 		"i":   k.FocusInput,
 		"y":   k.Copy,
-		"r":   k.Raw,
+		"v":   k.Raw,
 		"q":   k.Quit,
 		"?":   k.Help,
 		"esc": k.Back,

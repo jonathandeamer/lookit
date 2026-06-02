@@ -30,7 +30,7 @@ func newKeyMap() keyMap {
 		Back:       key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		Open:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("↵", "go")),
 		Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-		Raw:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "view source")),
+		Raw:        key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view source")),
 		Copy:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),

@@ -12,7 +12,9 @@ const plainUsage = "usage:\n" +
 	"  lookit\n" +
 	"  lookit user@host[:port]\n" +
 	"  lookit @host[:port]\n" +
-	"  lookit version\n"
+	"  lookit --version\n" +
+	"\n" +
+	"press ? in lookit for keys\n"
 
 func TestUsagePlainIsByteIdentical(t *testing.T) {
 	if got := Usage(colorprofile.NoTTY); got != plainUsage {

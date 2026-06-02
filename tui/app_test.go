@@ -801,7 +801,7 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	}
 }
 
-func TestHelpPanelShowsVersionRightAligned(t *testing.T) {
+func TestHelpPanelVersionSharesFirstKeyRow(t *testing.T) {
 	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{Version: "lookit 1.2.3 (built 2026-06-02)"})
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
@@ -816,10 +816,10 @@ func TestHelpPanelShowsVersionRightAligned(t *testing.T) {
 	if strings.Contains(got, "RFC 1288") || strings.Contains(got, "modern TUI browser") {
 		t.Fatalf("help view should not carry the tagline or pointer: %q", got)
 	}
-	// The version row is right-aligned: padded with leading space, version flush right.
+	// At width 80 the version shares the first keybinding row, flush to the right.
 	verLine := lineContaining(t, got, "1.2.3")
-	if !strings.HasPrefix(verLine, " ") {
-		t.Fatalf("version row should be right-aligned (leading pad): %q", verLine)
+	if !strings.Contains(verLine, "go") {
+		t.Fatalf("version should share the first keybinding row (with ↵ go): %q", verLine)
 	}
 	if !strings.HasSuffix(verLine, "1.2.3 (built 2026-06-02)") {
 		t.Fatalf("version should be flush to the right edge: %q", verLine)

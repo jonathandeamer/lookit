@@ -846,7 +846,7 @@ func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {
 		t.Fatal("help description colour should use bar text")
 	}
 	view := m.View().Content
-	if !strings.Contains(view, "back") || !strings.Contains(view, "raw") {
+	if !strings.Contains(view, "back") || !strings.Contains(view, "view source") {
 		t.Fatalf("help panel should still render enabled keys:\n%s", view)
 	}
 }
@@ -860,7 +860,7 @@ func TestHelpPanelRowsSpanFullWidth(t *testing.T) {
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	m = step.(appModel)
 
-	line := lineContaining(t, m.View().Content, "raw")
+	line := lineContaining(t, m.View().Content, "view source")
 	assertFullWidthStyledLine(t, "help row", line, m.common.width, m.common.styles.palette.SubtleBg)
 }
 
@@ -1405,8 +1405,8 @@ func TestHelpPanelHidesInertKeys(t *testing.T) {
 	if strings.Contains(view, "open") || strings.Contains(view, "filter") {
 		t.Fatalf("profile-reader help must not advertise open/filter:\n%s", view)
 	}
-	if !strings.Contains(view, "back") || !strings.Contains(view, "raw") {
-		t.Fatalf("help should still show the live keys (back/raw):\n%s", view)
+	if !strings.Contains(view, "back") || !strings.Contains(view, "view source") {
+		t.Fatalf("help should still show the live keys (back/view source):\n%s", view)
 	}
 }
 

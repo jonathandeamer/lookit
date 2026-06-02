@@ -733,7 +733,7 @@ func (m appModel) statusBarModel() statusBar {
 		parts := []string{"↵ go", "/ filter"}
 		if node.listGeneric {
 			bar.flags = append(bar.flags, "auto-detected")
-			parts = append(parts, "r raw")
+			parts = append(parts, "r view source")
 		}
 		if node.entry.Err != nil {
 			bar.flags = append(bar.flags, "partial (error)")

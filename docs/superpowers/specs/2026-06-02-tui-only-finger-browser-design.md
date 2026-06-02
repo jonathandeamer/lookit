@@ -137,13 +137,22 @@ single `ParseTarget` chokepoint.
 model — Bubble Tea keeps the model passed to `NewProgram` and only takes
 `Init`'s returned `Cmd`. So:
 
-- `tui.Run(ctx, profile, Options{InitialQuery, Version})`; `newApp` takes the
-  same options.
-- When `InitialQuery != ""`, `newApp` sets the landing input's value to it (so
-  the text is visible/editable immediately) and keeps focus.
-- `Init()` emits a one-shot `seedSubmitMsg` when a query was seeded; `Update`
-  handles it with `return m, m.submit()`, running the seed through the normal
-  mutation flow.
+- `tui.Run(ctx, profile, Options{InitialQuery, Seed, Version})`; `newApp` takes
+  the same options.
+- **`Seed bool` is tracked separately from `InitialQuery`.** "A positional arg
+  was supplied" is not the same as "the arg is non-empty": `lookit ""` and
+  `lookit "   "` supply an arg whose value is blank, and the empty string is
+  *also* the no-arg `InitialQuery`. So `main` sets `Seed = true` whenever exactly
+  one positional arg was given (blank or not), and leaves it `false` for the
+  no-arg launch. When `Seed` is true, `newApp` sets the landing input's value to
+  `InitialQuery` (visible/editable immediately) and keeps focus.
+- `Init()` emits a one-shot `seedSubmitMsg` **iff `Seed` is true** (not based on
+  whether the input is non-blank); `Update` handles it with
+  `return m, m.submit()`, running the seed through the normal mutation flow.
+  Because `submit()` on a blank value yields the same parse-error flash that
+  pressing Enter on the empty landing produces interactively, a blank seeded arg
+  consistently shows that error rather than silently landing — one rule, no
+  special case for blank.
 
 `tui.Options` is a small struct (room to grow without churning the `Run`
 signature again).
@@ -160,8 +169,8 @@ The `version` subcommand is replaced by **two** surfaces, both light:
 
 2. **A band on the `?` help panel** — `main` passes `versionString()` into
    `tui.Options.Version`; the help panel gains:
-   - a **title band** at the top: `lookit <version>` + a one-line tagline
-     (e.g. "a finger client for the modern terminal"),
+   - a **title band** at the top: `lookit <version>` + the one-line tagline
+     "A modern TUI browser for the Finger protocol",
    - the existing keybinding groups (unchanged),
    - a **footer pointer**: `finger · RFC 1288 · github.com/jonathandeamer/lookit`.
 
@@ -171,8 +180,8 @@ The `version` subcommand is replaced by **two** surfaces, both light:
    `lipgloss.Height(m.helpView())`), so the added rows are accommodated
    automatically.
 
-(Exact tagline/footer wording is a plan detail; the structure above is the
-spec.)
+(The tagline text is fixed as above; exact footer-pointer punctuation is a plan
+detail.)
 
 ## `render/` cleanup entailed by the pivot
 
@@ -195,10 +204,12 @@ spec.)
 - **`render/render.go`:** the footer-on path existed *for* the one-shot CLI
   (`render/render.go:11-12`); the TUI already renders footerless and surfaces
   truncation in its status bar (`tui/app.go:726`). With one-shot gone there is
-  no footer-on consumer, so the `footer` option, `WithoutFooter`, and the
-  `Render` convenience wrapper retire; the renderer becomes footerless and the
-  TUI calls the footerless entry directly. **The plan must grep for remaining
-  consumers (including tests) before deleting**, adjusting call sites as needed.
+  no footer-on consumer, so the `footer` option, `WithoutFooter`, `renderFooter`,
+  and `fmtBytes` are **deleted**, and `RenderWithBackground` becomes footerless.
+  The `Render` convenience wrapper is **kept** (a grep confirms it is still called
+  by render-package tests — `render/tildeteam_test.go` and `render/render_test.go`);
+  it simply delegates to the now-footerless `RenderWithBackground`. (`fmtElapsed`
+  stays — the header still uses it.)
 
 ## Things audited and deliberately left unchanged
 

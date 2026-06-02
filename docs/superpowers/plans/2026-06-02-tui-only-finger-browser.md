@@ -242,9 +242,17 @@ func hasSeedSubmit(msgs []tea.Msg) bool {
 }
 
 func TestSeededInitEmitsSeedSubmit(t *testing.T) {
-	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{InitialQuery: "alice@plan.cat"})
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{InitialQuery: "alice@plan.cat", Seed: true})
 	if !hasSeedSubmit(collectMsgs(m.Init())) {
 		t.Fatal("Init() did not emit seedSubmitMsg when a query was seeded")
+	}
+}
+
+func TestBlankSeedStillEmitsSeedSubmit(t *testing.T) {
+	// lookit "" / lookit "   ": an arg was supplied, so it must still be replayed.
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{InitialQuery: "   ", Seed: true})
+	if !hasSeedSubmit(collectMsgs(m.Init())) {
+		t.Fatal("Init() did not emit seedSubmitMsg for a supplied-but-blank arg")
 	}
 }
 
@@ -257,7 +265,7 @@ func TestUnseededInitOmitsSeedSubmit(t *testing.T) {
 
 func TestSeededValidQueryFetchesAndRoutesToReader(t *testing.T) {
 	fetch, seen := fetchRecorder("Plan: hi\n")
-	m := newAppWithOptions(fetch, colorprofile.NoTTY, Options{InitialQuery: "alice@plan.cat"})
+	m := newAppWithOptions(fetch, colorprofile.NoTTY, Options{InitialQuery: "alice@plan.cat", Seed: true})
 
 	next, cmd := m.Update(seedSubmitMsg{})
 	got := next.(appModel)
@@ -279,7 +287,7 @@ func TestSeededValidQueryFetchesAndRoutesToReader(t *testing.T) {
 }
 
 func TestSeededInvalidQueryShowsErrorOnLanding(t *testing.T) {
-	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{InitialQuery: "just-a-name"})
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{InitialQuery: "just-a-name", Seed: true})
 
 	next, cmd := m.Update(seedSubmitMsg{})
 	got := next.(appModel)
@@ -325,9 +333,16 @@ import (
 
 // Options configures a TUI session launched from the command line.
 type Options struct {
-	// InitialQuery, when non-empty, is replayed through the landing input's
-	// submit path on startup (the same path a typed target takes).
+	// InitialQuery is the raw positional argument, replayed through the landing
+	// input's submit path on startup (the same path a typed target takes). It is
+	// only meaningful when Seed is true.
 	InitialQuery string
+	// Seed reports whether a positional argument was supplied at all. It is
+	// tracked separately from InitialQuery because a supplied-but-blank argument
+	// (lookit "" / lookit "   ") has an empty InitialQuery yet must still be
+	// replayed, so the user gets the same parse-error-in-place behaviour as a
+	// malformed target rather than a silent landing.
+	Seed bool
 	// Version is the build version line surfaced in the ? help panel.
 	Version string
 }
@@ -345,13 +360,21 @@ func Run(ctx context.Context, profile colorprofile.Profile, opts Options) error 
 }
 ```
 
-- [ ] **Step 4: Add the `version` field and rework the constructors in `tui/app.go`**
+- [ ] **Step 4: Add the `version`/`seeded` fields and rework the constructors in `tui/app.go`**
 
 In `tui/app.go`, add a `version` field to `commonModel` (after `fetch FetchFunc` at line 58):
 
 ```go
 	fetch          FetchFunc
 	version        string
+```
+
+Add a `seeded` field to `appModel` (after `inputFocused bool` near line 98):
+
+```go
+	input        textinput.Model
+	inputFocused bool
+	seeded       bool // a CLI positional arg was supplied; replay it on Init
 ```
 
 Then replace the existing `newApp` function (lines 116–150) with a delegating wrapper plus the real constructor:
@@ -379,7 +402,7 @@ func newAppWithOptions(fetch FetchFunc, profile colorprofile.Profile, opts Optio
 	in.CharLimit = 256
 	in.SetWidth(40)
 	in.SetStyles(st.input)
-	if opts.InitialQuery != "" {
+	if opts.Seed {
 		in.SetValue(opts.InitialQuery) // replayed via seedSubmitMsg in Init/Update
 	}
 	in.Focus() // landing starts focused
@@ -389,6 +412,7 @@ func newAppWithOptions(fetch FetchFunc, profile colorprofile.Profile, opts Optio
 		reader:       newReader(profile),
 		input:        in,
 		inputFocused: true,
+		seeded:       opts.Seed,
 		keys:         newKeyMap(),
 		helpModel:    help.New(),
 		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.spinner)),
@@ -422,7 +446,10 @@ func (m appModel) Init() tea.Cmd {
 		tea.RequestCapability("RGB"),
 		tea.RequestCapability("Tc"),
 	}
-	if strings.TrimSpace(m.input.Value()) != "" {
+	if m.seeded {
+		// Replay the supplied positional arg through submit(), even when blank:
+		// a blank arg yields the same parse-error flash as Enter-on-empty does
+		// interactively, rather than silently landing.
 		cmds = append(cmds, func() tea.Msg { return seedSubmitMsg{} })
 	}
 	return tea.Batch(cmds...)
@@ -565,6 +592,9 @@ func TestRunNoArgsStartsTUI(t *testing.T) {
 	if got.InitialQuery != "" {
 		t.Fatalf("InitialQuery = %q, want empty", got.InitialQuery)
 	}
+	if got.Seed {
+		t.Fatalf("Seed = true, want false for the no-arg launch")
+	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
 	}
@@ -576,6 +606,9 @@ func TestRunSeedsTUIWithTarget(t *testing.T) {
 	code := run([]string{"alice@plan.cat"}, &stdout, &stderr)
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	if !got.Seed {
+		t.Fatalf("Seed = false, want true when an arg is supplied")
 	}
 	if got.InitialQuery != "alice@plan.cat" {
 		t.Fatalf("InitialQuery = %q, want %q", got.InitialQuery, "alice@plan.cat")
@@ -591,8 +624,25 @@ func TestRunSeedsTUIWithMalformedTarget(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
 	}
-	if got.InitialQuery != "just-a-name" {
-		t.Fatalf("InitialQuery = %q, want %q", got.InitialQuery, "just-a-name")
+	if !got.Seed || got.InitialQuery != "just-a-name" {
+		t.Fatalf("Seed=%v InitialQuery=%q, want true / %q", got.Seed, got.InitialQuery, "just-a-name")
+	}
+}
+
+func TestRunSeedsTUIWithBlankArg(t *testing.T) {
+	// lookit "": an arg was supplied (Seed=true) even though its value is blank,
+	// so the TUI replays it and surfaces the parse error in-place.
+	got := stubStartTUI(t, nil)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{""}, &stdout, &stderr)
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	if !got.Seed {
+		t.Fatalf("Seed = false, want true for a supplied-but-blank arg")
+	}
+	if got.InitialQuery != "" {
+		t.Fatalf("InitialQuery = %q, want empty", got.InitialQuery)
 	}
 }
 
@@ -697,12 +747,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
+	// Seed is true whenever a positional arg was supplied, even a blank one
+	// (lookit ""): the TUI replays it through submit() so a blank/malformed arg
+	// shows its parse error in-place rather than silently landing.
+	seed := len(positional) == 1
 	query := ""
-	if len(positional) == 1 {
+	if seed {
 		query = positional[0]
 	}
 
-	if err := startTUI(tui.Options{InitialQuery: query, Version: versionString()}); err != nil {
+	if err := startTUI(tui.Options{InitialQuery: query, Seed: seed, Version: versionString()}); err != nil {
 		fmt.Fprintln(stderr, render.ErrorLine(err.Error(), errProfile))
 		return exitError
 	}
@@ -753,6 +807,9 @@ func TestHelpPanelShowsVersionBand(t *testing.T) {
 	if !strings.Contains(got, "lookit 1.2.3") {
 		t.Fatalf("help view missing version: %q", got)
 	}
+	if !strings.Contains(got, "A modern TUI browser for the Finger protocol") {
+		t.Fatalf("help view missing tagline: %q", got)
+	}
 	if !strings.Contains(got, "RFC 1288") {
 		t.Fatalf("help view missing protocol pointer: %q", got)
 	}
@@ -791,14 +848,17 @@ func (m appModel) helpView() string {
 	if m.common.version == "" {
 		return body
 	}
+	const tagline = "A modern TUI browser for the Finger protocol"
 	p := st.palette
 	nameStyle := lipgloss.NewStyle().Foreground(p.AccentViolet).Background(p.SubtleBg).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(p.Dim).Background(p.SubtleBg)
 	name, rest, _ := strings.Cut(m.common.version, " ")
+	// Title band: version + one-line tagline (the spec requires both).
 	titleInner := nameStyle.Render(name)
 	if rest != "" {
 		titleInner += dimStyle.Render(" " + rest)
 	}
+	titleInner += dimStyle.Render(" · " + tagline)
 	footerInner := dimStyle.Render("finger · RFC 1288 · github.com/jonathandeamer/lookit")
 	title := padStyledLine(ansi.Truncate(titleInner, w, "…"), w, st.helpBand)
 	footer := padStyledLine(ansi.Truncate(footerInner, w, "…"), w, st.helpBand)
@@ -806,7 +866,7 @@ func (m appModel) helpView() string {
 }
 ```
 
-(`lipgloss`, `ansi`, and `strings` are already imported in `tui/app.go`; `padStyledLine`, `st.palette`, `st.helpBand`, `AccentViolet`, `Dim`, `SubtleBg` all already exist.)
+(`lipgloss`, `ansi`, and `strings` are already imported in `tui/app.go`; `padStyledLine`, `st.palette`, `st.helpBand`, `AccentViolet`, `Dim`, `SubtleBg` all already exist. At width 80 the title row — version `+ " · " +` tagline — is ~78 columns, so it is not truncated; narrower terminals truncate the tail gracefully.)
 
 - [ ] **Step 5: Run the band tests**
 

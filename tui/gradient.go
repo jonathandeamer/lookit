@@ -3,9 +3,6 @@ package tui
 import (
 	"image/color"
 	"math"
-	"strings"
-
-	"charm.land/lipgloss/v2"
 )
 
 // lerpColor linearly interpolates between two colours in 8-bit RGB. t is
@@ -49,17 +46,4 @@ func gradientColors(p palette, n int) []color.Color {
 		}
 	}
 	return out
-}
-
-// gradientString renders s rune-by-rune in base, replacing only base's
-// foreground with the gradient colour for each rune's position (so base's
-// background and bold are preserved). Empty s renders empty.
-func gradientString(base lipgloss.Style, p palette, s string) string {
-	runes := []rune(s)
-	colors := gradientColors(p, len(runes))
-	var b strings.Builder
-	for i, r := range runes {
-		b.WriteString(base.Foreground(colors[i]).Render(string(r)))
-	}
-	return b.String()
 }

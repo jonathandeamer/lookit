@@ -115,7 +115,7 @@ func (b statusBar) styleCrumb(budget int) string {
 	if b.user == "" {
 		return st.barHost.Render(b.host)
 	}
-	return st.barHost.Render(b.host) + st.barSep.Render(" / ") + gradientString(st.barUser, st.palette, b.user)
+	return st.barHost.Render(b.host) + st.barSep.Render(" / ") + st.barUser.Render(b.user)
 }
 
 // breadcrumbParts splits a target into the bar's host ("@host") and user halves.

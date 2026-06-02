@@ -124,14 +124,16 @@ func TestStatusBarUsesBadgeStyle(t *testing.T) {
 	}
 }
 
-func TestStatusBarLeafIsGradient(t *testing.T) {
-	b := statusBar{host: "@tilde.team", user: "jonathan", width: 80, styles: newStyles(true)}
+func TestStatusBarLeafIsSolidAccent(t *testing.T) {
+	st := newStyles(true)
+	b := statusBar{host: "@tilde.team", user: "jonathan", width: 80, styles: st}
 	crumb := b.styleCrumb(60) // 60 > width of "@tilde.team / jonathan", so it fits
 	if got := ansi.Strip(crumb); got != "@tilde.team / jonathan" {
 		t.Fatalf("stripped crumb = %q, want %q", got, "@tilde.team / jonathan")
 	}
-	if got := len(foregroundSequences(crumb)); got < 3 {
-		t.Fatalf("expected a gradient leaf (>=3 distinct fg colours), got %d: %q", got, crumb)
+	// The leaf renders as a single solid barUser accent run, not a per-rune gradient.
+	if !strings.HasSuffix(crumb, st.barUser.Render("jonathan")) {
+		t.Fatalf("leaf should be a single barUser accent, got %q", crumb)
 	}
 }
 

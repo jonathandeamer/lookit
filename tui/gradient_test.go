@@ -3,9 +3,6 @@ package tui
 import (
 	"image/color"
 	"testing"
-
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 func TestLerpColor(t *testing.T) {
@@ -68,22 +65,5 @@ func TestGradientColorsLightPaletteSweeps(t *testing.T) {
 	assertSameColor(t, "light last stop", colors[5], p.AccentMint)
 	if sameColor(colors[0], colors[5]) {
 		t.Fatal("light gradient endpoints should differ")
-	}
-}
-
-func TestGradientStringVariesPerRune(t *testing.T) {
-	p := paletteFor(true)
-	out := gradientString(lipgloss.NewStyle(), p, "lookit")
-	if got := len(foregroundSequences(out)); got < 3 {
-		t.Fatalf("expected a per-rune gradient, got %d distinct colours: %q", got, out)
-	}
-	if got := ansi.Strip(out); got != "lookit" {
-		t.Fatalf("stripped gradientString = %q, want %q", got, "lookit")
-	}
-}
-
-func TestGradientStringEmpty(t *testing.T) {
-	if out := gradientString(lipgloss.NewStyle(), paletteFor(true), ""); out != "" {
-		t.Fatalf("gradientString(\"\") = %q, want empty", out)
 	}
 }

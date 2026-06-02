@@ -787,7 +787,27 @@ func (m *appModel) resizeForHelp() {
 }
 
 func (m appModel) helpView() string {
-	return fullWidthHelpView(m.keys.FullHelp(), m.common.styles, m.common.width, m.helpModel.FullSeparator)
+	st := m.common.styles
+	w := m.common.width
+	body := fullWidthHelpView(m.keys.FullHelp(), st, w, m.helpModel.FullSeparator)
+	if m.common.version == "" {
+		return body
+	}
+	const tagline = "A modern TUI browser for the Finger protocol"
+	p := st.palette
+	nameStyle := lipgloss.NewStyle().Foreground(p.AccentViolet).Background(p.SubtleBg).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(p.Dim).Background(p.SubtleBg)
+	name, rest, _ := strings.Cut(m.common.version, " ")
+	// Title band: version + one-line tagline (the spec requires both).
+	titleInner := nameStyle.Render(name)
+	if rest != "" {
+		titleInner += dimStyle.Render(" " + rest)
+	}
+	titleInner += dimStyle.Render(" · " + tagline)
+	footerInner := dimStyle.Render("finger · RFC 1288 · github.com/jonathandeamer/lookit")
+	title := padStyledLine(ansi.Truncate(titleInner, w, "…"), w, st.helpBand)
+	footer := padStyledLine(ansi.Truncate(footerInner, w, "…"), w, st.helpBand)
+	return title + "\n" + body + "\n" + footer
 }
 
 func (m appModel) topChromeHeight() int {

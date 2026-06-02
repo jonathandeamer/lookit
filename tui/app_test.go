@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -797,6 +798,34 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	if !step.(appModel).help {
 		t.Fatal("'?' should open help from content-focused reader state")
+	}
+}
+
+func TestHelpPanelShowsVersionBand(t *testing.T) {
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{Version: "lookit 1.2.3 (built 2026-06-02)"})
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	got := ansi.Strip(m.helpView())
+	if !strings.Contains(got, "lookit 1.2.3") {
+		t.Fatalf("help view missing version: %q", got)
+	}
+	if !strings.Contains(got, "A modern TUI browser for the Finger protocol") {
+		t.Fatalf("help view missing tagline: %q", got)
+	}
+	if !strings.Contains(got, "RFC 1288") {
+		t.Fatalf("help view missing protocol pointer: %q", got)
+	}
+}
+
+func TestHelpPanelNoBandWithoutVersion(t *testing.T) {
+	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{})
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	got := ansi.Strip(m.helpView())
+	if strings.Contains(got, "RFC 1288") {
+		t.Fatalf("help view should have no version band when version is empty: %q", got)
 	}
 }
 

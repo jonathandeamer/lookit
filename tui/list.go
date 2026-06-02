@@ -155,7 +155,7 @@ func newListWithPreamble(common *commonModel, host finger.Target, users []User, 
 		m.preamble = extractListPreamble(body)
 	}
 	if generic {
-		note := "Auto-detected user list from an unrecognized response — press r to view raw."
+		note := "Auto-detected user list from an unrecognized response — press v to view source."
 		if m.preamble != "" {
 			m.preamble = note + "\n\n" + m.preamble
 		} else {

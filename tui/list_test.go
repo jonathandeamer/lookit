@@ -84,12 +84,12 @@ func TestGenericListFlaggedGeneric(t *testing.T) {
 	}
 }
 
-func TestGenericListPreambleHasViewRawNote(t *testing.T) {
+func TestGenericListPreambleHasViewSourceNote(t *testing.T) {
 	users := []User{{Login: "betsy"}, {Login: "oleander"}}
 	body := []byte("betsy\noleander\n")
 	m := newListWithPreamble(testCommon(), hostTarget(t, "@unknown.host"), users, body, true)
-	if !strings.Contains(m.preamble, "press r") {
-		t.Fatalf("preamble = %q, want it to mention the view-raw key", m.preamble)
+	if !strings.Contains(m.preamble, "press v to view source") {
+		t.Fatalf("preamble = %q, want it to mention the view-source key", m.preamble)
 	}
 }
 

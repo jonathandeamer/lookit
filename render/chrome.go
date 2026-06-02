@@ -29,4 +29,3 @@ func fmtElapsed(d time.Duration) string {
 	}
 	return fmt.Sprintf("%.2fs", d.Seconds())
 }
-

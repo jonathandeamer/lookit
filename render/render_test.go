@@ -58,7 +58,6 @@ func TestRender_BasicTrueColor(t *testing.T) {
 	compareGolden(t, "basic", "truecolor", got)
 }
 
-
 func TestRender_BasicNoTTY(t *testing.T) {
 	body := loadInput(t, "basic")
 	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}

@@ -20,15 +20,6 @@ func renderHeader(theme Theme, t finger.Target, meta finger.Meta, success bool) 
 	return strings.Join(parts, " ") + "\n"
 }
 
-func renderFooter(theme Theme, meta finger.Meta, notice string) string {
-	stats := fmt.Sprintf("%s · %s", fmtBytes(meta.Bytes), fmtElapsed(meta.Elapsed))
-	line := theme.Footer.Render(stats)
-	if notice != "" {
-		line += " " + theme.Footer.Render("·") + " " + theme.Warning.Render(notice)
-	}
-	return "\n" + line + "\n"
-}
-
 func fmtElapsed(d time.Duration) string {
 	if d < time.Millisecond {
 		return fmt.Sprintf("%dµs", d.Microseconds())
@@ -39,13 +30,3 @@ func fmtElapsed(d time.Duration) string {
 	return fmt.Sprintf("%.2fs", d.Seconds())
 }
 
-func fmtBytes(n int) string {
-	switch {
-	case n < 1024:
-		return fmt.Sprintf("%d B", n)
-	case n < 1024*1024:
-		return fmt.Sprintf("%.1f KiB", float64(n)/1024)
-	default:
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1024*1024))
-	}
-}

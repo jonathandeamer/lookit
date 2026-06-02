@@ -58,21 +58,6 @@ func TestRender_BasicTrueColor(t *testing.T) {
 	compareGolden(t, "basic", "truecolor", got)
 }
 
-func TestRenderWithoutFooterOmitsStats(t *testing.T) {
-	body := []byte("Login: alice\nPlan: hello\n")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
-
-	bytes := fmtBytes(meta.Bytes)
-	with := RenderWithBackground(target, body, meta, nil, colorprofile.NoTTY, true)
-	if !strings.Contains(with, bytes) {
-		t.Fatalf("default render missing footer stats %q:\n%q", bytes, with)
-	}
-	without := RenderWithBackground(target, body, meta, nil, colorprofile.NoTTY, true, WithoutFooter())
-	if strings.Contains(without, bytes) {
-		t.Fatalf("WithoutFooter render still contains footer stats %q:\n%q", bytes, without)
-	}
-}
 
 func TestRender_BasicNoTTY(t *testing.T) {
 	body := loadInput(t, "basic")

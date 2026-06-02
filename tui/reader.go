@@ -84,7 +84,7 @@ func (m *readerModel) setRaw(body []byte) {
 }
 
 func renderEntry(profile colorprofile.Profile, darkBackground bool, entry Entry) string {
-	// The status bar pins the page size and the header carries the elapsed
-	// time, so the render footer would only duplicate them in the TUI.
-	return render.RenderWithBackground(entry.Target, entry.Body, entry.Meta, entry.Err, profile, darkBackground, render.WithoutFooter())
+	// The status bar pins the byte count and truncation flag and the header
+	// carries the elapsed time, so render itself is footerless.
+	return render.RenderWithBackground(entry.Target, entry.Body, entry.Meta, entry.Err, profile, darkBackground)
 }

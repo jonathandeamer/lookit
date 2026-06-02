@@ -8,21 +8,6 @@ import (
 	"github.com/jonathandeamer/lookit/finger"
 )
 
-// Option tunes RenderWithBackground. Defaults match the one-shot CLI, which
-// owns the full chrome; the TUI opts out of the parts its own bars duplicate.
-type Option func(*options)
-
-type options struct {
-	footer bool
-}
-
-// WithoutFooter suppresses the trailing "bytes · elapsed" stats line. The TUI
-// pins the page size in its status bar and the elapsed time in the header, so
-// the footer would only duplicate facts already on screen.
-func WithoutFooter() Option {
-	return func(o *options) { o.footer = false }
-}
-
 // Render formats a finger query result for the requested terminal color
 // profile, using Lip Gloss v1's standalone background detection.
 func Render(t finger.Target, body []byte, meta finger.Meta, queryErr error, profile colorprofile.Profile) string {
@@ -31,13 +16,10 @@ func Render(t finger.Target, body []byte, meta finger.Meta, queryErr error, prof
 
 // RenderWithBackground formats a finger query result for a known terminal
 // background mode. The TUI uses this so tea.BackgroundColorMsg can restyle a
-// live session deterministically.
-func RenderWithBackground(t finger.Target, body []byte, meta finger.Meta, queryErr error, profile colorprofile.Profile, darkBackground bool, opts ...Option) string {
-	o := options{footer: true}
-	for _, opt := range opts {
-		opt(&o)
-	}
-
+// live session deterministically. It is footerless: the one-shot CLI that owned
+// the "bytes · elapsed" footer is gone, and the TUI surfaces byte count and
+// truncation in its own status bar.
+func RenderWithBackground(t finger.Target, body []byte, meta finger.Meta, queryErr error, profile colorprofile.Profile, darkBackground bool) string {
 	theme := NewThemeWithBackground(profile, darkBackground)
 	var sb strings.Builder
 
@@ -55,14 +37,6 @@ func RenderWithBackground(t finger.Target, body []byte, meta finger.Meta, queryE
 		if len(body) > 0 && body[len(body)-1] != '\n' {
 			sb.WriteByte('\n')
 		}
-	}
-
-	if o.footer {
-		notice := ""
-		if meta.Truncated {
-			notice = "truncated"
-		}
-		sb.WriteString(renderFooter(theme, meta, notice))
 	}
 
 	if queryErr != nil {

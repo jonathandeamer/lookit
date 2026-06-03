@@ -302,10 +302,10 @@ func TestWindowSizeReservesBarRow(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = step.(appModel)
-	// At launch the input is focused, so the top chrome is two rows (header
-	// mark + target). reader viewport = 24 - 2 (chrome) - 1 (bar) = 21.
-	if m.reader.viewport.Height() != 21 {
-		t.Fatalf("viewport height = %d, want 21 (header mark + target + bar reserved)", m.reader.viewport.Height())
+	// The top chrome is a single target row (the wordmark moved to the about
+	// screen). reader viewport = 24 - 1 (chrome) - 1 (bar) = 22.
+	if m.reader.viewport.Height() != 22 {
+		t.Fatalf("viewport height = %d, want 22 (target + bar reserved)", m.reader.viewport.Height())
 	}
 }
 
@@ -1494,64 +1494,36 @@ func TestCopyAddressPinsServerTarget(t *testing.T) {
 	}
 }
 
-func TestLaunchShowsHeaderMarkImmediatelyAboveTargetRow(t *testing.T) {
+func TestLaunchShowsBareTargetRowWithoutWordmark(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
-
 	view := stripANSIForLandingTest(m.View().Content)
-	lines := strings.Split(view, "\n")
-	markLine, targetLine := -1, -1
-	for i, line := range lines {
-		if strings.Contains(line, heroManicule+" "+heroWordmark) {
-			markLine = i
-		}
-		if strings.Contains(line, "target:") {
-			targetLine = i
-		}
+	if strings.Contains(view, heroManicule+" "+heroWordmark) {
+		t.Fatalf("landing should no longer show the wordmark (it moved to about):\n%s", view)
 	}
-	if markLine < 0 || targetLine < 0 {
-		t.Fatalf("launch chrome missing header mark or target row:\n%s", view)
-	}
-	if targetLine != markLine+1 {
-		t.Fatalf("target row should immediately follow header mark (no centered splash), mark=%d target=%d:\n%s", markLine, targetLine, view)
+	if !strings.Contains(view, "target:") {
+		t.Fatalf("landing missing target row:\n%s", view)
 	}
 }
 
-func TestFocusedInputChromeShowsHeaderMarkAboveTargetRow(t *testing.T) {
+func TestFocusedInputChromeHasNoWordmark(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
-
 	m.input.SetValue("alice@plan.cat")
 	(&m).submit()
 	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
-		Target: hostTarget(t, "alice@plan.cat"),
-		Body:   []byte("Login: alice\n"),
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Login: alice\n"),
 	}})
 	m = step.(appModel)
-
 	(&m).focusInput()
 	view := stripANSIForLandingTest(m.View().Content)
-	lines := strings.Split(view, "\n")
-	markLine := -1
-	targetLine := -1
-	for i, line := range lines {
-		if strings.Contains(line, heroManicule+" "+heroWordmark) {
-			markLine = i
-		}
-		if strings.Contains(line, "target:") {
-			targetLine = i
-		}
+	if strings.Contains(view, heroManicule+" "+heroWordmark) {
+		t.Fatalf("re-focused input chrome should not show the wordmark:\n%s", view)
 	}
-	if markLine < 0 {
-		t.Fatalf("focused input chrome missing header mark:\n%s", view)
-	}
-	if targetLine < 0 {
+	if !strings.Contains(view, "target:") {
 		t.Fatalf("focused input chrome missing target row:\n%s", view)
-	}
-	if targetLine != markLine+1 {
-		t.Fatalf("target row should immediately follow header mark, mark=%d target=%d:\n%s", markLine, targetLine, view)
 	}
 }
 
@@ -1600,42 +1572,105 @@ func TestBlurredResultChromeDoesNotSpendHeaderRow(t *testing.T) {
 	}
 }
 
-func TestBackToLandingShowsNormalChromeNotSplash(t *testing.T) {
+func TestBackToLandingShowsBareTargetRow(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
-
 	m.input.SetValue("alice@plan.cat")
-	(&m).submit() // reqSeq=1, loading
+	(&m).submit()
 	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
-		Target: hostTarget(t, "alice@plan.cat"),
-		Body:   []byte("Login: alice\n"),
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Login: alice\n"),
 	}})
 	m = step.(appModel)
-
-	(&m).back() // pos 0 -> -1, returns to the empty landing
+	(&m).back()
 	if m.pos != -1 {
 		t.Fatalf("want pos -1 after back-to-landing, got %d", m.pos)
 	}
-	// The target row immediately following the header mark proves the normal
-	// chrome is shown, not a centered splash (which spaces them apart).
 	view := stripANSIForLandingTest(m.View().Content)
-	lines := strings.Split(view, "\n")
-	markLine := -1
-	targetLine := -1
-	for i, line := range lines {
-		if strings.Contains(line, heroManicule+" "+heroWordmark) {
-			markLine = i
-		}
-		if strings.Contains(line, "target:") {
-			targetLine = i
-		}
+	if strings.Contains(view, heroManicule+" "+heroWordmark) {
+		t.Fatalf("back-to-landing should not show the wordmark:\n%s", view)
 	}
-	if markLine < 0 {
-		t.Fatalf("back-to-landing focused chrome missing header mark:\n%s", view)
+	if !strings.Contains(view, "target:") {
+		t.Fatalf("back-to-landing missing target row:\n%s", view)
 	}
-	if targetLine != markLine+1 {
-		t.Fatalf("back-to-landing target row should immediately follow header mark, mark=%d target=%d:\n%s", markLine, targetLine, view)
+}
+
+func TestAboutOpensFromBlurredResult(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	step, _ := m.Update(fetchResultMsg{entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
+	}})
+	m = step.(appModel)
+	if m.inputFocused {
+		t.Fatal("a landed result should be blurred")
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'a'})
+	got := next.(appModel)
+	if got.state != stateAbout {
+		t.Fatalf("state = %d, want stateAbout", got.state)
+	}
+	if !strings.Contains(stripANSIForLandingTest(got.View().Content), "finger jonathan@tilde.team") {
+		t.Fatalf("about view missing the author finger line:\n%s", got.View().Content)
+	}
+}
+
+func TestAboutOpensFromHelpPanelOnLanding(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	step, _ := m.Update(tea.KeyPressMsg{Code: '?'}) // help opens even while focused
+	m = step.(appModel)
+	if !m.help {
+		t.Fatal("'?' should open the help panel on the landing")
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'a'}) // 'a' from the open panel opens about
+	got := next.(appModel)
+	if got.help {
+		t.Fatal("opening about should close the help panel")
+	}
+	if got.state != stateAbout {
+		t.Fatalf("state = %d, want stateAbout", got.state)
+	}
+}
+
+func TestLandingTypesAInsteadOfOpeningAbout(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	// textinput inserts from msg.Text, not msg.Code; both must be set for
+	// printable keys (see TestQIsLiteralWhenInputFocused).
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"}) // focused landing, help closed
+	got := next.(appModel)
+	if got.state == stateAbout {
+		t.Fatal("'a' on the focused landing must type into the target, not open about")
+	}
+	if !strings.Contains(got.input.Value(), "a") {
+		t.Fatalf("'a' should be typed into the target input, value = %q", got.input.Value())
+	}
+}
+
+func TestAboutEscReturnsToOrigin(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	step, _ := m.Update(fetchResultMsg{entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
+	}})
+	m = step.(appModel)
+	opened, _ := m.Update(tea.KeyPressMsg{Code: 'a'})
+	m = opened.(appModel)
+	if m.state != stateAbout {
+		t.Fatalf("precondition: state = %d, want stateAbout", m.state)
+	}
+	closed, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	got := closed.(appModel)
+	if got.state != stateReader {
+		t.Fatalf("esc from about: state = %d, want stateReader (origin)", got.state)
+	}
+	if got.pos != 0 || len(got.history) != 1 {
+		t.Fatalf("esc from about must not change history: pos=%d len=%d", got.pos, len(got.history))
 	}
 }
 

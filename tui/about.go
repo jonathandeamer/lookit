@@ -15,6 +15,39 @@ const (
 	aboutIssuesURL    = "https://github.com/jonathandeamer/lookit/issues"
 )
 
+// aboutModel renders the full-screen about view. Like readerModel it owns no
+// lifecycle or quit; appModel drives it via setSize/setProfile/setBackground.
+type aboutModel struct {
+	profile colorprofile.Profile
+	styles  styles
+	version string // bare version, e.g. "v0.0.1" or "dev"
+	builtAt string // build date, e.g. "2026-06-03"; "" / "unknown" hides the row
+	width   int
+	height  int
+}
+
+func newAbout(profile colorprofile.Profile, version, builtAt string) aboutModel {
+	return aboutModel{
+		profile: profile,
+		styles:  newStyles(true),
+		version: version,
+		builtAt: builtAt,
+	}
+}
+
+func (m *aboutModel) setSize(width, height int) {
+	m.width = width
+	m.height = height
+}
+
+func (m *aboutModel) setProfile(p colorprofile.Profile) { m.profile = p }
+
+func (m *aboutModel) setBackground(dark bool) { m.styles = newStyles(dark) }
+
+func (m aboutModel) View() string {
+	return aboutView(m.styles, m.profile, m.version, m.builtAt, m.width, m.height)
+}
+
 // aboutView composes the centered about block. Pure: string in, string out, so
 // it is golden-testable. The identity lines are centered relative to each other;
 // the personality and action groups are left-aligned internally and centered as

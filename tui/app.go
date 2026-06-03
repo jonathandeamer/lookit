@@ -46,6 +46,7 @@ type appState int
 const (
 	stateReader appState = iota
 	stateList
+	stateAbout
 )
 
 // commonModel is state shared across sub-models.
@@ -93,6 +94,9 @@ type appModel struct {
 	state  appState
 	reader readerModel
 	list   listModel
+	about  aboutModel
+
+	aboutFromState appState // state to restore when the about screen closes
 
 	input        textinput.Model
 	inputFocused bool
@@ -143,6 +147,7 @@ func newAppWithOptions(fetch FetchFunc, profile colorprofile.Profile, opts Optio
 		common:       common,
 		state:        stateReader,
 		reader:       newReader(profile),
+		about:        newAbout(profile, opts.Version, opts.BuiltAt),
 		input:        in,
 		inputFocused: true,
 		seeded:       opts.Seed,
@@ -153,6 +158,7 @@ func newAppWithOptions(fetch FetchFunc, profile colorprofile.Profile, opts Optio
 	}
 	app.reader.setBackground(common.darkBackground)
 	app.reader.styles = st
+	app.about.setBackground(common.darkBackground)
 	app.helpModel.Styles = st.help
 	app.updateKeymap() // first frame reflects the landing's enabled set
 	return app
@@ -170,6 +176,7 @@ func (m *appModel) applyStyles() {
 	m.helpModel.Styles = st.help
 	m.spin.Style = st.spinner
 	m.reader.styles = st
+	m.about.setBackground(m.common.darkBackground)
 	if m.showingRaw {
 		m.reader.darkBackground = m.common.darkBackground
 	} else {
@@ -293,6 +300,22 @@ func (m *appModel) blurInput() {
 	m.resizeForHelp()
 }
 
+// openAbout switches to the full-screen about view, remembering the current
+// state so closeAbout can restore it without a re-fetch. About is transient: it
+// is not pushed onto history.
+func (m *appModel) openAbout() {
+	m.flash = ""
+	m.aboutFromState = m.state
+	m.state = stateAbout
+	m.resizeForHelp()
+}
+
+// closeAbout returns from the about view to the screen it was opened from.
+func (m *appModel) closeAbout() {
+	m.state = m.aboutFromState
+	m.resizeForHelp()
+}
+
 // enterRaw shows the current node's unprocessed body ("view source") in the
 // reader viewport. It works over any node (list or profile); the underlying
 // node.state is preserved in history so exitRaw can return to it.
@@ -372,6 +395,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.ColorProfileMsg:
 		m.common.profile = msg.Profile
 		m.reader.setProfile(msg.Profile)
+		m.about.setProfile(msg.Profile)
 		return m, nil
 
 	case tea.BackgroundColorMsg:
@@ -434,12 +458,28 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		return true, m, tea.Quit
 	}
 
-	// Help panel: any key closes it.
+	// Help panel: any key closes it — except 'a', which opens the about screen.
 	if m.help {
+		if key.Matches(msg, m.keys.About) {
+			m.help = false
+			m.helpModel.ShowAll = false
+			m.openAbout()
+			return true, m, nil
+		}
 		m.help = false
 		m.helpModel.ShowAll = false
 		m.resizeForHelp()
 		return true, m, nil
+	}
+
+	// About screen: its own keys, ahead of the input-focus branch.
+	if m.state == stateAbout {
+		switch {
+		case key.Matches(msg, m.keys.About), key.Matches(msg, m.keys.Back):
+			m.closeAbout()
+			return true, m, nil
+		}
+		return true, m, nil // swallow other keys (actions land in the next task)
 	}
 
 	// Input focused: Enter/Esc/? are commands; everything else types. '?' opens
@@ -474,6 +514,9 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		m.help = true
 		m.helpModel.ShowAll = true
 		m.resizeForHelp()
+		return true, m, nil
+	case key.Matches(msg, m.keys.About):
+		m.openAbout()
 		return true, m, nil
 	case key.Matches(msg, m.keys.Quit):
 		return true, m, tea.Quit
@@ -652,6 +695,7 @@ func (m *appModel) updateKeymap() {
 	// a target / drill a list row), Back=Esc (cancel the edit / history back /
 	// quit at the bare landing), Help='?'.
 	m.keys.Help.SetEnabled(true)
+	m.keys.About.SetEnabled(true)
 	m.keys.Open.SetEnabled(m.inputFocused || inList)
 	m.keys.Back.SetEnabled(m.inputFocused || (content && hasResult))
 
@@ -664,6 +708,14 @@ func (m *appModel) updateKeymap() {
 	m.keys.Move.SetEnabled(content)
 	m.keys.Page.SetEnabled(content)
 	m.keys.Jump.SetEnabled(content)
+
+	if m.state == stateAbout {
+		// The about screen's own actions are live regardless of input focus.
+		m.keys.Open.SetEnabled(true)
+		m.keys.Copy.SetEnabled(true)
+		m.keys.Back.SetEnabled(true)
+		m.keys.Quit.SetEnabled(true)
+	}
 }
 
 // joinHints assembles the bar's hint string. "esc back" is included only when
@@ -685,6 +737,24 @@ func (m appModel) statusBarModel() statusBar {
 	if m.loading {
 		bar := statusBar{width: w, styles: st}
 		bar.hints = m.spin.View() + " loading " + m.loadingTarget.Raw
+		return bar
+	}
+	if m.state == stateAbout {
+		bar := statusBar{width: w, styles: st}
+		if m.pos >= 0 {
+			bar.escTarget = m.history[m.pos].entry.Target.Raw
+		} else {
+			bar.host = "about lookit"
+		}
+		parts := []string{"↵ go", "y copy"}
+		if bar.escTarget == "" {
+			parts = append(parts, "esc back")
+		}
+		parts = append(parts, "q quit")
+		bar.hints = strings.Join(parts, " · ")
+		if m.flash != "" {
+			bar.hints = m.flash
+		}
 		return bar
 	}
 	if m.pos < 0 {
@@ -782,6 +852,11 @@ func (m *appModel) resizeForHelp() {
 	if m.listReady {
 		m.list.setSize(m.common.width, h)
 	}
+	ah := m.common.height - 1
+	if ah < 1 {
+		ah = 1
+	}
+	m.about.setSize(m.common.width, ah)
 }
 
 func (m appModel) helpView() string {
@@ -791,17 +866,11 @@ func (m appModel) helpView() string {
 }
 
 func (m appModel) topChromeHeight() int {
-	if m.inputFocused {
-		return 2 // header mark + target row (see inputChromeView)
-	}
-	return 1
+	return 1 // one target row; the wordmark now lives only on the about screen
 }
 
 func (m appModel) inputChromeView() string {
-	if !m.inputFocused {
-		return m.input.View()
-	}
-	return headerMark(m.common.styles, m.common.profile) + "\n" + m.input.View()
+	return m.input.View()
 }
 
 func fullWidthHelpView(groups [][]key.Binding, st styles, width int, separator string) string {
@@ -888,6 +957,13 @@ func maxLineWidth(lines []string) int {
 
 func (m appModel) View() tea.View {
 	(&m).updateKeymap() // sync the help panel's enabled set to current state
+
+	if m.state == stateAbout {
+		bottom := m.statusBarModel().render()
+		v := tea.NewView(m.about.View() + "\n" + bottom)
+		v.AltScreen = true
+		return v
+	}
 
 	var content string
 	switch m.state {

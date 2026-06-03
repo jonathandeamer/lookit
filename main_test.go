@@ -189,3 +189,12 @@ func TestRunTUIFailure(t *testing.T) {
 		t.Fatalf("stderr = %q, want TUI error", stderr.String())
 	}
 }
+
+func TestVcsDate(t *testing.T) {
+	if got := vcsDate("2026-06-03T10:20:30Z"); got != "2026-06-03" {
+		t.Fatalf("vcsDate = %q, want 2026-06-03", got)
+	}
+	if got := vcsDate("short"); got != "short" {
+		t.Fatalf("vcsDate passthrough = %q, want short", got)
+	}
+}

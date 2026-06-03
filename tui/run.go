@@ -19,8 +19,11 @@ type Options struct {
 	// replayed, so the user gets the same parse-error-in-place behaviour as a
 	// malformed target rather than a silent landing.
 	Seed bool
-	// Version is the build version line surfaced in the ? help panel.
+	// Version is the bare build version (e.g. "v0.0.1"), shown on the about screen.
 	Version string
+	// BuiltAt is the build date (e.g. "2026-06-03"), shown on the about screen.
+	// "" or "unknown" hides the build row.
+	BuiltAt string
 }
 
 // Run starts the interactive TUI and blocks until the user quits.

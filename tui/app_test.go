@@ -11,7 +11,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -798,43 +797,6 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	if !step.(appModel).help {
 		t.Fatal("'?' should open help from content-focused reader state")
-	}
-}
-
-func TestHelpPanelVersionSharesFirstKeyRow(t *testing.T) {
-	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{Version: "lookit 1.2.3 (built 2026-06-02)"})
-	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = sized.(appModel)
-
-	got := ansi.Strip(m.helpView())
-	if !strings.Contains(got, "1.2.3 (built 2026-06-02)") {
-		t.Fatalf("help view missing version details: %q", got)
-	}
-	if strings.Contains(got, "lookit") {
-		t.Fatalf("help view should drop the lookit name: %q", got)
-	}
-	if strings.Contains(got, "RFC 1288") || strings.Contains(got, "modern TUI browser") {
-		t.Fatalf("help view should not carry the tagline or pointer: %q", got)
-	}
-	// At width 80 the version shares the first keybinding row, flush to the right.
-	verLine := lineContaining(t, got, "1.2.3")
-	if !strings.Contains(verLine, "go") {
-		t.Fatalf("version should share the first keybinding row (with ↵ go): %q", verLine)
-	}
-	if !strings.HasSuffix(verLine, "1.2.3 (built 2026-06-02)") {
-		t.Fatalf("version should be flush to the right edge: %q", verLine)
-	}
-}
-
-func TestHelpPanelOmitsVersionRowWhenUnset(t *testing.T) {
-	m := newAppWithOptions(stubFetch(t), colorprofile.NoTTY, Options{})
-	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = sized.(appModel)
-
-	got := m.helpView()
-	want := fullWidthHelpView(m.keys.FullHelp(), m.common.styles, m.common.width, m.helpModel.FullSeparator)
-	if got != want {
-		t.Fatalf("help view with no version should be just the keybindings body, got:\n%q", got)
 	}
 }
 

@@ -56,7 +56,6 @@ type commonModel struct {
 	darkBackground bool
 	styles         styles
 	fetch          FetchFunc
-	version        string
 }
 
 // bodyHeight is the height available to a sub-model after reserving the top
@@ -129,7 +128,6 @@ func newAppWithOptions(fetch FetchFunc, profile colorprofile.Profile, opts Optio
 		darkBackground: true,
 		styles:         st,
 		fetch:          fetch,
-		version:        opts.Version,
 	}
 	in := textinput.New()
 	in.Placeholder = pickSample()
@@ -789,35 +787,7 @@ func (m *appModel) resizeForHelp() {
 func (m appModel) helpView() string {
 	st := m.common.styles
 	w := m.common.width
-	body := fullWidthHelpView(m.keys.FullHelp(), st, w, m.helpModel.FullSeparator)
-	if m.common.version == "" {
-		return body
-	}
-	// Just the version details (drop the "lookit" name), dimmed and flush right.
-	_, rest, found := strings.Cut(m.common.version, " ")
-	if !found {
-		rest = m.common.version
-	}
-	dim := lipgloss.NewStyle().Foreground(st.palette.Dim).Background(st.palette.SubtleBg)
-	inner := dim.Render(ansi.Truncate(rest, w, "…"))
-	vw := lipgloss.Width(inner)
-
-	// Prefer the top-right corner of the first keybinding row. Only do so when
-	// that row's real content leaves room; on a narrow panel where it would
-	// collide with a key, fall back to a dedicated row above the keys.
-	lines := strings.Split(body, "\n")
-	if len(lines) > 0 {
-		contentW := lipgloss.Width(strings.TrimRight(ansi.Strip(lines[0]), " "))
-		if w-vw > contentW {
-			lines[0] = ansi.Truncate(lines[0], w-vw, "") + inner
-			return strings.Join(lines, "\n")
-		}
-	}
-	verRow := inner
-	if pad := w - vw; pad > 0 {
-		verRow = st.helpBand.Render(strings.Repeat(" ", pad)) + inner
-	}
-	return verRow + "\n" + body
+	return fullWidthHelpView(m.keys.FullHelp(), st, w, m.helpModel.FullSeparator)
 }
 
 func (m appModel) topChromeHeight() int {

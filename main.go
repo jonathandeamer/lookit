@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
@@ -29,6 +30,37 @@ var (
 		return tui.Run(context.Background(), profile, opts)
 	}
 )
+
+// init fills version/builtAt from the embedded build info when they were not set
+// via -ldflags, so `go install …@latest` shows a real version + date instead of
+// "dev"/"unknown". Release builds (ldflags set) keep their injected values.
+func init() {
+	if version != "dev" && builtAt != "unknown" {
+		return
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	if version == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+	if builtAt == "unknown" {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.time" {
+				builtAt = vcsDate(s.Value)
+			}
+		}
+	}
+}
+
+// vcsDate trims an RFC 3339 VCS timestamp to its date portion.
+func vcsDate(ts string) string {
+	if len(ts) >= 10 {
+		return ts[:10]
+	}
+	return ts
+}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -72,7 +104,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		query = positional[0]
 	}
 
-	if err := startTUI(tui.Options{InitialQuery: query, Seed: seed, Version: versionString()}); err != nil {
+	if err := startTUI(tui.Options{InitialQuery: query, Seed: seed, Version: version, BuiltAt: builtAt}); err != nil {
 		fmt.Fprintln(stderr, render.ErrorLine(err.Error(), errProfile))
 		return exitError
 	}

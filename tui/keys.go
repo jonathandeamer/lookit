@@ -15,6 +15,7 @@ type keyMap struct {
 	Raw        key.Binding
 	Copy       key.Binding
 	Help       key.Binding
+	About      key.Binding
 	Quit       key.Binding
 	ForceQuit  key.Binding
 
@@ -33,6 +34,7 @@ func newKeyMap() keyMap {
 		Raw:        key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view source")),
 		Copy:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		About:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about lookit")),
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 		ForceQuit:  key.NewBinding(key.WithKeys("ctrl+c")),
 		Move:       key.NewBinding(key.WithKeys("up", "down", "j", "k"), key.WithHelp("↑/↓", "move")),
@@ -54,6 +56,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Open, k.FocusInput, k.Copy, k.Raw},
 		{k.Move, k.Page, k.Jump, k.Filter},
-		{k.Back, k.Quit},
+		{k.Back, k.About, k.Quit},
 	}
 }

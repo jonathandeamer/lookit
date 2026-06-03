@@ -58,3 +58,22 @@ func contains(ss []string, s string) bool {
 	}
 	return false
 }
+
+func TestKeyMapAboutBinding(t *testing.T) {
+	k := newKeyMap()
+	if got := k.About.Keys(); len(got) == 0 || !contains(got, "a") {
+		t.Fatalf("About keys = %v, want to contain 'a'", got)
+	}
+	if h := k.About.Help(); h.Key != "a" || h.Desc != "about lookit" {
+		t.Fatalf("About help = %+v, want {a, about lookit}", h)
+	}
+	var all []string
+	for _, group := range k.FullHelp() {
+		for _, b := range group {
+			all = append(all, strings.Join(b.Keys(), ","))
+		}
+	}
+	if !strings.Contains(strings.Join(all, " "), "a") {
+		t.Fatalf("FullHelp should advertise the about key 'a': %v", all)
+	}
+}

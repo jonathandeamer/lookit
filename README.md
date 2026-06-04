@@ -1,6 +1,6 @@
-# lookit
+# ☞ lookit
 
-A finger client you can wander around in.
+A finger client built for exploring, not just querying.
 
 <!-- TODO: replace with the VHS demo before release
 <p align="center">
@@ -12,13 +12,11 @@ Finger is one of the oldest things on the internet ([RFC 1288](https://www.rfc-e
 
 ## Why you'd want it
 
-The thing lookit changes is that finger stops being a lookup and becomes something you can walk through. The classic `finger` binary needs you to already know the answer: you type `finger alice@host` for a name and host you brought with you. lookit lets you arrive at a bare `@host`, see the people who are actually there, open anyone's profile, follow `finger://` links across to other hosts, and step back through everywhere you've been without re-fetching. How far you get depends on each server: some answer with a tidy list of users, many don't, and lookit tells you which rather than guessing.
+While the `finger` command is built around querying a specific address, lookit is built to enable easy exploration when you don't know where you're going.
 
-A few other things worth knowing:
+It doesn't show you anything `finger` couldn't — `finger @host` has always listed who's around. What it adds is movement: the user list is selectable, links inside a response are drillable, and you can walk back through where you've been without re-fetching. It turns a string of one-off commands into one session.
 
-- It's built on the [Charm](https://charm.sh) stack, so it behaves like the TUIs you already use and adapts to light or dark terminals.
-- It's careful with untrusted output. Control and escape bytes in a response are shown, not executed, and any link a server hands back is pinned to port 79, so a hostile `.plan` can't repaint your terminal or point you at another service.
-- There's nothing to configure and no daemon, and it respects `NO_COLOR`.
+It's built on the [Charm](https://charm.sh) stack, so it behaves like the TUIs you already use and adapts to light or dark terminals.
 
 ## Install
 
@@ -47,10 +45,9 @@ Everything is keyboard-driven. Press `?` inside lookit for the full, context-awa
 ## What lookit is not
 
 - A finger server. It won't host your `.plan` or answer anyone's queries; that job belongs to `fingerd`. lookit only reads.
-- A way to write. No posting, no editing, and it never sends the `/W` verbose query that RFC 1288 §2.5.5 calls out as privacy-sensitive.
+- A way to write: it doesn't post or edit.
 - A background process. Nothing polls and nothing runs as a daemon.
 - A general small-web browser. It speaks finger and follows `finger://` links, but won't fetch gopher, gemini, or the web.
-- A multi-hop forwarder. The deprecated `user@host1@host2` chaining is ignored.
 
 ## Coming soon
 

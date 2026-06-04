@@ -35,6 +35,12 @@ archives:
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # An explicit list replaces GoReleaser's default README/LICENSE globs, so
+    # re-list them, and ship the generated dependency license notices alongside.
+    files:
+      - LICENSE
+      - README.md
+      - THIRD_PARTY_NOTICES.md
 
 checksum:
   name_template: checksums.txt

@@ -3,12 +3,14 @@
 # fetched on demand via `go run <tool>@<version>` — no separate install step.
 
 BINARY := lookit
+MODULE := github.com/jonathandeamer/lookit
 GOLANGCI_LINT_VERSION := v2.12.2
 GORELEASER_VERSION := v2.16.0
+GO_LICENSES_VERSION := v1.6.0
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
 .PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean \
-	release-check release-snapshot release
+	notices release-check release-snapshot release
 
 build: ## build the binary
 	go build -o $(BINARY) .
@@ -51,6 +53,23 @@ tidy: ## tidy go.mod/go.sum
 clean: ## remove build artifacts
 	rm -f $(BINARY)
 	rm -rf dist
+
+notices: ## regenerate THIRD_PARTY_NOTICES.md from dependency licenses (rerun after dep changes)
+	@tmp=$$(mktemp -d); \
+	go run github.com/google/go-licenses@$(GO_LICENSES_VERSION) save ./... --save_path=$$tmp --force --ignore $(MODULE); \
+	{ \
+		printf '# Third-party notices\n\n'; \
+		printf 'The lookit binary statically links the Go modules below. Each is\n'; \
+		printf 'distributed under the license reproduced here. Regenerate with `make notices`.\n\n'; \
+		( cd $$tmp && find . \( -name 'LICENSE*' -o -name 'COPYING*' \) | LC_ALL=C sort | while IFS= read -r f; do \
+			mod=$${f#./}; mod=$${mod%/LICENSE*}; mod=$${mod%/COPYING*}; \
+			printf '## %s\n\n```\n' "$$mod"; \
+			cat "$$f"; \
+			printf '```\n\n'; \
+		done ); \
+	} > THIRD_PARTY_NOTICES.md; \
+	rm -rf $$tmp; \
+	echo "wrote THIRD_PARTY_NOTICES.md ($$(grep -c '^## ' THIRD_PARTY_NOTICES.md) modules)"
 
 release-check: ## validate the GoReleaser config
 	$(GORELEASER) check

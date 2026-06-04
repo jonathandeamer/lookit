@@ -4,8 +4,11 @@
 
 BINARY := lookit
 GOLANGCI_LINT_VERSION := v2.12.2
+GORELEASER_VERSION := v2.16.0
+GORELEASER := go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
-.PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean
+.PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean \
+	release-check release-snapshot release
 
 build: ## build the binary
 	go build -o $(BINARY) .
@@ -47,3 +50,13 @@ tidy: ## tidy go.mod/go.sum
 
 clean: ## remove build artifacts
 	rm -f $(BINARY)
+	rm -rf dist
+
+release-check: ## validate the GoReleaser config
+	$(GORELEASER) check
+
+release-snapshot: ## build a local snapshot release into dist/ (no publish)
+	$(GORELEASER) release --snapshot --clean
+
+release: ## build + publish a release (CI runs this on a vX.Y.Z tag; needs GITHUB_TOKEN)
+	$(GORELEASER) release --clean

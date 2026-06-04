@@ -1,0 +1,66 @@
+# GoReleaser config for lookit. Dormant until a vX.Y.Z tag is pushed (see
+# .github/workflows/release.yml). Validate it with `make release-check`; build a
+# local, unpublished snapshot with `make release-snapshot`.
+version: 2
+
+project_name: lookit
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: lookit
+    main: .
+    binary: lookit
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Inject the tag version and a YYYY-MM-DD build date into the vars main.go
+    # reads (main.version / main.builtAt). The date format matches the about
+    # screen's "built <date>" line.
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.builtAt={{ .Now.Format "2006-01-02" }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: lookit
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+# Build the release notes from local commit subjects (the repo commits straight
+# to main with Conventional Commit prefixes), grouped by type.
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+# The GitHub release is created as a draft, so even a pushed tag lands as a
+# reviewable draft to publish by hand rather than going public automatically.
+release:
+  draft: true

@@ -1,0 +1,31 @@
+name: release
+
+# Dormant until a version tag is pushed. To cut a release:
+#   git tag vX.Y.Z && git push origin vX.Y.Z
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the GitHub release and upload assets
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to immutable commit SHAs (not mutable tags): this job has
+      # contents: write and a release token, so a retargeted tag must not be
+      # able to run unreviewed code here. Dependabot keeps the SHAs current.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # full history so the changelog can diff against the last tag
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: stable
+      # Mirrors ci.yml: CI calls a Makefile target so local and CI run the same
+      # command. GoReleaser is fetched on demand at the pinned version.
+      - name: release
+        run: make release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

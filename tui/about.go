@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	aboutTagline      = "A modern TUI browser for the Finger protocol"
-	aboutRepo         = "github.com/jonathandeamer/lookit"
+	aboutTagline      = "A modern TUI browser for the finger protocol"
+	aboutRepo         = "https://github.com/jonathandeamer/lookit"
 	aboutFingerAuthor = "jonathan@tilde.team"
 	aboutIssuesURL    = "https://github.com/jonathandeamer/lookit/issues"
 )
@@ -72,13 +72,13 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 
 	bullets := lipgloss.JoinVertical(
 		lipgloss.Left,
-		spark.Render("✦ ")+text.Render("Built with Charm · charm.sh"),
-		spark.Render("✦ ")+text.Render("young software — bug reports & ideas welcome"),
+		spark.Render("✦ ")+text.Render("Built with Charm https://charm.sh"),
+		spark.Render("✦ ")+text.Render("Young software; bug reports & ideas welcome"),
 	)
 
 	// Right-pad the shorter action so both key hints align in a column.
 	left1 := arrow.Render("➜ ") + text.Render("finger "+aboutFingerAuthor)
-	left2 := arrow.Render("➜ ") + text.Render("report a bug or idea")
+	left2 := arrow.Render("➜ ") + text.Render("Report a bug or idea")
 	leftW := lipgloss.Width(left1)
 	if w := lipgloss.Width(left2); w > leftW {
 		leftW = w
@@ -90,7 +90,7 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	actions := lipgloss.JoinVertical(
 		lipgloss.Left,
 		pad(left1)+dim.Render("↵ go"),
-		pad(left2)+dim.Render("y copy"),
+		pad(left2)+dim.Render("y to copy the issues URL"),
 	)
 
 	block := lipgloss.JoinVertical(
@@ -101,7 +101,7 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 		"",
 		actions,
 		"",
-		dim.Render("thanks for supporting the small internet"),
+		dim.Render("Thanks for supporting the small internet"),
 	)
 
 	// Per-line truncation so long lines (tagline, repo URL) degrade on narrow

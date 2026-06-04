@@ -16,13 +16,13 @@ func TestAboutViewRendersIdentityAndActions(t *testing.T) {
 		"lookit v0.0.1 · MIT license",
 		"built 2026-06-03",
 		aboutRepo,
-		"Built with Charm · charm.sh",
-		"young software — bug reports & ideas welcome",
+		"Built with Charm https://charm.sh",
+		"Young software; bug reports & ideas welcome",
 		"finger jonathan@tilde.team",
 		"↵ go",
-		"report a bug or idea",
-		"y copy",
-		"thanks for supporting the small internet",
+		"Report a bug or idea",
+		"y to copy the issues URL",
+		"Thanks for supporting the small internet",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("about view missing %q:\n%s", want, plain)

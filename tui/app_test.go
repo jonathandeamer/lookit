@@ -1884,3 +1884,42 @@ func TestAboutCopiesIssuesURL(t *testing.T) {
 		t.Fatalf("copy should keep the about screen open, state = %d", got.state)
 	}
 }
+
+func TestAboutStatusBarFromLandingAndResult(t *testing.T) {
+	// Opened from the bare landing (pos<0): left label "about lookit", and the
+	// hints advertise all four about keys including "esc back".
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	(&m).openAbout()
+	bar := m.statusBarModel()
+	if bar.host != "about lookit" {
+		t.Fatalf("landing-origin about bar host = %q, want \"about lookit\"", bar.host)
+	}
+	for _, want := range []string{"↵ go", "y copy", "esc back", "q quit"} {
+		if !strings.Contains(bar.hints, want) {
+			t.Fatalf("landing-origin about hints = %q, missing %q", bar.hints, want)
+		}
+	}
+
+	// Opened from a result (pos>=0): the breadcrumb shows where esc returns, so
+	// "esc back" is omitted from the hints (the escTarget convention).
+	m2 := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized2, _ := m2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m2 = sized2.(appModel)
+	step, _ := m2.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	m2 = step.(appModel)
+	(&m2).openAbout()
+	bar2 := m2.statusBarModel()
+	if bar2.escTarget != "alice@plan.cat" {
+		t.Fatalf("result-origin about bar escTarget = %q, want \"alice@plan.cat\"", bar2.escTarget)
+	}
+	if strings.Contains(bar2.hints, "esc back") {
+		t.Fatalf("result-origin about hints should omit \"esc back\" (breadcrumb shows it): %q", bar2.hints)
+	}
+	for _, want := range []string{"↵ go", "y copy", "q quit"} {
+		if !strings.Contains(bar2.hints, want) {
+			t.Fatalf("result-origin about hints = %q, missing %q", bar2.hints, want)
+		}
+	}
+}

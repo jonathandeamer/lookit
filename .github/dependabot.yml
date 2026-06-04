@@ -23,3 +23,10 @@ updates:
       gomod:
         patterns:
           - "*"
+    ignore:
+      # render/ intentionally stays on lipgloss v1; tui/ uses v2 via the
+      # charm.land path. Block the v1 -> v2 migration of the github.com module
+      # (a path-changing major bump) so an update can't silently break the
+      # deliberate split — see CLAUDE.md.
+      - dependency-name: "github.com/charmbracelet/lipgloss"
+        update-types: ["version-update:semver-major"]

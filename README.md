@@ -12,9 +12,9 @@ Finger is one of the oldest things on the internet ([RFC 1288](https://www.rfc-e
 
 It faded once the web arrived, but never died. On the small internet, [tilde communities](https://tildeverse.org/) and [pubnixes](https://tilde.wiki/Public_Access_Unix_System) still run finger servers, and people keep a `.plan` as a slow, personal microblog. lookit is for poking around that world.
 
-## Why you'd want it
+## What lookit does
 
-While the `finger` command is built around querying a specific address, lookit is built to enable easy exploration when you don't know where you're going.
+While the `finger` command is built around querying a specific address, lookit is built for exploring when you don't know where you're going.
 
 It doesn't show you anything `finger` couldn't — `finger @host` has always listed who's around. What it adds is movement: the user list is selectable, links inside a response are drillable, and you can walk back through where you've been without re-fetching. It turns a string of one-off commands into one session.
 

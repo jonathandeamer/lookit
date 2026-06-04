@@ -44,6 +44,25 @@ func hostListBodyWithPreamble() string {
 		"alrs\tdtracker\tkapad\n"
 }
 
+// manyUserGridBody builds a parseable host listing with n users laid out three
+// per line, enough to span several paginated list pages in tests.
+func manyUserGridBody(n int) string {
+	var b strings.Builder
+	b.WriteString("users currently logged in are:\n\n")
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "user%02d", i)
+		if (i+1)%3 == 0 {
+			b.WriteByte('\n')
+		} else {
+			b.WriteByte('\t')
+		}
+	}
+	if n%3 != 0 {
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 func TestHostFetchThatParsesOpensList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@tilde.team")
@@ -766,6 +785,33 @@ func TestQuestionMarkTogglesHelpOverlay(t *testing.T) {
 	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if step.(appModel).help {
 		t.Fatal("any key should close the help overlay")
+	}
+}
+
+// TestHelpToggleDoesNotRepaginateList guards the fix for the help panel
+// reflowing the list: because the panel is an overlay, opening it must not
+// change the list's pagination (which is derived from the list's height).
+func TestHelpToggleDoesNotRepaginateList(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(manyUserGridBody(30))}})
+	m = step.(appModel)
+	if m.state != stateList {
+		t.Fatalf("state=%d, want stateList (body did not parse as a user list)", m.state)
+	}
+	before := m.list.list.Paginator.TotalPages
+	if before < 2 {
+		t.Fatalf("test needs a multi-page list to exercise repagination; TotalPages=%d", before)
+	}
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = step.(appModel)
+	if !m.help {
+		t.Fatal("help should be open after '?'")
+	}
+	if got := m.list.list.Paginator.TotalPages; got != before {
+		t.Fatalf("opening the help panel repaginated the list: TotalPages %d -> %d", before, got)
 	}
 }
 

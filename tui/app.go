@@ -243,7 +243,7 @@ func (m *appModel) gotoLanding() {
 	m.inputFocused = true
 	m.input.SetValue("")
 	m.input.Focus() // discard the blink cmd; the cursor still shows
-	m.resizeForHelp()
+	m.resize()
 }
 
 // stepBack moves one step toward history root, or to the landing from pos 0.
@@ -279,7 +279,7 @@ func (m *appModel) focusInput() tea.Cmd {
 	}
 	m.inputFocused = true
 	m.input.CursorEnd()
-	m.resizeForHelp()
+	m.resize()
 	return m.input.Focus()
 }
 
@@ -297,7 +297,7 @@ func (m *appModel) startFetch(target finger.Target) tea.Cmd {
 func (m *appModel) blurInput() {
 	m.inputFocused = false
 	m.input.Blur()
-	m.resizeForHelp()
+	m.resize()
 }
 
 // openAbout switches to the full-screen about view, remembering the current
@@ -307,13 +307,13 @@ func (m *appModel) openAbout() {
 	m.flash = ""
 	m.aboutFromState = m.state
 	m.state = stateAbout
-	m.resizeForHelp()
+	m.resize()
 }
 
 // closeAbout returns from the about view to the screen it was opened from.
 func (m *appModel) closeAbout() {
 	m.state = m.aboutFromState
-	m.resizeForHelp()
+	m.resize()
 }
 
 // enterRaw shows the current node's unprocessed body ("view source") in the
@@ -389,7 +389,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.input.SetWidth(iw)
 		m.helpModel.SetWidth(msg.Width)
-		m.resizeForHelp()
+		m.resize()
 		return m, nil
 
 	case tea.ColorProfileMsg:
@@ -468,7 +468,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		}
 		m.help = false
 		m.helpModel.ShowAll = false
-		m.resizeForHelp()
+		m.resize()
 		return true, m, nil
 	}
 
@@ -502,7 +502,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help): // ?
 			m.help = true
 			m.helpModel.ShowAll = true
-			m.resizeForHelp()
+			m.resize()
 			return true, m, nil
 		case key.Matches(msg, m.keys.Open): // Enter
 			cmd := m.submit()
@@ -525,7 +525,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.Help):
 		m.help = true
 		m.helpModel.ShowAll = true
-		m.resizeForHelp()
+		m.resize()
 		return true, m, nil
 	case key.Matches(msg, m.keys.About):
 		m.openAbout()
@@ -843,20 +843,12 @@ func (m appModel) statusBarModel() statusBar {
 	return bar
 }
 
-// helpHeight returns the number of rows the help panel occupies when open,
-// or 0 when the panel is closed.
-func (m *appModel) helpHeight() int {
-	if !m.help {
-		return 0
-	}
-	m.updateKeymap() // measure the same enabled set the View will render
-	return lipgloss.Height(m.helpView())
-}
-
-// resizeForHelp re-sizes the active sub-model to leave room for the help block.
-// Called after toggling m.help so sub-models can fill the available height.
-func (m *appModel) resizeForHelp() {
-	h := m.common.height - m.topChromeHeight() - 1 - m.helpHeight()
+// resize re-sizes the active sub-models to the available body height (the screen
+// minus the target row and the status bar). The help panel is drawn as an
+// overlay (see View and overlayHelp), so it deliberately does NOT affect
+// sub-model sizing: toggling help must not re-paginate the list.
+func (m *appModel) resize() {
+	h := m.common.height - m.topChromeHeight() - 1
 	if h < 1 {
 		h = 1
 	}
@@ -984,13 +976,33 @@ func (m appModel) View() tea.View {
 	default:
 		content = m.reader.View()
 	}
-	bottom := m.statusBarModel().render()
+	body := m.inputChromeView() + "\n" + content
 	if m.help {
-		bottom = m.helpView() + "\n" + bottom
+		// Draw help over the bottom rows of the content rather than below it, so
+		// the content keeps its height and a paginated list does not re-paginate
+		// when the panel toggles.
+		body = overlayHelp(body, m.helpView())
 	}
-	full := m.inputChromeView() + "\n" + content + "\n" + bottom
+	full := body + "\n" + m.statusBarModel().render()
 
 	v := tea.NewView(full)
 	v.AltScreen = true
 	return v
+}
+
+// overlayHelp draws the help panel over the bottom rows of body, replacing those
+// lines rather than pushing them down. Help lines are full-width opaque bands
+// (see fullWidthHelpView), so a line-level replace suffices — no alpha
+// compositing — and the content underneath keeps its height.
+func overlayHelp(body, help string) string {
+	if help == "" {
+		return body
+	}
+	bodyLines := strings.Split(body, "\n")
+	helpLines := strings.Split(help, "\n")
+	if n := len(helpLines); n > len(bodyLines) {
+		helpLines = helpLines[n-len(bodyLines):]
+	}
+	copy(bodyLines[len(bodyLines)-len(helpLines):], helpLines)
+	return strings.Join(bodyLines, "\n")
 }

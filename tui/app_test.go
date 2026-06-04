@@ -1839,3 +1839,48 @@ func TestSeededInvalidQueryShowsErrorOnLanding(t *testing.T) {
 		t.Fatalf("invalid seed: input=%q, want it to retain \"just-a-name\"", got.input.Value())
 	}
 }
+
+func TestAboutEnterFingersAuthor(t *testing.T) {
+	fetch, seen := fetchRecorder("Plan: hi\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	(&m).openAbout()
+	if m.state != stateAbout {
+		t.Fatalf("precondition: state = %d, want stateAbout", m.state)
+	}
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if !got.loading {
+		t.Fatal("Enter on about should start a fetch (loading=true)")
+	}
+	if cmd == nil {
+		t.Fatal("Enter on about should return a fetch command")
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != "jonathan@tilde.team" {
+		t.Fatalf("fetched targets = %v, want [jonathan@tilde.team]", *seen)
+	}
+}
+
+func TestAboutCopiesIssuesURL(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	(&m).openAbout()
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'y'})
+	got := next.(appModel)
+	if copied != aboutIssuesURL {
+		t.Fatalf("copied = %q, want %q", copied, aboutIssuesURL)
+	}
+	if !strings.Contains(got.flash, "copied") {
+		t.Fatalf("flash = %q, want it to mention the copied URL", got.flash)
+	}
+	if got.state != stateAbout {
+		t.Fatalf("copy should keep the about screen open, state = %d", got.state)
+	}
+}

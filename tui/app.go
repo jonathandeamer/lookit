@@ -475,11 +475,23 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	// About screen: its own keys, ahead of the input-focus branch.
 	if m.state == stateAbout {
 		switch {
-		case key.Matches(msg, m.keys.About), key.Matches(msg, m.keys.Back):
+		case key.Matches(msg, m.keys.Open): // ↵ finger the author
+			m.closeAbout()
+			target, err := finger.ParseTarget(aboutFingerAuthor)
+			if err != nil {
+				return true, m, nil
+			}
+			return true, m, m.startFetch(target)
+		case key.Matches(msg, m.keys.Copy): // y copy the issues URL
+			m.flash = "copied " + aboutIssuesURL
+			return true, m, tea.Batch(setClipboard(aboutIssuesURL), m.clearFlashCmd())
+		case key.Matches(msg, m.keys.About), key.Matches(msg, m.keys.Back): // a / esc close
 			m.closeAbout()
 			return true, m, nil
+		case key.Matches(msg, m.keys.Quit): // q quit
+			return true, m, tea.Quit
 		}
-		return true, m, nil // swallow other keys (actions land in the next task)
+		return true, m, nil // swallow any other key on the about screen
 	}
 
 	// Input focused: Enter/Esc/? are commands; everything else types. '?' opens

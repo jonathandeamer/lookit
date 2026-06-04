@@ -8,7 +8,9 @@ A finger client built for exploring, not just querying.
 </p>
 -->
 
-Finger is one of the oldest things on the internet ([RFC 1288](https://www.rfc-editor.org/rfc/rfc1288), TCP port 79): ask a server about a person and it tells you who they are, whether they're logged in, and whatever they've left in their `.plan` file. It mostly faded from the corporate internet, but it never went away. On the small internet, tilde communities and hobbyist boxes still run finger servers, and people still keep a `.plan` as a kind of slow, personal microblog. lookit is for poking around that world.
+Finger is one of the oldest things on the internet ([RFC 1288](https://www.rfc-editor.org/rfc/rfc1288), TCP port 79): ask a server about a person and it tells you who they are, whether they're logged in, and whatever they've left in their `.plan` file.
+
+It faded once the web arrived, but never died. On the small internet, [tilde communities](https://tildeverse.org/) and [pubnixes](https://tilde.wiki/Public_Access_Unix_System) still run finger servers, and people keep a `.plan` as a slow, personal microblog. lookit is for poking around that world.
 
 ## Why you'd want it
 
@@ -50,9 +52,8 @@ Everything is keyboard-driven. Press `?` inside lookit for the full, context-awa
 - A general small-web browser. It speaks finger and follows `finger://` links, but won't fetch gopher, gemini, or the web.
 
 ## Coming soon
-
-- Discovery and subscriptions: finding finger hosts worth a visit, and following a `.plan` to see what's changed since you last looked.
 - Richer styling and link discovery, tuned to how today's finger servers format their menus and links.
+- Discovery and subscriptions: finding finger hosts worth a visit, and following a `.plan` to see what's changed since you last looked.
 - Maybe a local mode: finger the machine you're already on, reading its users and `.plan` files straight off disk with no network round-trip.
 
 ## Built with

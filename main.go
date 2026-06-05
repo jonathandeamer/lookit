@@ -112,5 +112,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func versionString() string {
+	if builtAt == "" || builtAt == "unknown" {
+		return "lookit " + version
+	}
 	return fmt.Sprintf("lookit %s (built %s)", version, builtAt)
 }

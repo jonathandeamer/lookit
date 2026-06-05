@@ -46,6 +46,19 @@ func TestVersionString(t *testing.T) {
 	}
 }
 
+// An unknown build date (the `go install …@version` path, where the module
+// proxy carries no timestamp) drops the "(built …)" suffix rather than printing
+// "(built unknown)", matching how the about screen hides the date row.
+func TestVersionStringOmitsUnknownBuildDate(t *testing.T) {
+	oldVersion, oldBuiltAt := version, builtAt
+	t.Cleanup(func() { version, builtAt = oldVersion, oldBuiltAt })
+	version = "v0.1.0"
+	builtAt = "unknown"
+	if got, want := versionString(), "lookit v0.1.0"; got != want {
+		t.Fatalf("versionString() = %q, want %q", got, want)
+	}
+}
+
 func TestRunHelp(t *testing.T) {
 	pinProfile(t, colorprofile.NoTTY)
 	var stdout, stderr bytes.Buffer
@@ -73,7 +86,7 @@ func TestRunVersionFlag(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
 	}
-	if got, want := stdout.String(), "lookit dev (built unknown)\n"; got != want {
+	if got, want := stdout.String(), "lookit dev\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	if stderr.Len() != 0 {
@@ -96,8 +109,8 @@ func TestRunVersionFlagStyled(t *testing.T) {
 	if !strings.Contains(stdout.String(), "\x1b[") {
 		t.Fatalf("styled version has no ANSI: %q", stdout.String())
 	}
-	if got := ansi.Strip(stdout.String()); got != "lookit dev (built unknown)\n" {
-		t.Fatalf("stripped version = %q, want %q", got, "lookit dev (built unknown)\n")
+	if got := ansi.Strip(stdout.String()); got != "lookit dev\n" {
+		t.Fatalf("stripped version = %q, want %q", got, "lookit dev\n")
 	}
 }
 

@@ -3,6 +3,9 @@ package finger
 
 import (
 	"errors"
+	"fmt"
+	"net"
+	"strconv"
 	"strings"
 )
 
@@ -25,6 +28,24 @@ type Target struct {
 // them into the forms above. Returns an error for empty input or input with no
 // "@", no "/", and no scheme, or for an empty host.
 func ParseTarget(arg string) (Target, error) {
+	return parseTarget(arg, false)
+}
+
+// ParseTargetPinned parses arg like ParseTarget but forces the port to finger's
+// well-known 79, ignoring (and discarding) any explicit port in arg. It is used
+// for targets lifted from a server's own response — finger:// links or
+// "finger user@host" commands in a profile — which lookit must not let steer it
+// at an arbitrary service (e.g. host:22). Pinning here makes that guarantee by
+// construction, and because the port is discarded a malformed or out-of-range
+// port in the response does not block the drill. The host is preserved (the
+// Finger Ring is legitimately cross-host). Raw keeps the typed form unless the
+// port was overridden, in which case it shows the pinned ":79" so the change is
+// visible.
+func ParseTargetPinned(arg string) (Target, error) {
+	return parseTarget(arg, true)
+}
+
+func parseTarget(arg string, pin bool) (Target, error) {
 	if arg == "" {
 		return Target{}, errors.New("empty target")
 	}
@@ -38,13 +59,31 @@ func ParseTarget(arg string) (Target, error) {
 	if hostport == "" {
 		return Target{}, errors.New("missing host after @")
 	}
-	if !strings.Contains(hostport, ":") {
-		hostport = hostport + ":79"
+	if strings.Contains(hostport, "@") {
+		return Target{}, errors.New("forwarded finger queries are not supported yet")
 	}
 	if hasControl(user) || hasControl(hostport) {
 		return Target{}, errors.New("target contains control characters")
 	}
-	return Target{User: user, HostPort: hostport, Raw: arg}, nil
+	host, rawPort, hasPort, err := splitHostPort(hostport)
+	if err != nil {
+		return Target{}, err
+	}
+	port := "79"
+	switch {
+	case pin:
+		// Discard any explicit port; finger always lives on 79.
+	case hasPort:
+		if port, err = parsePort(rawPort); err != nil {
+			return Target{}, err
+		}
+	}
+	canonical := net.JoinHostPort(host, port)
+	raw := arg
+	if pin && hasPort && rawPort != "79" {
+		raw = user + "@" + canonical // surface the overridden port as :79
+	}
+	return Target{User: user, HostPort: canonical, Raw: raw}, nil
 }
 
 // hasControl reports whether s contains an ASCII C0 control (< 0x20, including
@@ -57,6 +96,60 @@ func hasControl(s string) bool {
 		}
 	}
 	return false
+}
+
+// splitHostPort splits a host token — "host", "host:port", "[ipv6]", or
+// "[ipv6]:port" — into the host (IPv6 brackets stripped) and the raw port
+// string. hasPort distinguishes "no port given" (host) from "an explicit but
+// possibly empty port" (host:), so callers can default the former while still
+// validating the latter. It checks bracket structure and colon placement but
+// not the port value; callers decide whether to parse, default, or pin it.
+func splitHostPort(s string) (host, port string, hasPort bool, err error) {
+	if strings.HasPrefix(s, "[") {
+		rb := strings.IndexByte(s, ']')
+		if rb < 0 {
+			return "", "", false, errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+		}
+		host = s[1:rb]
+		if host == "" {
+			return "", "", false, errors.New("missing host after @")
+		}
+		switch suffix := s[rb+1:]; {
+		case suffix == "":
+			return host, "", false, nil
+		case strings.HasPrefix(suffix, ":"):
+			return host, suffix[1:], true, nil
+		default:
+			return "", "", false, fmt.Errorf("invalid host/port %q", s)
+		}
+	}
+
+	switch strings.Count(s, ":") {
+	case 0:
+		if s == "" {
+			return "", "", false, errors.New("missing host after @")
+		}
+		return s, "", false, nil
+	case 1:
+		host, port, _ = strings.Cut(s, ":")
+		if host == "" {
+			return "", "", false, errors.New("missing host after @")
+		}
+		return host, port, true, nil
+	default:
+		return "", "", false, errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+	}
+}
+
+func parsePort(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("invalid port")
+	}
+	port, err := strconv.ParseUint(s, 10, 16)
+	if err != nil || port == 0 {
+		return "", errors.New("invalid port")
+	}
+	return strconv.FormatUint(port, 10), nil
 }
 
 // normalizeTarget rewrites scheme-prefixed and path-style addresses into the

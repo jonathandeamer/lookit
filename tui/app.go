@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"net"
 	"strings"
 	"time"
 
@@ -568,25 +567,23 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 	if !ok {
 		return true, m, nil
 	}
-	raw := sel.target
-	serverSupplied := raw != ""
-	if !serverSupplied {
+	var target finger.Target
+	var err error
+	if sel.target != "" {
+		// A target extracted from the server's own response (a finger:// link or
+		// "finger user@host" command) could point at an arbitrary host:port.
+		// ParseTargetPinned forces port 79 so a malicious response can't steer
+		// lookit at another service (e.g. host:22), discarding the response's
+		// port rather than letting a bad one block the drill.
+		target, err = finger.ParseTargetPinned(sel.target)
+	} else {
 		// Build login@host from the host's original argument (minus the leading
 		// "@"), preserving any explicit :port the user typed.
 		host := strings.TrimPrefix(m.list.host.Raw, "@")
-		raw = sel.login + "@" + host
+		target, err = finger.ParseTarget(sel.login + "@" + host)
 	}
-	target, err := finger.ParseTarget(raw)
 	if err != nil {
 		return true, m, nil
-	}
-	if serverSupplied {
-		// A target extracted from the server's own response (a finger:// link
-		// or "finger user@host" command) could point at an arbitrary host:port.
-		// Finger always lives on port 79; pin server-supplied targets to it so a
-		// malicious response can't steer lookit at another service (e.g.
-		// host:22). User-typed targets keep their explicit port.
-		target = pinFingerPort(target)
 	}
 	// Keep the current view (the list) on screen while loading; routeFetch sets
 	// the final state when the result lands. Switching to the reader eagerly here
@@ -631,27 +628,6 @@ func shouldOpenList(entry Entry) bool {
 		(entry.Target.User == "ring" && strings.HasPrefix(entry.Target.HostPort, "thebackupbox.net:"))
 }
 
-// pinFingerPort rewrites a target's port to 79, the finger well-known port.
-// It is applied to targets lifted from a server's response so a hostile entry
-// cannot direct lookit at a non-finger service. The host is preserved (the
-// Finger Ring is legitimately cross-host).
-func pinFingerPort(t finger.Target) finger.Target {
-	if host, _, err := net.SplitHostPort(t.HostPort); err == nil {
-		pinned := net.JoinHostPort(host, "79")
-		if t.HostPort != pinned {
-			t.HostPort = pinned
-			t.Raw = rawFromTarget(t)
-		} else {
-			t.HostPort = pinned
-		}
-	}
-	return t
-}
-
-func rawFromTarget(t finger.Target) string {
-	return t.User + "@" + t.HostPort
-}
-
 // clearFlashMsg is sent after a flash timer fires to clear m.flash.
 type clearFlashMsg struct{}
 
@@ -667,12 +643,11 @@ func (m *appModel) copyAddress() tea.Cmd {
 		if sel, ok := m.list.selected(); ok {
 			if sel.target != "" {
 				// Mirror drill's safety: a server-supplied target could point at
-				// an arbitrary host:port. Pin to finger's port 79 before copying
-				// so a pasted-back address can't be steered at another service.
-				// sel.target is pre-validated by ParseUsers, so a parse error here
-				// is effectively unreachable; on error we simply copy nothing.
-				if t, err := finger.ParseTarget(sel.target); err == nil {
-					addr = rawFromTarget(pinFingerPort(t))
+				// an arbitrary host:port, so pin to finger's port 79 before copying
+				// so a pasted-back address can't be steered at another service. On
+				// a parse error we simply copy nothing.
+				if t, err := finger.ParseTargetPinned(sel.target); err == nil {
+					addr = t.Raw
 				}
 			} else {
 				addr = sel.login + "@" + strings.TrimPrefix(m.list.host.Raw, "@")

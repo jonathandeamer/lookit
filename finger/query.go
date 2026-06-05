@@ -3,6 +3,9 @@ package finger
 
 import (
 	"errors"
+	"fmt"
+	"net"
+	"strconv"
 	"strings"
 )
 
@@ -38,11 +41,15 @@ func ParseTarget(arg string) (Target, error) {
 	if hostport == "" {
 		return Target{}, errors.New("missing host after @")
 	}
-	if !strings.Contains(hostport, ":") {
-		hostport = hostport + ":79"
+	if strings.Contains(hostport, "@") {
+		return Target{}, errors.New("forwarded finger queries are not supported yet")
 	}
 	if hasControl(user) || hasControl(hostport) {
 		return Target{}, errors.New("target contains control characters")
+	}
+	hostport, err := parseHostPort(hostport)
+	if err != nil {
+		return Target{}, err
 	}
 	return Target{User: user, HostPort: hostport, Raw: arg}, nil
 }
@@ -57,6 +64,62 @@ func hasControl(s string) bool {
 		}
 	}
 	return false
+}
+
+func parseHostPort(s string) (string, error) {
+	if strings.HasPrefix(s, "[") {
+		close := strings.IndexByte(s, ']')
+		if close < 0 {
+			return "", errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+		}
+		host := s[1:close]
+		if host == "" {
+			return "", errors.New("missing host after @")
+		}
+		suffix := s[close+1:]
+		if suffix == "" {
+			return net.JoinHostPort(host, "79"), nil
+		}
+		if !strings.HasPrefix(suffix, ":") {
+			return "", fmt.Errorf("invalid host/port %q", s)
+		}
+		port, err := parsePort(suffix[1:])
+		if err != nil {
+			return "", err
+		}
+		return net.JoinHostPort(host, port), nil
+	}
+
+	switch strings.Count(s, ":") {
+	case 0:
+		if s == "" {
+			return "", errors.New("missing host after @")
+		}
+		return net.JoinHostPort(s, "79"), nil
+	case 1:
+		host, port, _ := strings.Cut(s, ":")
+		if host == "" {
+			return "", errors.New("missing host after @")
+		}
+		port, err := parsePort(port)
+		if err != nil {
+			return "", err
+		}
+		return net.JoinHostPort(host, port), nil
+	default:
+		return "", errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+	}
+}
+
+func parsePort(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("invalid port")
+	}
+	port, err := strconv.ParseUint(s, 10, 16)
+	if err != nil || port == 0 {
+		return "", errors.New("invalid port")
+	}
+	return strconv.FormatUint(port, 10), nil
 }
 
 // normalizeTarget rewrites scheme-prefixed and path-style addresses into the

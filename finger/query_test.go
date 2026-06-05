@@ -65,6 +65,41 @@ func TestParseTarget(t *testing.T) {
 			want:  Target{User: "xuu", HostPort: "via.sour.is:79", Raw: "xuu@via.sour.is"},
 		},
 		{
+			name:  "user with bracketed IPv6 defaults port",
+			input: "alice@[::1]",
+			want:  Target{User: "alice", HostPort: "[::1]:79", Raw: "alice@[::1]"},
+		},
+		{
+			name:  "user with bracketed IPv6 explicit port",
+			input: "alice@[::1]:7979",
+			want:  Target{User: "alice", HostPort: "[::1]:7979", Raw: "alice@[::1]:7979"},
+		},
+		{
+			name:  "host query with bracketed IPv6 defaults port",
+			input: "@[::1]",
+			want:  Target{User: "", HostPort: "[::1]:79", Raw: "@[::1]"},
+		},
+		{
+			name:  "host query with bracketed IPv6 explicit port",
+			input: "@[::1]:7979",
+			want:  Target{User: "", HostPort: "[::1]:7979", Raw: "@[::1]:7979"},
+		},
+		{
+			name:  "finger scheme with bracketed IPv6 path",
+			input: "finger://[::1]/alice",
+			want:  Target{User: "alice", HostPort: "[::1]:79", Raw: "alice@[::1]"},
+		},
+		{
+			name:  "path-style bracketed IPv6 defaults port",
+			input: "[::1]/alice",
+			want:  Target{User: "alice", HostPort: "[::1]:79", Raw: "alice@[::1]"},
+		},
+		{
+			name:  "path-style bracketed IPv6 explicit port",
+			input: "[::1]:7979/alice",
+			want:  Target{User: "alice", HostPort: "[::1]:7979", Raw: "alice@[::1]:7979"},
+		},
+		{
 			name:    "missing @",
 			input:   "alice",
 			wantErr: true,
@@ -77,6 +112,56 @@ func TestParseTarget(t *testing.T) {
 		{
 			name:    "@ with no host",
 			input:   "alice@",
+			wantErr: true,
+		},
+		{
+			name:    "forwarded user query rejected for now",
+			input:   "alice@plan.cat@tilde.team",
+			wantErr: true,
+		},
+		{
+			name:    "forwarded host query rejected for now",
+			input:   "@plan.cat@tilde.team",
+			wantErr: true,
+		},
+		{
+			name:    "empty port",
+			input:   "alice@example.com:",
+			wantErr: true,
+		},
+		{
+			name:    "non-numeric port",
+			input:   "alice@example.com:abc",
+			wantErr: true,
+		},
+		{
+			name:    "out-of-range port",
+			input:   "alice@example.com:99999",
+			wantErr: true,
+		},
+		{
+			name:    "zero port",
+			input:   "alice@example.com:0",
+			wantErr: true,
+		},
+		{
+			name:    "unbracketed IPv6",
+			input:   "alice@::1",
+			wantErr: true,
+		},
+		{
+			name:    "unclosed IPv6 bracket",
+			input:   "alice@[::1",
+			wantErr: true,
+		},
+		{
+			name:    "bracketed IPv6 empty port",
+			input:   "alice@[::1]:",
+			wantErr: true,
+		},
+		{
+			name:    "bracketed IPv6 non-numeric port",
+			input:   "alice@[::1]:abc",
 			wantErr: true,
 		},
 		{

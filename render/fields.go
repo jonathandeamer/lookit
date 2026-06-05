@@ -6,7 +6,9 @@ import "strings"
 // We only style the prefix; the content after the colon is printed verbatim.
 var fieldPrefixes = []string{
 	"Login:",
+	"Login name:",
 	"Name:",
+	"In real life:",
 	"Plan:",
 	"Project:",
 	"Office:",
@@ -15,6 +17,10 @@ var fieldPrefixes = []string{
 	"Directory:",
 	"Shell:",
 	"Last login",
+	"Mail last read",
+	"New mail received",
+	"No mail.",
+	"Never logged in.",
 	"No Plan.",
 	"On since",
 }

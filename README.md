@@ -2,6 +2,11 @@
 
 A finger client built for exploring, not just querying.
 
+<p align="center">
+  <a href="https://github.com/jonathandeamer/lookit/releases"><img src="https://img.shields.io/github/release/jonathandeamer/lookit.svg" alt="Latest Release"></a>
+  <a href="https://github.com/jonathandeamer/lookit/actions/workflows/ci.yml"><img src="https://github.com/jonathandeamer/lookit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
 <!-- TODO: replace with the VHS demo before release
 <p align="center">
   <img src="docs/demo.gif" alt="lookit browsing a finger server" width="600">

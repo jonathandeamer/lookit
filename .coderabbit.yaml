@@ -1,7 +1,8 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 # CodeRabbit — AI review on PRs. Advisory only, never a merge gate: the sole
-# required check stays `test` (see CLAUDE.md). For a high-stakes change, withhold
-# `gh pr merge --auto` and wait for the review instead of gating every PR.
+# required check stays `test` (see CLAUDE.md). The agent ship flow waits for
+# CodeRabbit before self-merging substantive changes; pure-docs may use `--auto`,
+# and high-stakes/security-invariant changes are left for a human to merge.
 # CLAUDE.md is the authoritative conventions source; CodeRabbit reads it as a
 # guideline (knowledge_base below), so path_instructions stay terse + path-local.
 

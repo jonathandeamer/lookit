@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit — AI review on PRs. Advisory only, never a merge gate: the sole
+# required check stays `test` (see CLAUDE.md), so a review can't block a merge.
+# Tuned low-noise for a solo-maintained Go TUI.
+
+language: en-US
+
+reviews:
+  profile: chill
+  # Comments and suggestions only — never auto "request changes", so the
+  # auto-merge flow is never held up by a review.
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+  # Steer reviews around the repo's deliberate choices so they aren't flagged as
+  # mistakes. CLAUDE.md is the authoritative source for the "why".
+  path_instructions:
+    - path: "render/**"
+      instructions: >-
+        render/ deliberately uses lipgloss v1
+        (github.com/charmbracelet/lipgloss). Do NOT suggest migrating it to v2.
+    - path: "tui/**"
+      instructions: >-
+        tui/ is on Bubble Tea v2 via the charm.land import paths
+        (charm.land/bubbletea/v2, charm.land/bubbles/v2, charm.land/lipgloss/v2),
+        not github.com/charmbracelet. Prefer real bubbles components and glow's
+        patterns over hand-rolled equivalents; avoid Alt/Option key chords.
+    - path: "finger/**"
+      instructions: >-
+        Query is the single untrusted-input chokepoint: response bodies are
+        sanitized once at ingress, and outbound queries reject (not strip)
+        control bytes. Preserve this ingress/egress guarding.
+  tools:
+    golangci-lint:
+      enabled: true
+
+chat:
+  auto_reply: true

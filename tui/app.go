@@ -315,6 +315,20 @@ func (m *appModel) closeAbout() {
 	m.resize()
 }
 
+// openHelp shows the full-height help panel.
+func (m *appModel) openHelp() {
+	m.help = true
+	m.helpModel.ShowAll = true
+	m.resize()
+}
+
+// closeHelp hides the help panel. The caller re-sizes (or opens the about
+// screen, which sizes itself) depending on where it lands next.
+func (m *appModel) closeHelp() {
+	m.help = false
+	m.helpModel.ShowAll = false
+}
+
 // enterRaw shows the current node's unprocessed body ("view source") in the
 // reader viewport. It works over any node (list or profile); the underlying
 // node.state is preserved in history so exitRaw can return to it.
@@ -459,14 +473,11 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 
 	// Help panel: any key closes it — except 'a', which opens the about screen.
 	if m.help {
+		m.closeHelp()
 		if key.Matches(msg, m.keys.About) {
-			m.help = false
-			m.helpModel.ShowAll = false
 			m.openAbout()
 			return true, m, nil
 		}
-		m.help = false
-		m.helpModel.ShowAll = false
 		m.resize()
 		return true, m, nil
 	}
@@ -499,9 +510,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	if m.inputFocused {
 		switch {
 		case key.Matches(msg, m.keys.Help): // ?
-			m.help = true
-			m.helpModel.ShowAll = true
-			m.resize()
+			m.openHelp()
 			return true, m, nil
 		case key.Matches(msg, m.keys.Open): // Enter
 			cmd := m.submit()
@@ -522,9 +531,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(msg, m.keys.Help):
-		m.help = true
-		m.helpModel.ShowAll = true
-		m.resize()
+		m.openHelp()
 		return true, m, nil
 	case key.Matches(msg, m.keys.About):
 		m.openAbout()

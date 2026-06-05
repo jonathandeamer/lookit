@@ -19,7 +19,7 @@ point rather than a permanent API.
 | `  lookit user@host[:port]` | `main.go:70` | Usage line. |
 | `  lookit @host[:port]` | `main.go:71` | Usage line. |
 | `  lookit version` | `main.go:72` | Usage line. |
-| `lookit <version> (built <builtAt>)` | `main.go:76` | `lookit version` output on stdout. |
+| `lookit <version> (built <builtAt>)`, or `lookit <version>` when the build date is unknown | `main.go` (`versionString`) | `-v`/`--version` output on stdout. |
 
 ## Target Parsing
 

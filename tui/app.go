@@ -315,6 +315,20 @@ func (m *appModel) closeAbout() {
 	m.resize()
 }
 
+// openHelp shows the full-height help panel.
+func (m *appModel) openHelp() {
+	m.help = true
+	m.helpModel.ShowAll = true
+	m.resize()
+}
+
+// closeHelp hides the help panel. The caller re-sizes (or opens the about
+// screen, which sizes itself) depending on where it lands next.
+func (m *appModel) closeHelp() {
+	m.help = false
+	m.helpModel.ShowAll = false
+}
+
 // enterRaw shows the current node's unprocessed body ("view source") in the
 // reader viewport. It works over any node (list or profile); the underlying
 // node.state is preserved in history so exitRaw can return to it.
@@ -459,14 +473,11 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 
 	// Help panel: any key closes it — except 'a', which opens the about screen.
 	if m.help {
+		m.closeHelp()
 		if key.Matches(msg, m.keys.About) {
-			m.help = false
-			m.helpModel.ShowAll = false
 			m.openAbout()
 			return true, m, nil
 		}
-		m.help = false
-		m.helpModel.ShowAll = false
 		m.resize()
 		return true, m, nil
 	}
@@ -499,9 +510,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	if m.inputFocused {
 		switch {
 		case key.Matches(msg, m.keys.Help): // ?
-			m.help = true
-			m.helpModel.ShowAll = true
-			m.resize()
+			m.openHelp()
 			return true, m, nil
 		case key.Matches(msg, m.keys.Open): // Enter
 			cmd := m.submit()
@@ -522,9 +531,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(msg, m.keys.Help):
-		m.help = true
-		m.helpModel.ShowAll = true
-		m.resize()
+		m.openHelp()
 		return true, m, nil
 	case key.Matches(msg, m.keys.About):
 		m.openAbout()
@@ -719,13 +726,24 @@ func joinHints(parts []string, escTarget string) string {
 }
 
 func (m appModel) statusBarModel() statusBar {
+	if m.loading {
+		bar := statusBar{width: m.common.width, styles: m.common.styles}
+		bar.hints = m.spin.View() + " loading " + m.loadingTarget.Raw
+		return bar // flash is intentionally suppressed while loading
+	}
+	bar := m.buildStatusBar()
+	if m.flash != "" {
+		bar.hints = m.flash // a transient flash message overrides the resting hints
+	}
+	return bar
+}
+
+// buildStatusBar assembles the bar for the current (non-loading) screen. The
+// flash override is applied once by statusBarModel, so each branch here sets
+// bar.hints to its resting value without repeating the check.
+func (m appModel) buildStatusBar() statusBar {
 	st := m.common.styles
 	w := m.common.width
-	if m.loading {
-		bar := statusBar{width: w, styles: st}
-		bar.hints = m.spin.View() + " loading " + m.loadingTarget.Raw
-		return bar
-	}
 	if m.state == stateAbout {
 		bar := statusBar{width: w, styles: st}
 		if m.pos >= 0 {
@@ -739,17 +757,10 @@ func (m appModel) statusBarModel() statusBar {
 		}
 		parts = append(parts, "q quit")
 		bar.hints = strings.Join(parts, " · ")
-		if m.flash != "" {
-			bar.hints = m.flash
-		}
 		return bar
 	}
 	if m.pos < 0 {
-		bar := landingBar(w, st)
-		if m.flash != "" {
-			bar.hints = m.flash
-		}
-		return bar
+		return landingBar(w, st)
 	}
 	node := m.history[m.pos]
 	bar := statusBar{width: w, styles: st}
@@ -764,9 +775,6 @@ func (m appModel) statusBarModel() statusBar {
 		// offer a back-to-previous target hint here.
 		bar.escTarget = ""
 		bar.hints = "↵ go · esc cancel"
-		if m.flash != "" {
-			bar.hints = m.flash
-		}
 		return bar
 	}
 
@@ -776,9 +784,6 @@ func (m appModel) statusBarModel() statusBar {
 		bar.escTarget = ""
 		bar.meta = formatBytes(len(node.entry.Body))
 		bar.hints = "esc back · ? help"
-		if m.flash != "" {
-			bar.hints = m.flash
-		}
 		return bar
 	}
 
@@ -811,9 +816,6 @@ func (m appModel) statusBarModel() statusBar {
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
 			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))
 		}
-	}
-	if m.flash != "" {
-		bar.hints = m.flash
 	}
 	return bar
 }

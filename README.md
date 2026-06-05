@@ -8,7 +8,7 @@ A finger client built for exploring, not just querying.
 </p>
 
 <p align="center">
-  <img src="demo/demo.gif" alt="lookit browsing a finger server" width="600">
+  <img src="demo/demo.gif" alt="Animated demo of lookit browsing finger servers: filtering tilde.team's user list, opening a user's .plan, and fingering another host for a weather report." width="600">
 </p>
 
 Finger is one of the oldest things on the internet ([RFC 1288](https://www.rfc-editor.org/rfc/rfc1288), TCP port 79): ask a server about a person and it tells you who they are, whether they're logged in, and whatever they've left in their `.plan` file.

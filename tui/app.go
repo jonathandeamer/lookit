@@ -493,8 +493,10 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			}
 			return true, m, m.startFetch(target)
 		case key.Matches(msg, m.keys.Copy): // y copy the issues URL
-			m.flash = "copied " + aboutIssuesURL
-			return true, m, tea.Batch(setClipboard(aboutIssuesURL), m.clearFlashCmd())
+			// setFlash mutates m, so sequence it before the return reads m by
+			// value (handleKey returns m, not *m): operand order is unspecified.
+			flash := m.setFlash("copied " + aboutIssuesURL)
+			return true, m, tea.Batch(setClipboard(aboutIssuesURL), flash)
 		case key.Matches(msg, m.keys.About), key.Matches(msg, m.keys.Back): // a / esc close
 			m.closeAbout()
 			return true, m, nil
@@ -643,6 +645,14 @@ func (m *appModel) clearFlashCmd() tea.Cmd {
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearFlashMsg{} })
 }
 
+// setFlash shows a transient status message and returns the command that clears
+// it. Use it for self-expiring flashes (copies, "nothing to copy"); the parse
+// error in submit() is deliberately persistent and sets m.flash directly.
+func (m *appModel) setFlash(msg string) tea.Cmd {
+	m.flash = msg
+	return m.clearFlashCmd()
+}
+
 // copyAddress copies the relevant address to the clipboard and flashes it.
 func (m *appModel) copyAddress() tea.Cmd {
 	var addr string
@@ -664,11 +674,9 @@ func (m *appModel) copyAddress() tea.Cmd {
 		addr = m.history[m.pos].entry.Target.Raw
 	}
 	if addr == "" {
-		m.flash = "nothing to copy"
-		return m.clearFlashCmd()
+		return m.setFlash("nothing to copy")
 	}
-	m.flash = "copied " + addr
-	return tea.Batch(setClipboard(addr), m.clearFlashCmd())
+	return tea.Batch(setClipboard(addr), m.setFlash("copied "+addr))
 }
 
 // statusBarModel assembles the bottom bar from the current node + history.

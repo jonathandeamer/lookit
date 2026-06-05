@@ -22,13 +22,15 @@ It's built on the [Charm](https://charm.sh) stack, so it behaves like the TUIs y
 
 ## Install
 
+The prebuilt binaries are the simplest option and need no Go installed. Grab the archive for your OS and architecture from the [Releases page](https://github.com/jonathandeamer/lookit/releases), unpack it, and move the `lookit` binary onto your `PATH`. This is the recommended approach on a tilde or pubnix box, where the system Go is often too old to build from source.
+
+With Go 1.21 or newer you can install from source instead:
+
 ```bash
 go install github.com/jonathandeamer/lookit@latest
 ```
 
-Or clone and `go build .`. Needs Go 1.26 or newer.
-
-Prebuilt binaries and a Homebrew tap are coming with the first tagged release.
+Or clone the repo and run `go build .`.
 
 ## Usage
 

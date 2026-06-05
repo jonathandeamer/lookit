@@ -6,6 +6,7 @@ name: vuln
 # so a fresh advisory on a dependency turns this red without a push.
 on:
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "0 7 * * 1" # Mondays 07:00 UTC

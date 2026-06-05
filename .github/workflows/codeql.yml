@@ -1,0 +1,36 @@
+name: codeql
+
+# Static analysis of lookit's *own* Go source for security issues — the
+# complement to vuln.yml, which scans dependencies (govulncheck) rather than the
+# code we write. Findings land in the repo's Security > Code scanning tab.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays 07:00 UTC, matching vuln.yml: re-scan unchanged main so a CodeQL
+    # query-pack update can flag already-shipped code without a push.
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload CodeQL results to the Security tab
+    steps:
+      # Pinned to immutable commit SHAs, like the other workflows; Dependabot
+      # (github-actions ecosystem) keeps them current.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: stable
+      - uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        with:
+          languages: go
+          build-mode: autobuild
+      - uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3

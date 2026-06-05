@@ -499,8 +499,8 @@ func structuredLogin(line string) (login, name string, ok bool) {
 // parseSavaTable already trust. Targets are additive: this is called only after
 // the structured-login gate has already opened the list, so a stray mention
 // can never open a list on its own. Bare emails and @handles are not harvested.
-// Server-supplied targets are pinned to port 79 later, at drill time, by the
-// existing pinFingerPort path in app.go.
+// Server-supplied targets are pinned to port 79 later, at drill time, via
+// finger.ParseTargetPinned.
 func appendHarvestedTargets(users []User, lines []string) []User {
 	// Key on Target so a structured login (Target=="") never blocks a harvested cross-host entry.
 	seen := map[string]bool{}

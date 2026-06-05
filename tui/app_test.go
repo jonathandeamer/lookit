@@ -490,21 +490,6 @@ func TestDrillServerSuppliedTargetPinnedToPort79(t *testing.T) {
 	}
 }
 
-func TestPinFingerPortKeepsBracketedIPv6(t *testing.T) {
-	got := pinFingerPort(finger.Target{
-		User:     "alice",
-		HostPort: "[::1]:2222",
-		Raw:      "alice@[::1]:2222",
-	})
-
-	if got.HostPort != "[::1]:79" {
-		t.Fatalf("HostPort = %q, want [::1]:79", got.HostPort)
-	}
-	if got.Raw != "alice@[::1]:79" {
-		t.Fatalf("Raw = %q, want alice@[::1]:79", got.Raw)
-	}
-}
-
 func TestDrillPinnedServerTargetRefillsInputWithPinnedRaw(t *testing.T) {
 	var fetched finger.Target
 	host := hostTarget(t, "@thebackupbox.net")

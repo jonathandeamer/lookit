@@ -28,6 +28,24 @@ type Target struct {
 // them into the forms above. Returns an error for empty input or input with no
 // "@", no "/", and no scheme, or for an empty host.
 func ParseTarget(arg string) (Target, error) {
+	return parseTarget(arg, false)
+}
+
+// ParseTargetPinned parses arg like ParseTarget but forces the port to finger's
+// well-known 79, ignoring (and discarding) any explicit port in arg. It is used
+// for targets lifted from a server's own response — finger:// links or
+// "finger user@host" commands in a profile — which lookit must not let steer it
+// at an arbitrary service (e.g. host:22). Pinning here makes that guarantee by
+// construction, and because the port is discarded a malformed or out-of-range
+// port in the response does not block the drill. The host is preserved (the
+// Finger Ring is legitimately cross-host). Raw keeps the typed form unless the
+// port was overridden, in which case it shows the pinned ":79" so the change is
+// visible.
+func ParseTargetPinned(arg string) (Target, error) {
+	return parseTarget(arg, true)
+}
+
+func parseTarget(arg string, pin bool) (Target, error) {
 	if arg == "" {
 		return Target{}, errors.New("empty target")
 	}
@@ -47,11 +65,25 @@ func ParseTarget(arg string) (Target, error) {
 	if hasControl(user) || hasControl(hostport) {
 		return Target{}, errors.New("target contains control characters")
 	}
-	hostport, err := parseHostPort(hostport)
+	host, rawPort, hasPort, err := splitHostPort(hostport)
 	if err != nil {
 		return Target{}, err
 	}
-	return Target{User: user, HostPort: hostport, Raw: arg}, nil
+	port := "79"
+	switch {
+	case pin:
+		// Discard any explicit port; finger always lives on 79.
+	case hasPort:
+		if port, err = parsePort(rawPort); err != nil {
+			return Target{}, err
+		}
+	}
+	canonical := net.JoinHostPort(host, port)
+	raw := arg
+	if pin && hasPort && rawPort != "79" {
+		raw = user + "@" + canonical // surface the overridden port as :79
+	}
+	return Target{User: user, HostPort: canonical, Raw: raw}, nil
 }
 
 // hasControl reports whether s contains an ASCII C0 control (< 0x20, including
@@ -66,48 +98,46 @@ func hasControl(s string) bool {
 	return false
 }
 
-func parseHostPort(s string) (string, error) {
+// splitHostPort splits a host token — "host", "host:port", "[ipv6]", or
+// "[ipv6]:port" — into the host (IPv6 brackets stripped) and the raw port
+// string. hasPort distinguishes "no port given" (host) from "an explicit but
+// possibly empty port" (host:), so callers can default the former while still
+// validating the latter. It checks bracket structure and colon placement but
+// not the port value; callers decide whether to parse, default, or pin it.
+func splitHostPort(s string) (host, port string, hasPort bool, err error) {
 	if strings.HasPrefix(s, "[") {
-		close := strings.IndexByte(s, ']')
-		if close < 0 {
-			return "", errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+		rb := strings.IndexByte(s, ']')
+		if rb < 0 {
+			return "", "", false, errors.New("IPv6 literals must be bracketed, e.g. [::1]")
 		}
-		host := s[1:close]
+		host = s[1:rb]
 		if host == "" {
-			return "", errors.New("missing host after @")
+			return "", "", false, errors.New("missing host after @")
 		}
-		suffix := s[close+1:]
-		if suffix == "" {
-			return net.JoinHostPort(host, "79"), nil
+		switch suffix := s[rb+1:]; {
+		case suffix == "":
+			return host, "", false, nil
+		case strings.HasPrefix(suffix, ":"):
+			return host, suffix[1:], true, nil
+		default:
+			return "", "", false, fmt.Errorf("invalid host/port %q", s)
 		}
-		if !strings.HasPrefix(suffix, ":") {
-			return "", fmt.Errorf("invalid host/port %q", s)
-		}
-		port, err := parsePort(suffix[1:])
-		if err != nil {
-			return "", err
-		}
-		return net.JoinHostPort(host, port), nil
 	}
 
 	switch strings.Count(s, ":") {
 	case 0:
 		if s == "" {
-			return "", errors.New("missing host after @")
+			return "", "", false, errors.New("missing host after @")
 		}
-		return net.JoinHostPort(s, "79"), nil
+		return s, "", false, nil
 	case 1:
-		host, port, _ := strings.Cut(s, ":")
+		host, port, _ = strings.Cut(s, ":")
 		if host == "" {
-			return "", errors.New("missing host after @")
+			return "", "", false, errors.New("missing host after @")
 		}
-		port, err := parsePort(port)
-		if err != nil {
-			return "", err
-		}
-		return net.JoinHostPort(host, port), nil
+		return host, port, true, nil
 	default:
-		return "", errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+		return "", "", false, errors.New("IPv6 literals must be bracketed, e.g. [::1]")
 	}
 }
 

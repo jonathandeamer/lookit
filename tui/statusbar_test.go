@@ -76,6 +76,29 @@ func TestStatusBarZeroWidthIsEmpty(t *testing.T) {
 	}
 }
 
+// TestFormatBytes pins the byte-count formatting across all three magnitude
+// branches (B / KB / MB) and the boundaries between them, so a simplification
+// of formatBytes can't silently shift a unit or rounding.
+func TestFormatBytes(t *testing.T) {
+	cases := []struct {
+		n    int
+		want string
+	}{
+		{0, "0 B"},
+		{512, "512 B"},
+		{1023, "1023 B"},    // last value below the KB threshold
+		{1024, "1.0 KB"},    // first KB
+		{1536, "1.5 KB"},    // mid-KB rounding
+		{1048576, "1.0 MB"}, // first MB (1024*1024)
+		{1572864, "1.5 MB"}, // mid-MB rounding
+	}
+	for _, tc := range cases {
+		if got := formatBytes(tc.n); got != tc.want {
+			t.Errorf("formatBytes(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}
+
 func TestStatusBarWarnFlagRendered(t *testing.T) {
 	b := statusBar{host: "@tilde.team", flags: []string{"partial (truncated)"},
 		meta: "3 users", hints: "? help", width: 80, styles: newStyles(true)}

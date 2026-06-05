@@ -292,3 +292,52 @@ func TestListApplyStylesUpdatesExistingList(t *testing.T) {
 		t.Fatalf("applyStyles should update selected row render:\n%s", m.View())
 	}
 }
+
+// TestExtractListPreamble exercises extractListPreamble's grid and marker
+// branches directly (the existing suite only hits the columnar branch
+// indirectly), plus the decline case, so a refactor of the branch order or any
+// individual matcher is caught here rather than only through a full list render.
+func TestExtractListPreamble(t *testing.T) {
+	cases := []struct {
+		name        string
+		body        string
+		wantHas     string // text the preamble must keep
+		wantLacks   string // text it must not bleed in (the selectable rows)
+		wantDecline bool   // true => no recognizable cue, preamble is empty
+	}{
+		{
+			name:      "grid cue keeps the banner up to the 'logged in' line",
+			body:      "welcome to the grid host\n\nusers currently logged in are:\nalice\tbob\tcarol\n",
+			wantHas:   "welcome to the grid host",
+			wantLacks: "alice",
+		},
+		{
+			name:      "marker rows keep the banner above the first '> login'",
+			body:      "pick a user:\n> alice\n> bob\n",
+			wantHas:   "pick a user:",
+			wantLacks: "alice",
+		},
+		{
+			name:        "no cue declines with an empty preamble",
+			body:        "just a banner\nwith two lines\n",
+			wantDecline: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractListPreamble([]byte(tc.body))
+			if tc.wantDecline {
+				if got != "" {
+					t.Fatalf("extractListPreamble = %q, want empty (no cue)", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.wantHas) {
+				t.Fatalf("preamble %q missing %q", got, tc.wantHas)
+			}
+			if strings.Contains(got, tc.wantLacks) {
+				t.Fatalf("preamble %q leaked a selectable row %q", got, tc.wantLacks)
+			}
+		})
+	}
+}

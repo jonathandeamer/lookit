@@ -1,19 +1,21 @@
-# demo.tape - VHS script for the README hero gif (docs/demo.gif).
+# demo.tape - VHS script for the README hero gif (demo/demo.gif).
 #
-# Record from the repo root:  vhs docs/demo.tape
+# Record from the repo root:  vhs demo/demo.tape
 # Needs vhs, ttyd, and ffmpeg on PATH:  brew install vhs ffmpeg ttyd
 #
 # This fingers tilde.team and graph.no live, so the Sleep values around fetches
 # assume a working connection. The TUI and network can't be tested headlessly,
 # so treat the timings as a starting point and tune them after the first record.
 
-Output docs/demo.gif
+Output demo/demo.gif
 
 # --- Look ----------------------------------------------------------------
 # Render at 2x the README's 600px display width for retina crispness.
 Set Width 1200
 Set Height 750
-Set FontSize 22
+# 18 (down from 22) so tilde.team's welcome banner leaves room for more than a
+# single user row in the list. Trade-off: smaller text when scaled to 600px.
+Set FontSize 18
 # "JetBrainsMono NF" is the installed family name for JetBrainsMono Nerd Font
 # (brew install --cask font-jetbrains-mono-nerd-font). Renders the wordmark.
 Set FontFamily "JetBrainsMono NF"
@@ -34,11 +36,6 @@ Set MarginFill "#6d43d6"
 Set Theme { "name": "lookit", "background": "#171719", "foreground": "#f0edf5", "black": "#25222a", "brightBlack": "#766f7d", "red": "#ff6f87", "brightRed": "#ff6f87", "green": "#38e7ad", "brightGreen": "#38e7ad", "yellow": "#eed76d", "brightYellow": "#eed76d", "blue": "#9878ff", "brightBlue": "#9878ff", "magenta": "#ff5fa2", "brightMagenta": "#ff5fa2", "cyan": "#38e7ad", "brightCyan": "#38e7ad", "white": "#f0edf5", "brightWhite": "#fbfafc", "selection": "#342747", "cursor": "#9878ff" }
 
 Set TypingSpeed 80ms
-
-# Start the GIF's loop on the user list rather than the opening keystrokes.
-# Tune this percentage after the first render so the preview frame lands on a
-# good moment (the user list, or the final graph.no result).
-Set LoopOffset 12%
 
 # --- Install the released v0.1.0 off-camera ------------------------------
 # Use the tagged release, not a local dirty build, so the About screen shows a
@@ -63,9 +60,11 @@ Sleep 600ms
 Enter
 Sleep 3s
 
-# Page through the list.
-Right
-Sleep 1500ms
+# Page forward through the list, then step back a couple. Quick, to show it moves.
+Right@300ms 5
+Sleep 700ms
+Left@300ms 2
+Sleep 700ms
 
 # --- Filter to a user and drill in ---------------------------------------
 Type "/"

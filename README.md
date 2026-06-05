@@ -7,11 +7,9 @@ A finger client built for exploring, not just querying.
   <a href="https://github.com/jonathandeamer/lookit/actions/workflows/ci.yml"><img src="https://github.com/jonathandeamer/lookit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-<!-- TODO: replace with the VHS demo before release
 <p align="center">
-  <img src="docs/demo.gif" alt="lookit browsing a finger server" width="600">
+  <img src="demo/demo.gif" alt="lookit browsing a finger server" width="600">
 </p>
--->
 
 Finger is one of the oldest things on the internet ([RFC 1288](https://www.rfc-editor.org/rfc/rfc1288), TCP port 79): ask a server about a person and it tells you who they are, whether they're logged in, and whatever they've left in their `.plan` file.
 

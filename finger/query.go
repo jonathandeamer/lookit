@@ -16,6 +16,11 @@ type Target struct {
 	Raw      string // original argument string, e.g. "alice@plan.cat"
 }
 
+var (
+	errMissingHost = errors.New("missing host after @")
+	errBracketIPv6 = errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+)
+
 // ParseTarget parses one of these forms:
 //
 //	user@host
@@ -57,7 +62,7 @@ func parseTarget(arg string, pin bool) (Target, error) {
 	user := arg[:at]
 	hostport := arg[at+1:]
 	if hostport == "" {
-		return Target{}, errors.New("missing host after @")
+		return Target{}, errMissingHost
 	}
 	if strings.Contains(hostport, "@") {
 		return Target{}, errors.New("forwarded finger queries are not supported yet")
@@ -69,11 +74,9 @@ func parseTarget(arg string, pin bool) (Target, error) {
 	if err != nil {
 		return Target{}, err
 	}
+	// In pinned mode any explicit port is discarded — finger always lives on 79.
 	port := "79"
-	switch {
-	case pin:
-		// Discard any explicit port; finger always lives on 79.
-	case hasPort:
+	if !pin && hasPort {
 		if port, err = parsePort(rawPort); err != nil {
 			return Target{}, err
 		}
@@ -108,36 +111,36 @@ func splitHostPort(s string) (host, port string, hasPort bool, err error) {
 	if strings.HasPrefix(s, "[") {
 		rb := strings.IndexByte(s, ']')
 		if rb < 0 {
-			return "", "", false, errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+			return "", "", false, errBracketIPv6
 		}
 		host = s[1:rb]
 		if host == "" {
-			return "", "", false, errors.New("missing host after @")
+			return "", "", false, errMissingHost
 		}
-		switch suffix := s[rb+1:]; {
-		case suffix == "":
+		suffix := s[rb+1:]
+		if suffix == "" {
 			return host, "", false, nil
-		case strings.HasPrefix(suffix, ":"):
-			return host, suffix[1:], true, nil
-		default:
+		}
+		if !strings.HasPrefix(suffix, ":") {
 			return "", "", false, fmt.Errorf("invalid host/port %q", s)
 		}
+		return host, suffix[1:], true, nil
 	}
 
 	switch strings.Count(s, ":") {
 	case 0:
 		if s == "" {
-			return "", "", false, errors.New("missing host after @")
+			return "", "", false, errMissingHost
 		}
 		return s, "", false, nil
 	case 1:
 		host, port, _ = strings.Cut(s, ":")
 		if host == "" {
-			return "", "", false, errors.New("missing host after @")
+			return "", "", false, errMissingHost
 		}
 		return host, port, true, nil
 	default:
-		return "", "", false, errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+		return "", "", false, errBracketIPv6
 	}
 }
 

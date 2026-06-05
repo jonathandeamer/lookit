@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: write # create the GitHub release and upload assets
+  id-token: write # mint the OIDC token used to sign the build provenance
+  attestations: write # record provenance for the release artifacts
 
 jobs:
   goreleaser:
@@ -29,3 +31,11 @@ jobs:
         run: make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Sign build provenance for the redistributed archives + checksums, so a
+      # downloader can run `gh attestation verify <file> --repo <owner>/<repo>`
+      # and confirm the binary was built by this workflow from this commit.
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt

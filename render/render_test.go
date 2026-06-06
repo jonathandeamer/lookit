@@ -70,6 +70,30 @@ func TestRender_BasicNoTTY(t *testing.T) {
 	compareGolden(t, "basic", "notty", got)
 }
 
+func TestRender_StandardFingerFieldsTrueColor(t *testing.T) {
+	body := loadInput(t, "standard-fields")
+	target := finger.Target{User: "alice", HostPort: "example.com:79", Raw: "alice@example.com"}
+	meta := finger.Meta{
+		Addr:    "example.com:79",
+		Elapsed: 45 * time.Millisecond,
+		Bytes:   len(body),
+	}
+	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+	compareGolden(t, "standard-fields", "truecolor", got)
+}
+
+func TestRender_StandardFingerFieldsNoTTY(t *testing.T) {
+	body := loadInput(t, "standard-fields")
+	target := finger.Target{User: "alice", HostPort: "example.com:79", Raw: "alice@example.com"}
+	meta := finger.Meta{
+		Addr:    "example.com:79",
+		Elapsed: 45 * time.Millisecond,
+		Bytes:   len(body),
+	}
+	got := Render(target, body, meta, nil, colorprofile.NoTTY)
+	compareGolden(t, "standard-fields", "notty", got)
+}
+
 func TestRender_NoTTY_HasNoANSI(t *testing.T) {
 	body := loadInput(t, "basic")
 	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}

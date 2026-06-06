@@ -48,7 +48,7 @@ func compareGolden(t *testing.T, name, profile, got string) {
 
 func TestRender_BasicTrueColor(t *testing.T) {
 	body := loadInput(t, "basic")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{
 		Addr:    "plan.cat:79",
 		Elapsed: 123 * time.Millisecond,
@@ -60,7 +60,7 @@ func TestRender_BasicTrueColor(t *testing.T) {
 
 func TestRender_BasicNoTTY(t *testing.T) {
 	body := loadInput(t, "basic")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{
 		Addr:    "plan.cat:79",
 		Elapsed: 123 * time.Millisecond,
@@ -72,7 +72,7 @@ func TestRender_BasicNoTTY(t *testing.T) {
 
 func TestRender_StandardFingerFieldsTrueColor(t *testing.T) {
 	body := loadInput(t, "standard-fields")
-	target := finger.Target{User: "alice", HostPort: "example.com:79", Raw: "alice@example.com"}
+	target := finger.Target{HostPort: "example.com:79", Raw: "alice@example.com"}
 	meta := finger.Meta{
 		Addr:    "example.com:79",
 		Elapsed: 45 * time.Millisecond,
@@ -84,7 +84,7 @@ func TestRender_StandardFingerFieldsTrueColor(t *testing.T) {
 
 func TestRender_StandardFingerFieldsNoTTY(t *testing.T) {
 	body := loadInput(t, "standard-fields")
-	target := finger.Target{User: "alice", HostPort: "example.com:79", Raw: "alice@example.com"}
+	target := finger.Target{HostPort: "example.com:79", Raw: "alice@example.com"}
 	meta := finger.Meta{
 		Addr:    "example.com:79",
 		Elapsed: 45 * time.Millisecond,
@@ -96,7 +96,7 @@ func TestRender_StandardFingerFieldsNoTTY(t *testing.T) {
 
 func TestRender_NoTTY_HasNoANSI(t *testing.T) {
 	body := loadInput(t, "basic")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{
 		Addr:    "plan.cat:79",
 		Elapsed: 123 * time.Millisecond,
@@ -110,7 +110,7 @@ func TestRender_NoTTY_HasNoANSI(t *testing.T) {
 
 func TestRenderWithBackgroundNoTTYHasNoANSI(t *testing.T) {
 	body := []byte("Login: alice\nPlan: hello\n")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
 
 	got := RenderWithBackground(target, body, meta, nil, colorprofile.NoTTY, false)
@@ -124,7 +124,7 @@ func TestRenderWithBackgroundNoTTYHasNoANSI(t *testing.T) {
 
 func TestRender_AsciiArtPreserved(t *testing.T) {
 	body := loadInput(t, "ascii-art")
-	target := finger.Target{User: "bob", HostPort: "example.com:79", Raw: "bob@example.com"}
+	target := finger.Target{HostPort: "example.com:79", Raw: "bob@example.com"}
 	meta := finger.Meta{Addr: "example.com:79", Elapsed: 90 * time.Millisecond, Bytes: len(body)}
 	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "ascii-art", "truecolor", got)
@@ -144,7 +144,7 @@ func TestRender_AsciiArtPreserved(t *testing.T) {
 
 func TestRender_EmptyResponse(t *testing.T) {
 	body := loadInput(t, "empty")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 42 * time.Millisecond, Bytes: 0}
 	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "empty", "truecolor", got)
@@ -152,7 +152,7 @@ func TestRender_EmptyResponse(t *testing.T) {
 
 func TestRender_Truncated(t *testing.T) {
 	body := loadInput(t, "truncated")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{
 		Addr:      "plan.cat:79",
 		Elapsed:   800 * time.Millisecond,
@@ -165,7 +165,7 @@ func TestRender_Truncated(t *testing.T) {
 
 func TestRender_Timeout(t *testing.T) {
 	body := loadInput(t, "timeout")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{
 		Addr:      "plan.cat:79",
 		Elapsed:   30 * time.Second,
@@ -179,7 +179,7 @@ func TestRender_Timeout(t *testing.T) {
 
 func TestRenderWithBackgroundUsesLightPalette(t *testing.T) {
 	body := []byte("Login: alice\nPlan: hello\n")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
 
 	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, false)
@@ -190,7 +190,7 @@ func TestRenderWithBackgroundUsesLightPalette(t *testing.T) {
 
 func TestRenderWithBackgroundUsesDarkPalette(t *testing.T) {
 	body := []byte("Login: alice\nPlan: hello\n")
-	target := finger.Target{User: "alice", HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
 	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
 
 	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)

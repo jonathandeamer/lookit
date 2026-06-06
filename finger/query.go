@@ -11,20 +11,14 @@ import (
 
 // Target identifies a finger query and the host:port endpoint that receives it.
 type Target struct {
-	User     string // deprecated compatibility alias for Query
 	Query    string // exact Finger query line without trailing CRLF
 	HostPort string // always "host:port"; port defaults to "79"
 	Raw      string // normalized argument string, e.g. "alice@plan.cat"
 }
 
 // QueryLine returns the exact line Query should send, without the trailing CRLF.
-// The User fallback keeps manually-constructed legacy test targets working while
-// call sites migrate to Query.
 func (t Target) QueryLine() string {
-	if t.Query != "" || t.User == "" {
-		return t.Query
-	}
-	return t.User
+	return t.Query
 }
 
 // HostQuery reports whether a response can be treated as a host/list response.
@@ -134,7 +128,7 @@ func parseDirectTarget(arg string, pin bool) (Target, error) {
 	if pin && hasPort && rawPort != "79" {
 		raw = user + "@" + canonical // surface the overridden port as :79
 	}
-	return Target{User: user, Query: user, HostPort: canonical, Raw: raw}, nil
+	return Target{Query: user, HostPort: canonical, Raw: raw}, nil
 }
 
 func parseForwardedTarget(arg string) (Target, error) {
@@ -158,15 +152,17 @@ func parseForwardedTarget(arg string) (Target, error) {
 			return Target{}, err
 		}
 	}
-	return Target{User: query, Query: query, HostPort: net.JoinHostPort(host, port), Raw: arg}, nil
+	return Target{Query: query, HostPort: net.JoinHostPort(host, port), Raw: arg}, nil
 }
 
+// validateForwardQuery checks the inner "user@host"/"@host" query of a
+// forwarded target. The caller guarantees the query holds exactly one "@" (the
+// outer arg had two and we split on the last), so the only structural error left
+// is an empty inner host — an empty user is the legitimate "@host" forward. The
+// inner host must not carry a port; only the relay does.
 func validateForwardQuery(query string) error {
-	user, host, ok := strings.Cut(query, "@")
-	if !ok || host == "" {
-		return errMalformedForwarding
-	}
-	if user == "" && !strings.HasPrefix(query, "@") {
+	_, host, _ := strings.Cut(query, "@")
+	if host == "" {
 		return errMalformedForwarding
 	}
 	_, _, hasPort, err := splitHostPort(host)

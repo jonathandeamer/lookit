@@ -40,7 +40,7 @@ func FuzzSanitize(f *testing.F) {
 }
 
 // FuzzParseTarget asserts ParseTarget never panics and that any target it
-// accepts is free of control characters in the user/host token — the egress
+// accepts is free of control characters in the query/host token — the egress
 // guard that stops a hostile argument from smuggling extra RFC 1288 query
 // lines onto the wire.
 func FuzzParseTarget(f *testing.F) {
@@ -56,7 +56,7 @@ func FuzzParseTarget(f *testing.F) {
 		if err != nil {
 			return // rejected inputs are fine
 		}
-		if hasControl(target.User) || hasControl(target.HostPort) {
+		if hasControl(target.QueryLine()) || hasControl(target.HostPort) {
 			t.Fatalf("ParseTarget accepted %q but target carries control bytes: %+v", arg, target)
 		}
 	})

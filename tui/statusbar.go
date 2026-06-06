@@ -124,7 +124,7 @@ func breadcrumbParts(t finger.Target) (host, user string) {
 	if err != nil {
 		h = t.HostPort
 	}
-	return "@" + h, t.User
+	return "@" + h, t.QueryLine()
 }
 
 // formatBytes renders a byte count compactly: "512 B", "1.2 KB", "3.4 MB".

@@ -52,7 +52,7 @@ func TestQuery_UserHappyPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	body, meta, err := Query(ctx, Target{User: "alice", HostPort: fs.addr, Raw: "alice@" + fs.addr})
+	body, meta, err := Query(ctx, Target{Query: "alice", HostPort: fs.addr, Raw: "alice@" + fs.addr})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestQuery_ServerForm(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	body, _, err := Query(ctx, Target{User: "", HostPort: fs.addr, Raw: "@" + fs.addr})
+	body, _, err := Query(ctx, Target{Query: "", HostPort: fs.addr, Raw: "@" + fs.addr})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}

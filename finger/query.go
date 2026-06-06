@@ -161,12 +161,14 @@ func parseForwardedTarget(arg string) (Target, error) {
 	return Target{User: query, Query: query, HostPort: net.JoinHostPort(host, port), Raw: arg}, nil
 }
 
+// validateForwardQuery checks the inner "user@host"/"@host" query of a
+// forwarded target. The caller guarantees the query holds exactly one "@" (the
+// outer arg had two and we split on the last), so the only structural error left
+// is an empty inner host — an empty user is the legitimate "@host" forward. The
+// inner host must not carry a port; only the relay does.
 func validateForwardQuery(query string) error {
-	user, host, ok := strings.Cut(query, "@")
-	if !ok || host == "" {
-		return errMalformedForwarding
-	}
-	if user == "" && !strings.HasPrefix(query, "@") {
+	_, host, _ := strings.Cut(query, "@")
+	if host == "" {
 		return errMalformedForwarding
 	}
 	_, _, hasPort, err := splitHostPort(host)

@@ -9,16 +9,40 @@ import (
 	"strings"
 )
 
-// Target identifies a finger query: an optional user and a host:port pair.
+// Target identifies a finger query and the host:port endpoint that receives it.
 type Target struct {
-	User     string // empty for the bare "@host" form
+	User     string // deprecated compatibility alias for Query
+	Query    string // exact Finger query line without trailing CRLF
 	HostPort string // always "host:port"; port defaults to "79"
-	Raw      string // original argument string, e.g. "alice@plan.cat"
+	Raw      string // normalized argument string, e.g. "alice@plan.cat"
+}
+
+// QueryLine returns the exact line Query should send, without the trailing CRLF.
+// The User fallback keeps manually-constructed legacy test targets working while
+// call sites migrate to Query.
+func (t Target) QueryLine() string {
+	if t.Query != "" || t.User == "" {
+		return t.Query
+	}
+	return t.User
+}
+
+// HostQuery reports whether a response can be treated as a host/list response.
+// RFC 1288 forwarding permits a query like "@host@relay"; after parsing, that
+// has Query "@host" and should route like a host query if the body is parseable.
+func (t Target) HostQuery() bool {
+	q := t.QueryLine()
+	return q == "" || strings.HasPrefix(q, "@")
 }
 
 var (
-	errMissingHost = errors.New("missing host after @")
-	errBracketIPv6 = errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+	errMissingHost         = errors.New("missing host after @")
+	errBracketIPv6         = errors.New("IPv6 literals must be bracketed, e.g. [::1]")
+	errMultipleRelays      = errors.New("forwarding through multiple relays is not supported yet")
+	errForwardedHostPort   = errors.New("forwarded host ports are not supported; put a port only on the relay")
+	errURLForwarding       = errors.New("forwarding in finger:// URLs is not supported yet; use user@host@relay")
+	errMalformedForwarding = errors.New("forwarded targets must be user@host@relay or @host@relay")
+	ErrServerForwarding    = errors.New("forwarded targets from server responses are not opened")
 )
 
 // ParseTarget parses one of these forms:
@@ -27,11 +51,17 @@ var (
 //	@host
 //	user@host:port
 //	@host:port
+//	user@host@relay
+//	@host@relay
+//	user@host@relay:port
+//	@host@relay:port
 //
 // It also accepts a leading "finger://" scheme and path-style "host[:port]/user"
 // addresses (e.g. "finger://via.sour.is/xuu" or "via.sour.is/xuu"), normalizing
-// them into the forms above. Returns an error for empty input or input with no
-// "@", no "/", and no scheme, or for an empty host.
+// them into direct forms above. Forwarding in "finger://" URLs is deliberately
+// rejected for now; use the explicit user@host@relay or @host@relay form.
+// Returns an error for empty input or input with no "@", no "/", and no scheme,
+// or for an empty host.
 func ParseTarget(arg string) (Target, error) {
 	return parseTarget(arg, false)
 }
@@ -54,27 +84,45 @@ func parseTarget(arg string, pin bool) (Target, error) {
 	if arg == "" {
 		return Target{}, errors.New("empty target")
 	}
-	arg = normalizeTarget(arg)
-	at := strings.Index(arg, "@")
-	if at < 0 {
-		return Target{}, errors.New("target must be of the form user@host or @host")
+	if isDeferredURLForwarding(arg) {
+		if pin {
+			return Target{}, ErrServerForwarding
+		}
+		return Target{}, errURLForwarding
 	}
-	user := arg[:at]
-	hostport := arg[at+1:]
+	arg = normalizeTarget(arg)
+	if hasControl(arg) {
+		return Target{}, errors.New("target contains control characters")
+	}
+
+	switch strings.Count(arg, "@") {
+	case 0:
+		return Target{}, errors.New("target must be of the form user@host or @host")
+	case 1:
+		return parseDirectTarget(arg, pin)
+	case 2:
+		if pin {
+			return Target{}, ErrServerForwarding
+		}
+		return parseForwardedTarget(arg)
+	default:
+		if pin {
+			return Target{}, ErrServerForwarding
+		}
+		return Target{}, errMultipleRelays
+	}
+}
+
+func parseDirectTarget(arg string, pin bool) (Target, error) {
+	user, hostport, _ := strings.Cut(arg, "@")
 	if hostport == "" {
 		return Target{}, errMissingHost
-	}
-	if strings.Contains(hostport, "@") {
-		return Target{}, errors.New("forwarded finger queries are not supported yet")
-	}
-	if hasControl(user) || hasControl(hostport) {
-		return Target{}, errors.New("target contains control characters")
 	}
 	host, rawPort, hasPort, err := splitHostPort(hostport)
 	if err != nil {
 		return Target{}, err
 	}
-	// In pinned mode any explicit port is discarded — finger always lives on 79.
+
 	port := "79"
 	if !pin && hasPort {
 		if port, err = parsePort(rawPort); err != nil {
@@ -86,7 +134,49 @@ func parseTarget(arg string, pin bool) (Target, error) {
 	if pin && hasPort && rawPort != "79" {
 		raw = user + "@" + canonical // surface the overridden port as :79
 	}
-	return Target{User: user, HostPort: canonical, Raw: raw}, nil
+	return Target{User: user, Query: user, HostPort: canonical, Raw: raw}, nil
+}
+
+func parseForwardedTarget(arg string) (Target, error) {
+	last := strings.LastIndex(arg, "@")
+	if last <= 0 || last == len(arg)-1 {
+		return Target{}, errMalformedForwarding
+	}
+	query := arg[:last]
+	relay := arg[last+1:]
+
+	if err := validateForwardQuery(query); err != nil {
+		return Target{}, err
+	}
+	host, rawPort, hasPort, err := splitHostPort(relay)
+	if err != nil {
+		return Target{}, err
+	}
+	port := "79"
+	if hasPort {
+		if port, err = parsePort(rawPort); err != nil {
+			return Target{}, err
+		}
+	}
+	return Target{User: query, Query: query, HostPort: net.JoinHostPort(host, port), Raw: arg}, nil
+}
+
+func validateForwardQuery(query string) error {
+	user, host, ok := strings.Cut(query, "@")
+	if !ok || host == "" {
+		return errMalformedForwarding
+	}
+	if user == "" && !strings.HasPrefix(query, "@") {
+		return errMalformedForwarding
+	}
+	_, _, hasPort, err := splitHostPort(host)
+	if err != nil {
+		return err
+	}
+	if hasPort {
+		return errForwardedHostPort
+	}
+	return nil
 }
 
 // hasControl reports whether s contains an ASCII C0 control (< 0x20, including
@@ -153,6 +243,22 @@ func parsePort(s string) (string, error) {
 		return "", errors.New("invalid port")
 	}
 	return strconv.FormatUint(port, 10), nil
+}
+
+func isDeferredURLForwarding(arg string) bool {
+	i := strings.Index(arg, "://")
+	if i < 0 || !strings.EqualFold(arg[:i], "finger") {
+		return false
+	}
+	rest := arg[i+len("://"):]
+	if strings.Count(rest, "@") > 1 {
+		return true
+	}
+	slash := strings.Index(rest, "/")
+	if slash < 0 {
+		return false
+	}
+	return strings.Contains(rest[slash+1:], "@")
 }
 
 // normalizeTarget rewrites scheme-prefixed and path-style addresses into the

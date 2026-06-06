@@ -33,6 +33,15 @@ func fetchRecorder(body string) (FetchFunc, *[]string) {
 	return f, &seen
 }
 
+func fetchTargetRecorder(body string) (FetchFunc, *[]finger.Target) {
+	var seen []finger.Target
+	f := func(_ context.Context, t finger.Target) ([]byte, finger.Meta, error) {
+		seen = append(seen, t)
+		return []byte(body), finger.Meta{Addr: t.HostPort, Bytes: len(body)}, nil
+	}
+	return f, &seen
+}
+
 func hostListBody() string {
 	return "users currently logged in are:\n\nalrs\tdtracker\tkapad\n"
 }
@@ -523,6 +532,32 @@ func TestDrillServerSuppliedTargetKeepsCrossHost(t *testing.T) {
 
 	if got.HostPort != "tilde.team:79" {
 		t.Fatalf("HostPort = %q, want tilde.team:79 (cross-host drilling must be preserved)", got.HostPort)
+	}
+}
+
+func TestDrillServerSuppliedForwardedTargetFlashesRefusal(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@thebackupbox.net")
+	users := []User{{Login: "alice", Target: "alice@tilde.team@thebackupbox.net"}}
+	m.history = []histNode{{entry: Entry{Target: host}, state: stateList}}
+	m.pos = 0
+	m.listReady = true
+	m.list = newList(m.common, host, users)
+	m.list.list.Select(0)
+	m.state = stateList
+	m.inputFocused = false
+
+	step, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := step.(appModel)
+
+	if cmd == nil {
+		t.Fatal("drill refusal should return a clear-flash command")
+	}
+	if got.loading {
+		t.Fatal("server-supplied forwarded target must not start loading")
+	}
+	if got.flash != finger.ErrServerForwarding.Error() {
+		t.Fatalf("flash = %q, want %q", got.flash, finger.ErrServerForwarding.Error())
 	}
 }
 
@@ -1025,6 +1060,36 @@ func TestSubmitFetchesParsedTargetAndBlurs(t *testing.T) {
 	runCmds(cmd)
 	if len(*seen) != 1 || (*seen)[0] != "alice@plan.cat" {
 		t.Fatalf("fetched %v, want [alice@plan.cat]", *seen)
+	}
+}
+
+func TestSubmitFetchesForwardedTarget(t *testing.T) {
+	fetch, seen := fetchTargetRecorder("Plan: forwarded\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.input.SetValue("alice@tilde.team@thebackupbox.net")
+
+	step, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+	if m.inputFocused {
+		t.Fatal("submit should blur the input to content")
+	}
+	if cmd == nil {
+		t.Fatal("submit should return a fetch command")
+	}
+	runCmds(cmd)
+
+	if len(*seen) != 1 {
+		t.Fatalf("fetched %d targets, want 1", len(*seen))
+	}
+	got := (*seen)[0]
+	if got.HostPort != "thebackupbox.net:79" {
+		t.Fatalf("HostPort = %q, want thebackupbox.net:79", got.HostPort)
+	}
+	if got.QueryLine() != "alice@tilde.team" {
+		t.Fatalf("QueryLine = %q, want alice@tilde.team", got.QueryLine())
+	}
+	if got.Raw != "alice@tilde.team@thebackupbox.net" {
+		t.Fatalf("Raw = %q, want alice@tilde.team@thebackupbox.net", got.Raw)
 	}
 }
 
@@ -1537,6 +1602,36 @@ func TestCopyAddressPinsServerTarget(t *testing.T) {
 	}
 	if !strings.Contains(copied, ":79") {
 		t.Fatalf("copied = %q, want it to contain the pinned port :79", copied)
+	}
+}
+
+func TestCopyServerSuppliedForwardedTargetFlashesRefusal(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	host := hostTarget(t, "@thebackupbox.net")
+	users := []User{{Login: "alice", Target: "alice@tilde.team@thebackupbox.net"}}
+	m.history = []histNode{{entry: Entry{Target: host}, state: stateList}}
+	m.pos = 0
+	m.listReady = true
+	m.list = newList(m.common, host, users)
+	m.list.list.Select(0)
+	m.state = stateList
+	m.inputFocused = false
+
+	step, cmd := m.Update(tea.KeyPressMsg{Code: 'y'})
+	got := step.(appModel)
+
+	if cmd == nil {
+		t.Fatal("copy refusal should return a clear-flash command")
+	}
+	if copied != "" {
+		t.Fatalf("copied = %q, want empty", copied)
+	}
+	if got.flash != finger.ErrServerForwarding.Error() {
+		t.Fatalf("flash = %q, want %q", got.flash, finger.ErrServerForwarding.Error())
 	}
 }
 

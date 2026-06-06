@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -592,6 +593,9 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 		target, err = finger.ParseTarget(sel.login + "@" + host)
 	}
 	if err != nil {
+		if errors.Is(err, finger.ErrServerForwarding) {
+			return true, m, m.setFlash(err.Error())
+		}
 		return true, m, nil
 	}
 	// Keep the current view (the list) on screen while loading; routeFetch sets
@@ -633,8 +637,8 @@ func (m appModel) routeFetch(entry Entry) appModel {
 // (no user) qualify; "ring@thebackupbox.net" is special-cased because that
 // pseudo-user returns the Finger Ring directory rather than a single profile.
 func shouldOpenList(entry Entry) bool {
-	return entry.Target.User == "" ||
-		(entry.Target.User == "ring" && strings.HasPrefix(entry.Target.HostPort, "thebackupbox.net:"))
+	return entry.Target.HostQuery() ||
+		(entry.Target.QueryLine() == "ring" && strings.HasPrefix(entry.Target.HostPort, "thebackupbox.net:"))
 }
 
 // clearFlashMsg is sent after a flash timer fires to clear m.flash.
@@ -661,10 +665,13 @@ func (m *appModel) copyAddress() tea.Cmd {
 			if sel.target != "" {
 				// Mirror drill's safety: a server-supplied target could point at
 				// an arbitrary host:port, so pin to finger's port 79 before copying
-				// so a pasted-back address can't be steered at another service. On
-				// a parse error we simply copy nothing.
+				// so a pasted-back address can't be steered at another service.
+				// Forwarded targets are refused explicitly; other parse errors
+				// still copy nothing.
 				if t, err := finger.ParseTargetPinned(sel.target); err == nil {
 					addr = t.Raw
+				} else if errors.Is(err, finger.ErrServerForwarding) {
+					return m.setFlash(err.Error())
 				}
 			} else {
 				addr = sel.login + "@" + strings.TrimPrefix(m.list.host.Raw, "@")

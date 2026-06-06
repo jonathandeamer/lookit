@@ -17,7 +17,7 @@ var fieldPrefixes = []string{
 	"Directory:",
 	"Shell:",
 	"Last login",
-	"Mail forwarded to:",
+	"Mail forwarded to",
 	"Mail last read",
 	"New mail received",
 	"No mail.",

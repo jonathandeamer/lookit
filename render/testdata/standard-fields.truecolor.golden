@@ -1,6 +1,7 @@
 [1;38;2;152;120;255m➜[0m [1;38;2;255;95;162malice@example.com[0m [38;2;140;135;146m45ms[0m [38;2;238;215;109m✦[0m
 [38;2;255;95;162mLogin name:[0m alice
 [38;2;255;95;162mIn real life:[0m Alice Example
+[38;2;255;95;162mMail forwarded to[0m alice@example.net
 [38;2;255;95;162mNew mail received[0m Fri Jun  5 12:00 2026
 [38;2;255;95;162mMail last read[0m Fri Jun  5 12:30 2026
 [38;2;255;95;162mNo mail.[0m

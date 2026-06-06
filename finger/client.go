@@ -71,11 +71,12 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 		return nil, meta, fmt.Errorf("set deadline: %w", err)
 	}
 
-	if hasControl(t.User) {
+	query := t.QueryLine()
+	if hasControl(query) {
 		meta.Elapsed = time.Since(start)
-		return nil, meta, fmt.Errorf("query user contains control characters")
+		return nil, meta, fmt.Errorf("query contains control characters")
 	}
-	if _, err := fmt.Fprintf(conn, "%s\r\n", t.User); err != nil {
+	if _, err := fmt.Fprintf(conn, "%s\r\n", query); err != nil {
 		meta.Elapsed = time.Since(start)
 		return nil, meta, fmt.Errorf("write query: %w", err)
 	}

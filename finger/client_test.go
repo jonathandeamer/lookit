@@ -99,6 +99,59 @@ func TestQuery_ServerForm(t *testing.T) {
 	}
 }
 
+func TestQuery_ForwardedUserQueryWritesRemainder(t *testing.T) {
+	fs := newFakeServer(t, func(line string) []byte {
+		return []byte("forwarded profile\r\n")
+	})
+
+	target, err := ParseTarget("alice@tilde.team@" + fs.addr)
+	if err != nil {
+		t.Fatalf("ParseTarget: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	body, meta, err := Query(ctx, target)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	if fs.gotLine != "alice@tilde.team\r\n" {
+		t.Fatalf("server received %q, want %q", fs.gotLine, "alice@tilde.team\r\n")
+	}
+	if meta.Addr != fs.addr {
+		t.Fatalf("Addr = %q, want %q", meta.Addr, fs.addr)
+	}
+	if string(body) != "forwarded profile\n" {
+		t.Fatalf("body = %q, want forwarded profile", body)
+	}
+}
+
+func TestQuery_ForwardedHostQueryWritesRemainder(t *testing.T) {
+	fs := newFakeServer(t, func(line string) []byte {
+		return []byte("forwarded list\r\n")
+	})
+
+	target, err := ParseTarget("@tilde.team@" + fs.addr)
+	if err != nil {
+		t.Fatalf("ParseTarget: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	body, _, err := Query(ctx, target)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	if fs.gotLine != "@tilde.team\r\n" {
+		t.Fatalf("server received %q, want %q", fs.gotLine, "@tilde.team\r\n")
+	}
+	if string(body) != "forwarded list\n" {
+		t.Fatalf("body = %q, want forwarded list", body)
+	}
+}
+
 func TestQuery_ReadDeadline(t *testing.T) {
 	// Server accepts but never writes — should hit the read deadline.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -356,7 +409,7 @@ func TestQuery_DefangsInvalidUTF8Bytes(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsControlCharsInUser(t *testing.T) {
+func TestQueryRejectsControlCharsInQuery(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -377,11 +430,11 @@ func TestQueryRejectsControlCharsInUser(t *testing.T) {
 		received <- buf
 	}()
 
-	tgt := Target{User: "a\r\nb", HostPort: ln.Addr().String()}
+	tgt := Target{Query: "a\r\nb", HostPort: ln.Addr().String()}
 	_, _, queryErr := Query(context.Background(), tgt)
 
 	if queryErr == nil {
-		t.Fatal("Query with control char in user = nil error, want error")
+		t.Fatal("Query with control char in query = nil error, want error")
 	}
 	if got := <-received; len(got) != 0 {
 		t.Errorf("server received %d bytes %q; guard must fire before any write", len(got), got)

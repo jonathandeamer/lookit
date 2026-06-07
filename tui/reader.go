@@ -87,6 +87,7 @@ func (m *readerModel) setEntry(entry Entry) {
 // current focused index (-1 = none).
 func (m *readerModel) setEntryWithLinks(entry Entry, links []Link) {
 	m.current = &entry
+	m.links = links
 	rendered := render.RenderWithBackground(entry.Target, entry.Body, entry.Meta, entry.Err, m.profile, m.darkBackground)
 	header, body := render.Split(rendered)
 	body = applyLinkOverlay(body, links, m.focusedLink, m.styles)

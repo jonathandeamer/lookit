@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"regexp"
+	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -50,9 +51,18 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 	}
 	origin := canonicalHost(originHostPort)
 
+	// found pairs each detected link with its byte offset so we can sort to
+	// document order at the end — phase 1 collects scheme URLs and phase 2
+	// collects @-tokens, so without sorting a URL that follows an earlier
+	// @-token would appear before it in the result.
+	type linkAt struct {
+		pos  int
+		link Link
+	}
+
 	// Phase 1: collect scheme-URL spans left-to-right.
 	consumed := make([]bool, len(text))
-	var links []Link
+	var found []linkAt
 
 	for _, span := range schemeURLRe.FindAllStringIndex(text, -1) {
 		raw := text[span[0]:span[1]]
@@ -65,8 +75,10 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		if schemeSep >= 0 && len(raw) <= schemeSep+3 {
 			continue
 		}
-		// Word boundary: char before must not be a word char.
-		if span[0] > 0 && isWordChar(text[span[0]-1]) {
+		// Word boundary: char before must not be a word char or '@'.
+		// '@' indicates this token is the host-part of an @-address — let phase 2
+		// handle it so the full user@host:port token is classified correctly.
+		if span[0] > 0 && (isWordChar(text[span[0]-1]) || text[span[0]-1] == '@') {
 			continue
 		}
 		link, ok := classifySchemeURL(raw, origin)
@@ -76,7 +88,7 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		for i := span[0]; i < span[0]+len(raw); i++ {
 			consumed[i] = true
 		}
-		links = append(links, link)
+		found = append(found, linkAt{span[0], link})
 	}
 
 	// Phase 2: scan for @-containing tokens in unconsumed text.
@@ -140,10 +152,15 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		for i := start; i < end; i++ {
 			consumed[i] = true
 		}
-		links = append(links, link)
+		found = append(found, linkAt{start, link})
 		pos = end
 	}
 
+	sort.Slice(found, func(i, j int) bool { return found[i].pos < found[j].pos })
+	links := make([]Link, len(found))
+	for i, la := range found {
+		links[i] = la.link
+	}
 	return links
 }
 
@@ -355,9 +372,13 @@ func classifyFingerURL(raw, origin string) (Link, bool) {
 	// Build the ParseTargetPinned argument.
 	var arg string
 	if path == "" {
-		arg = "@" + authority // bare host query
+		if strings.ContainsRune(authority, '@') {
+			arg = authority // finger://user@host — user in URL authority/userinfo
+		} else {
+			arg = "@" + authority // finger://host — bare host query
+		}
 	} else {
-		arg = path + "@" + authority // user@host form
+		arg = path + "@" + authority // finger://host/user form
 	}
 
 	t, err := finger.ParseTargetPinned(arg)
@@ -441,7 +462,12 @@ func classifyAtToken(raw, cueWord, origin string) (Link, bool) {
 	user := raw[:atIdx]
 	host := raw[atIdx+1:]
 
-	if !domainSane(host) {
+	// ParseTargetPinned discards server-supplied ports; validate just the hostname.
+	hostCheck := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostCheck = h
+	}
+	if !domainSane(hostCheck) {
 		return Link{}, false
 	}
 

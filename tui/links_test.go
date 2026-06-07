@@ -512,6 +512,60 @@ func TestStrongGate_TildeLoginNotHarvestable(t *testing.T) {
 	}
 }
 
+// ---- Regression: document order ----
+
+func TestDetectLinks_DocumentOrder_AtTokenBeforeURL(t *testing.T) {
+	// @-token precedes scheme URL in the text; both must appear in document order.
+	links := DetectLinks([]byte("admin@example.com https://example.com"), "example.com:79")
+	if len(links) != 2 {
+		t.Fatalf("got %d links, want 2", len(links))
+	}
+	if links[0].Raw != "admin@example.com" {
+		t.Errorf("links[0].Raw = %q, want %q (document order)", links[0].Raw, "admin@example.com")
+	}
+	if links[1].Raw != "https://example.com" {
+		t.Errorf("links[1].Raw = %q, want %q (document order)", links[1].Raw, "https://example.com")
+	}
+}
+
+// ---- Regression: finger://user@host (user in URL authority) ----
+
+func TestDetectLinks_FingerURL_UserAtHost_Authority(t *testing.T) {
+	// finger://alice@tilde.team — user in authority/userinfo; must drill, not block.
+	links := DetectLinks([]byte("finger://alice@tilde.team"), "tilde.team:79")
+	l, ok := findLink(links, "finger://alice@tilde.team")
+	if !ok {
+		t.Fatal("DetectLinks did not find finger://alice@tilde.team")
+	}
+	if l.Action != ActionDrill {
+		t.Errorf("Action = %v, want ActionDrill", l.Action)
+	}
+	if l.Blocked != "" {
+		t.Errorf("Blocked = %q, want empty (must not be treated as forwarding)", l.Blocked)
+	}
+	if l.Target.HostPort != "tilde.team:79" {
+		t.Errorf("Target.HostPort = %q, want %q", l.Target.HostPort, "tilde.team:79")
+	}
+}
+
+// ---- Regression: server-supplied port in user@host token ----
+
+func TestDetectLinks_FingerCue_PortInHost_Drillable(t *testing.T) {
+	// "finger alice@example.org:70" — server advertises a port; ParseTargetPinned
+	// discards it, but domainSane must not reject the token before that happens.
+	links := DetectLinks([]byte("finger alice@example.org:70"), "example.org:79")
+	l, ok := findLink(links, "alice@example.org:70")
+	if !ok {
+		t.Fatal("DetectLinks did not find alice@example.org:70 with finger cue")
+	}
+	if l.Action != ActionDrill {
+		t.Errorf("Action = %v, want ActionDrill", l.Action)
+	}
+	if l.Target.HostPort != "example.org:79" {
+		t.Errorf("Target.HostPort = %q, want %q (port pinned to 79)", l.Target.HostPort, "example.org:79")
+	}
+}
+
 // TODO: uncomment in Task 11 when applyLinkOverlay is implemented
 // func TestApplyLinkOverlay_BodyNotHeader(t *testing.T) {
 // 	st := newStyles(true)

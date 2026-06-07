@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 
@@ -200,10 +201,13 @@ func isOSC8Openable(raw string) bool {
 
 // Compiled regexes used by the scanner.
 var (
-	// schemeURLRe matches any scheme://authority... token. Authority must be
-	// non-empty so bare "https://" with no host is not matched.
+	// schemeURLRe matches any scheme-prefixed URL token, including both
+	// the scheme://... form (finger, http, https, gemini, gopher, ircs, …)
+	// and the scheme:path form without // (e.g. mailto:user@host).
+	// Authority must be non-empty for the :// form — the caller's post-filter
+	// drops bare "https://" with no host.
 	schemeURLRe = regexp.MustCompile(
-		`(?i)[A-Za-z][A-Za-z0-9+.\-]{1,30}://[^\s<>"` + "`" + `(){}\[\]]+`)
+		`(?i)[A-Za-z][A-Za-z0-9+.\-]{1,30}:(?://[^\s<>"` + "`" + `(){}\[\]]+|[^\s<>"` + "`" + `(){}\[\]/][^\s<>"` + "`" + `(){}\[\]]*)`)
 
 	// cueWordRe extracts the last whitespace-delimited word before a position.
 	cueWordRe = regexp.MustCompile(`(?i)(\w+)\s*$`)
@@ -285,8 +289,71 @@ func stripTrailingPunct(s string) string {
 	return s
 }
 
-// classifySchemeURL classifies a scheme:// URL token. Stub — implemented in Task 4.
-func classifySchemeURL(raw, origin string) (Link, bool) { return Link{}, false }
+// classifySchemeURL classifies a scheme-prefixed URL token detected in Phase 1.
+// Returns (Link, false) only when the token should be silently dropped.
+func classifySchemeURL(raw, origin string) (Link, bool) {
+	lower := strings.ToLower(raw)
+	switch {
+	case strings.HasPrefix(lower, "finger://"):
+		return classifyFingerURL(raw, origin)
+	case strings.HasPrefix(lower, "mailto:"):
+		return Link{
+			Kind:   LinkEmail,
+			Action: ActionCopy,
+			Raw:    raw,
+			Strong: true,
+		}, true
+	default:
+		// http://, https://, gemini://, gopher://, ircs://, rtmp://, etc.
+		return Link{
+			Kind:   LinkURL,
+			Action: ActionCopy,
+			Raw:    raw,
+			Strong: true,
+		}, true
+	}
+}
+
+// classifyFingerURL parses a finger:// URL and builds a drillable Link.
+// raw is the full matched token (e.g. "finger://tilde.team/alice").
+// Returns (Link{}, false) if the URL is malformed or encodes server forwarding.
+func classifyFingerURL(raw, _ string) (Link, bool) {
+	// Strip the "finger://" prefix (case-insensitive — raw may be mixed case).
+	rest := raw[len("finger://"):]
+
+	// Split on first '/' to separate authority from path.
+	authority := rest
+	path := ""
+	if idx := strings.IndexByte(rest, '/'); idx >= 0 {
+		authority = rest[:idx]
+		path = rest[idx+1:] // strip the leading '/'
+	}
+
+	// Build the ParseTargetPinned argument.
+	var arg string
+	if path == "" {
+		arg = "@" + authority // bare host query
+	} else {
+		arg = path + "@" + authority // user@host form
+	}
+
+	t, err := finger.ParseTargetPinned(arg)
+	if err != nil {
+		// ErrServerForwarding and any other error: silently drop.
+		if errors.Is(err, finger.ErrServerForwarding) {
+			return Link{}, false
+		}
+		return Link{}, false
+	}
+
+	return Link{
+		Kind:   LinkFinger,
+		Action: ActionDrill,
+		Raw:    raw,
+		Target: t,
+		Strong: true,
+	}, true
+}
 
 // classifyAtToken classifies a token containing at least one '@'. Stub — implemented in Task 5.
 func classifyAtToken(raw, cueWord, origin string) (Link, bool) { return Link{}, false }

@@ -41,12 +41,13 @@ type styles struct {
 	barDim   lipgloss.Style // right-aligned context (esc/meta/hints)
 	barBadge lipgloss.Style
 
-	input    textinput.Styles
-	help     help.Styles
-	helpBand lipgloss.Style
-	spinner  lipgloss.Style
-	list     list.Styles
-	listItem list.DefaultItemStyles
+	input     textinput.Styles
+	help      help.Styles
+	helpBand  lipgloss.Style
+	spinner   lipgloss.Style
+	list      list.Styles
+	listItem  list.DefaultItemStyles
+	linkFocus lipgloss.Style
 }
 
 func paletteFor(dark bool) palette {
@@ -192,6 +193,9 @@ func newStyles(dark bool) styles {
 		spinner:  lipgloss.NewStyle().Foreground(p.AccentMint),
 		list:     listStyles,
 		listItem: itemStyles,
+		linkFocus: lipgloss.NewStyle().
+			Background(p.AccentGold).
+			Foreground(p.BaseBg),
 	}
 }
 

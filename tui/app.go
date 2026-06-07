@@ -85,6 +85,8 @@ type histNode struct {
 	listFltr    string // applied list filter
 	listUsers   int
 	listGeneric bool
+	links       []Link // cached detected links for the reader
+	linkIdx     int    // focused link index (-1 == none)
 }
 
 // appModel is the top-level state machine. It routes input and fetch results
@@ -204,6 +206,8 @@ func (m *appModel) snapshot() {
 	n := &m.history[m.pos]
 	if n.state == stateReader {
 		n.scrollY = m.reader.viewport.YOffset()
+		n.links = m.reader.links
+		n.linkIdx = m.reader.focusedLink
 	} else {
 		n.listIdx = m.list.list.Index()
 		n.listFltr = m.list.list.FilterValue()
@@ -216,6 +220,8 @@ func (m *appModel) restore(n histNode) {
 		m.state = stateReader
 		m.reader.setEntry(n.entry)
 		m.reader.viewport.SetYOffset(n.scrollY)
+		m.reader.links = n.links
+		m.reader.focusedLink = n.linkIdx
 		return
 	}
 	if parsed, ok := parseUserList(n.entry.Body, n.entry.Target.HostPort); ok {

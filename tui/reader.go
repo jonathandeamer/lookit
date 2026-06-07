@@ -21,12 +21,14 @@ type readerModel struct {
 	styles         styles
 	width          int
 	height         int
+	links          []Link // detected links in document order
+	focusedLink    int    // index into links; -1 = none focused
 }
 
 func newReader(profile colorprofile.Profile) readerModel {
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(10))
 	vp.SetContent("No response yet.")
-	return readerModel{viewport: vp, profile: profile, darkBackground: true, styles: newStyles(true)}
+	return readerModel{viewport: vp, profile: profile, darkBackground: true, styles: newStyles(true), focusedLink: -1}
 }
 
 // Init is a no-op (the input's blink command now lives in appModel.Init).

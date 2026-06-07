@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"net"
 	"regexp"
 	"strings"
 
@@ -126,11 +127,9 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 			continue
 		}
 
-		// Cue word: last whitespace word before start.
-		cueWord := ""
-		if m := cueWordRe.FindString(text[:start]); m != "" {
-			cueWord = strings.TrimSpace(m)
-		}
+		// Cue word: scan backwards from start across up to 5 words on the
+		// same line for any recognized cue word (handles "email me at user@host").
+		cueWord := findCueWord(text, start)
 
 		link, ok := classifyAtToken(raw, cueWord, origin)
 		if !ok {
@@ -206,8 +205,10 @@ var (
 	// and the scheme:path form without // (e.g. mailto:user@host).
 	// Authority must be non-empty for the :// form — the caller's post-filter
 	// drops bare "https://" with no host.
+	// Parens/brackets are allowed in the URL body (e.g. Wikipedia URLs); the
+	// trailing-punct stripper removes unbalanced closing delimiters afterwards.
 	schemeURLRe = regexp.MustCompile(
-		`(?i)[A-Za-z][A-Za-z0-9+.\-]{1,30}:(?://[^\s<>"` + "`" + `(){}\[\]]+|[^\s<>"` + "`" + `(){}\[\]/][^\s<>"` + "`" + `(){}\[\]]*)`)
+		`(?i)[A-Za-z][A-Za-z0-9+.\-]{1,30}:(?://[^\s<>"` + "`" + `]+|[^\s<>"` + "`" + `/][^\s<>"` + "`" + `]*)`)
 
 	// cueWordRe extracts the last whitespace-delimited word before a position.
 	cueWordRe = regexp.MustCompile(`(?i)(\w+)\s*$`)
@@ -221,7 +222,7 @@ func cueKind(word string) (LinkKind, LinkAction, bool) {
 	switch strings.ToLower(word) {
 	case "finger":
 		return LinkFinger, ActionDrill, true
-	case "email", "e-mail", "mail", "contact":
+	case "email", "e-mail", "mail":
 		return LinkEmail, ActionCopy, true
 	case "web", "site", "url":
 		return LinkURL, ActionCopy, true
@@ -229,6 +230,33 @@ func cueKind(word string) (LinkKind, LinkAction, bool) {
 		return LinkSocial, ActionCopy, true
 	}
 	return 0, 0, false
+}
+
+// findCueWord scans backwards from position pos in text, across up to 5
+// whitespace-separated words on the same line, and returns the first recognized
+// cue word found. Returns "" if none found. This lets "email me at user@host"
+// pick up "email" even though it's not the immediately adjacent word.
+func findCueWord(text string, pos int) string {
+	// Don't scan past the preceding newline.
+	lineStart := strings.LastIndex(text[:pos], "\n") + 1 // 0 if no newline
+	line := text[lineStart:pos]
+	// Extract whitespace-delimited words from the end, up to 5.
+	words := strings.Fields(line)
+	if len(words) == 0 {
+		return ""
+	}
+	limit := 5
+	if len(words) < limit {
+		limit = len(words)
+	}
+	// Scan from the nearest word outward.
+	for i := len(words) - 1; i >= len(words)-limit; i-- {
+		w := words[i]
+		if _, _, ok := cueKind(w); ok {
+			return w
+		}
+	}
+	return ""
 }
 
 // canonicalHost strips the port suffix and lowercases the host.
@@ -317,7 +345,7 @@ func classifySchemeURL(raw, origin string) (Link, bool) {
 // classifyFingerURL parses a finger:// URL and builds a drillable Link.
 // raw is the full matched token (e.g. "finger://tilde.team/alice").
 // Returns (Link{}, false) if the URL is malformed or encodes server forwarding.
-func classifyFingerURL(raw, _ string) (Link, bool) {
+func classifyFingerURL(raw, origin string) (Link, bool) {
 	// Strip the "finger://" prefix (case-insensitive — raw may be mixed case).
 	rest := raw[len("finger://"):]
 
@@ -339,10 +367,26 @@ func classifyFingerURL(raw, _ string) (Link, bool) {
 
 	t, err := finger.ParseTargetPinned(arg)
 	if err != nil {
-		// ErrServerForwarding and any other error: silently drop.
 		if errors.Is(err, finger.ErrServerForwarding) {
-			return Link{}, false
+			// The path contains '@' — this is a forwarded form like finger://relay/user@host.
+			relayHost := canonicalHost(authority)
+			if relayHost == origin {
+				// Same relay — build Target manually and allow drill.
+				relayHP := net.JoinHostPort(relayHost, "79")
+				t = finger.Target{Query: path, HostPort: relayHP, Raw: raw}
+				return Link{Kind: LinkFinger, Action: ActionDrill, Forwarded: true, Strong: true, Raw: raw, Target: t}, true
+			}
+			// Different relay — copy-only, blocked.
+			return Link{
+				Kind:      LinkFinger,
+				Action:    ActionCopy,
+				Forwarded: true,
+				Strong:    true,
+				Raw:       raw,
+				Blocked:   "cross-relay: finger URL relay does not match current host",
+			}, true
 		}
+		// Any other error: silently drop.
 		return Link{}, false
 	}
 
@@ -355,8 +399,122 @@ func classifyFingerURL(raw, _ string) (Link, bool) {
 	}, true
 }
 
-// classifyAtToken classifies a token containing at least one '@'. Stub — implemented in Task 5.
-func classifyAtToken(raw, cueWord, origin string) (Link, bool) { return Link{}, false }
+// classifyAtToken classifies a token containing at least one '@'.
+func classifyAtToken(raw, cueWord, origin string) (Link, bool) {
+	raw = stripTrailingPunct(raw)
+	if raw == "" {
+		return Link{}, false
+	}
+
+	atCount := strings.Count(raw, "@")
+
+	// --- @-prefixed forms ---
+	if strings.HasPrefix(raw, "@") {
+		if atCount == 2 {
+			// @handle@host form — a fediverse/Mastodon handle.
+			// Only surfaced when a social cue word is present (rule 2 Social).
+			if cueWord != "" {
+				if kind, action, ok := cueKind(cueWord); ok && kind == LinkSocial {
+					return Link{Kind: LinkSocial, Action: action, Strong: true, Raw: raw}, true
+				}
+			}
+			// No (valid) social cue: drop it.
+			return Link{}, false
+		}
+		// --- Rule 3: @host form ---
+		host := raw[1:]
+		if host == "" || !domainSane(host) {
+			return Link{}, false
+		}
+		t, err := finger.ParseTargetPinned("@" + host)
+		if err != nil {
+			return Link{}, false
+		}
+		return Link{Kind: LinkFinger, Action: ActionDrill, Strong: true, Raw: raw, Target: t}, true
+	}
+
+	// --- Forwarded form: user@host@relay (exactly 2 @s, does not start with @) ---
+	if atCount == 2 {
+		return classifyForwardedAtToken(raw, origin)
+	}
+
+	if atCount != 1 {
+		return Link{}, false
+	}
+
+	atIdx := strings.IndexByte(raw, '@')
+	user := raw[:atIdx]
+	host := raw[atIdx+1:]
+
+	if !domainSane(host) {
+		return Link{}, false
+	}
+
+	// --- Rule 2: cue word present ---
+	if cueWord != "" {
+		kind, action, ok := cueKind(cueWord)
+		if !ok {
+			return Link{}, false
+		}
+		switch kind {
+		case LinkFinger:
+			t, err := finger.ParseTargetPinned(user + "@" + host)
+			if err != nil {
+				return Link{}, false
+			}
+			return Link{Kind: LinkFinger, Action: action, Strong: true, Raw: raw, Target: t}, true
+		case LinkEmail:
+			return Link{Kind: LinkEmail, Action: action, Strong: true, Raw: raw}, true
+		case LinkSocial:
+			return Link{Kind: LinkSocial, Action: action, Strong: true, Raw: raw}, true
+		default:
+			return Link{Kind: kind, Action: action, Strong: true, Raw: raw}, true
+		}
+	}
+
+	// --- Rule 4: bare user@host, no cue word (ambiguous, policy B) ---
+	// Policy B: copy-default, drill on demand via 'f'.
+	t, err := finger.ParseTargetPinned(user + "@" + host)
+	if err != nil {
+		return Link{}, false
+	}
+	return Link{Kind: LinkFinger, Action: ActionCopy, Ambiguous: true, Strong: false, Raw: raw, Target: t}, true
+}
+
+// classifyForwardedAtToken handles the user@host@relay (2-@ form).
+func classifyForwardedAtToken(raw, origin string) (Link, bool) {
+	// Split on last "@" to get relay.
+	lastAt := strings.LastIndex(raw, "@")
+	relay := raw[lastAt+1:]
+	innerQuery := raw[:lastAt] // "user@host"
+
+	if relay == "" || !domainSane(relay) {
+		return Link{}, false
+	}
+	// Inner query must have exactly one @.
+	if strings.Count(innerQuery, "@") != 1 {
+		return Link{}, false
+	}
+
+	relayHost := canonicalHost(relay) // no port — relay is host only
+
+	if relayHost == origin {
+		// Same relay — build Target manually (ParseTargetPinned rejects 2-@ forms).
+		relayHP := net.JoinHostPort(relayHost, "79")
+		t := finger.Target{Query: innerQuery, HostPort: relayHP, Raw: raw}
+		return Link{Kind: LinkFinger, Action: ActionDrill, Forwarded: true, Strong: true, Raw: raw, Target: t}, true
+	}
+
+	// Different relay — blocked, copy only.
+	return Link{
+		Kind:      LinkFinger,
+		Action:    ActionCopy,
+		Forwarded: true,
+		Strong:    true,
+		Raw:       raw,
+		Blocked:   "cross-relay: relay " + relay + " does not match current host",
+	}, true
+}
 
 // allAlpha reports whether s contains only ASCII letters.
 func allAlpha(s string) bool {

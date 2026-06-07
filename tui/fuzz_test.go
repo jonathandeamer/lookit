@@ -15,7 +15,7 @@ func FuzzParseUsers(f *testing.F) {
 	f.Add([]byte("\x00\x00 garbage \xff\xfe"))
 
 	f.Fuzz(func(t *testing.T, body []byte) {
-		users, _ := ParseUsers(body)
+		users, _ := ParseUsers(body, "")
 		for _, u := range users {
 			if u.Login == "" && u.Target == "" {
 				t.Fatalf("ParseUsers returned an empty entry for %q", body)

@@ -181,7 +181,7 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
 	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
 	m.pos = 0
-	users, _ := ParseUsers([]byte(hostListBody()))
+	users, _ := ParseUsers([]byte(hostListBody()), "")
 	m.list = newList(m.common, host, users)
 	m.state = stateList
 	m.inputFocused = false // Enter must reach the list, not the input
@@ -217,7 +217,7 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 		"=> 2026-05-25 finger://tilde.team/yalla\n")
 	m.history = []histNode{{entry: Entry{Target: host, Body: body}, state: stateList}}
 	m.pos = 0
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -274,7 +274,7 @@ func TestEscInListReturnsToReaderHome(t *testing.T) {
 	m.pos = 0
 	m.state = stateList
 	m.inputFocused = false // Esc must reach the list, not the input
-	users, _ := ParseUsers([]byte(hostListBody()))
+	users, _ := ParseUsers([]byte(hostListBody()), "")
 	m.list = newList(m.common, host, users)
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
@@ -387,7 +387,7 @@ func TestColorProfileMsgPropagates(t *testing.T) {
 func TestEscWhileFilteringDelegatesToList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	users, _ := ParseUsers([]byte(hostListBody()))
+	users, _ := ParseUsers([]byte(hostListBody()), "")
 	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
 	m.pos = 0
 	m.listReady = true
@@ -853,7 +853,7 @@ func TestHelpToggleDoesNotRepaginateList(t *testing.T) {
 func TestQuestionMarkWhileFilteringDoesNotOpenHelp(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	users, _ := ParseUsers([]byte(hostListBody()))
+	users, _ := ParseUsers([]byte(hostListBody()), "")
 	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
 	m.pos = 0
 	m.listReady = true

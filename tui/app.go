@@ -218,7 +218,7 @@ func (m *appModel) restore(n histNode) {
 		m.reader.viewport.SetYOffset(n.scrollY)
 		return
 	}
-	if parsed, ok := parseUserList(n.entry.Body); ok {
+	if parsed, ok := parseUserList(n.entry.Body, n.entry.Target.HostPort); ok {
 		m.state = stateList
 		m.list = newListWithPreamble(m.common, n.entry.Target, parsed.users, n.entry.Body, parsed.generic)
 		m.listReady = true
@@ -616,7 +616,7 @@ func (m appModel) routeFetch(entry Entry) appModel {
 	m.showingRaw = false
 	node := histNode{entry: entry, state: stateReader}
 	if len(entry.Body) > 0 && shouldOpenList(entry) {
-		if parsed, ok := parseUserList(entry.Body); ok {
+		if parsed, ok := parseUserList(entry.Body, entry.Target.HostPort); ok {
 			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, parsed.generic)
 			m.listReady = true
 			node.state = stateList

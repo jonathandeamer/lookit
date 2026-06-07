@@ -180,8 +180,8 @@ func domainSane(host string) bool {
 		}
 		for i := 0; i < len(label); i++ {
 			c := label[i]
-			if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-				(c >= '0' && c <= '9') || c == '-') {
+			if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+				(c < '0' || c > '9') && c != '-' {
 				return false
 			}
 		}
@@ -209,9 +209,6 @@ var (
 	// trailing-punct stripper removes unbalanced closing delimiters afterwards.
 	schemeURLRe = regexp.MustCompile(
 		`(?i)[A-Za-z][A-Za-z0-9+.\-]{1,30}:(?://[^\s<>"` + "`" + `]+|[^\s<>"` + "`" + `/][^\s<>"` + "`" + `]*)`)
-
-	// cueWordRe extracts the last whitespace-delimited word before a position.
-	cueWordRe = regexp.MustCompile(`(?i)(\w+)\s*$`)
 
 	// ipv4Re matches a bare IPv4 dotted-quad (used inside domainSane).
 	ipv4Re = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
@@ -285,10 +282,7 @@ func isWordChar(c byte) bool {
 // stripTrailingPunct removes trailing sentence punctuation and unbalanced
 // closing delimiters from a URL token.
 func stripTrailingPunct(s string) string {
-	for {
-		if len(s) == 0 {
-			break
-		}
+	for len(s) > 0 {
 		last := s[len(s)-1]
 		if last == '.' || last == ',' || last == ';' || last == ':' ||
 			last == '!' || last == '?' {
@@ -520,7 +514,7 @@ func classifyForwardedAtToken(raw, origin string) (Link, bool) {
 func allAlpha(s string) bool {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
 			return false
 		}
 	}

@@ -435,7 +435,7 @@ func TestStrongGate_ProseEmailNotHarvested(t *testing.T) {
 			"\n" +
 			"Contact admin@example.com for server issues.\n",
 	)
-	parsed, ok := parseUserList(body)
+	parsed, ok := parseUserList(body, "")
 	if !ok {
 		t.Fatal("parseUserList ok = false, want true (columnar list should parse)")
 	}
@@ -463,7 +463,7 @@ func TestStrongGate_HostQueryFingerURLNotHarvested(t *testing.T) {
 			"\n" +
 			"Also see finger://tilde.team for the full list.\n",
 	)
-	parsed, ok := parseUserList(body)
+	parsed, ok := parseUserList(body, "")
 	if !ok {
 		t.Fatal("parseUserList ok = false, want true")
 	}
@@ -486,7 +486,7 @@ func TestStrongGate_TildeLoginNotHarvestable(t *testing.T) {
 			"\n" +
 			"See also finger://example.com/~bob for the tilde version.\n",
 	)
-	parsed, ok := parseUserList(body)
+	parsed, ok := parseUserList(body, "")
 	if !ok {
 		t.Fatal("parseUserList ok = false, want true")
 	}

@@ -149,7 +149,7 @@ func newListWithPreamble(common *commonModel, host finger.Target, users []User, 
 	total := len(users)
 	m := newList(common, host, users)
 	m.generic = generic
-	if parsed, ok := parseUserList(body); ok {
+	if parsed, ok := parseUserList(body, host.HostPort); ok {
 		m.preamble = parsed.preamble
 	} else {
 		m.preamble = extractListPreamble(body)

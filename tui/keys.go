@@ -23,6 +23,12 @@ type keyMap struct {
 	Move key.Binding
 	Page key.Binding
 	Jump key.Binding
+
+	// link navigation (reader only)
+	LinkNext   key.Binding
+	LinkPrev   key.Binding
+	LinkFinger key.Binding
+	LinkPanel  key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -40,6 +46,10 @@ func newKeyMap() keyMap {
 		Move:       key.NewBinding(key.WithKeys("up", "down", "j", "k"), key.WithHelp("↑/↓", "move")),
 		Page:       key.NewBinding(key.WithKeys("left", "right", "h", "l", "pgup", "pgdown"), key.WithHelp("←/→", "page")),
 		Jump:       key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("g/G", "top/bottom")),
+		LinkNext:   key.NewBinding(key.WithKeys("tab", "n"), key.WithHelp("tab/n", "next link")),
+		LinkPrev:   key.NewBinding(key.WithKeys("shift+tab", "N"), key.WithHelp("shift+tab/N", "prev link")),
+		LinkFinger: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "finger link")),
+		LinkPanel:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "links panel")),
 	}
 }
 

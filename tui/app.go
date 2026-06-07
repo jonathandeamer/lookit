@@ -724,6 +724,12 @@ func (m *appModel) updateKeymap() {
 	m.keys.Page.SetEnabled(content)
 	m.keys.Jump.SetEnabled(content)
 
+	inReader := content && m.state == stateReader && !m.showingRaw
+	m.keys.LinkNext.SetEnabled(inReader)
+	m.keys.LinkPrev.SetEnabled(inReader)
+	m.keys.LinkFinger.SetEnabled(inReader)
+	m.keys.LinkPanel.SetEnabled(inReader)
+
 	if m.state == stateAbout {
 		// The about screen's own actions are live regardless of input focus.
 		m.keys.Open.SetEnabled(true)

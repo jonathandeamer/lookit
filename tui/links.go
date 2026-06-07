@@ -41,7 +41,109 @@ type Link struct {
 // document order. originHostPort is the Entry.Target.HostPort of the response
 // (used for the same-relay forwarding check).
 func DetectLinks(body []byte, originHostPort string) []Link {
-	return nil
+	text := string(body)
+	if text == "" {
+		return nil
+	}
+	origin := canonicalHost(originHostPort)
+
+	// Phase 1: collect scheme-URL spans left-to-right.
+	consumed := make([]bool, len(text))
+	var links []Link
+
+	for _, span := range schemeURLRe.FindAllStringIndex(text, -1) {
+		raw := text[span[0]:span[1]]
+		raw = stripTrailingPunct(raw)
+		if raw == "" {
+			continue
+		}
+		// Authority must be non-empty after "://".
+		schemeSep := strings.Index(raw, "://")
+		if schemeSep >= 0 && len(raw) <= schemeSep+3 {
+			continue
+		}
+		// Word boundary: char before must not be a word char.
+		if span[0] > 0 && isWordChar(text[span[0]-1]) {
+			continue
+		}
+		link, ok := classifySchemeURL(raw, origin)
+		if !ok {
+			continue
+		}
+		for i := span[0]; i < span[0]+len(raw); i++ {
+			consumed[i] = true
+		}
+		links = append(links, link)
+	}
+
+	// Phase 2: scan for @-containing tokens in unconsumed text.
+	pos := 0
+	for pos < len(text) {
+		if consumed[pos] {
+			pos++
+			continue
+		}
+		at := strings.IndexByte(text[pos:], '@')
+		if at < 0 {
+			break
+		}
+		atAbs := pos + at
+
+		// Expand left (stop at delimiter or consumed byte).
+		start := atAbs
+		for start > 0 && !isDelim(text[start-1]) && !consumed[start-1] {
+			start--
+		}
+		// Expand right (stop at delimiter).
+		end := atAbs + 1
+		for end < len(text) && !isDelim(text[end]) {
+			end++
+		}
+
+		// Skip if any byte overlaps a phase-1 span.
+		overlap := false
+		for i := start; i < end; i++ {
+			if consumed[i] {
+				overlap = true
+				break
+			}
+		}
+		if overlap {
+			pos = end
+			continue
+		}
+
+		raw := text[start:end]
+
+		// Word boundary checks.
+		if start > 0 && isWordChar(text[start-1]) {
+			pos = end
+			continue
+		}
+		if end < len(text) && isWordChar(text[end]) {
+			pos = end
+			continue
+		}
+
+		// Cue word: last whitespace word before start.
+		cueWord := ""
+		if m := cueWordRe.FindString(text[:start]); m != "" {
+			cueWord = strings.TrimSpace(m)
+		}
+
+		link, ok := classifyAtToken(raw, cueWord, origin)
+		if !ok {
+			pos = end
+			continue
+		}
+		for i := start; i < end; i++ {
+			consumed[i] = true
+		}
+		links = append(links, link)
+		pos = end
+	}
+
+	return links
 }
 
 // harvestableLogin reports whether a Target's login matches the legacy
@@ -52,9 +154,39 @@ func harvestableLogin(t finger.Target) bool {
 }
 
 // domainSane reports whether host is a plausible finger/email domain or IP literal.
-// Stub — implemented in Task 3.
 func domainSane(host string) bool {
-	return false
+	// Bracketed IP literal.
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		inner := host[1 : len(host)-1]
+		if ipv4Re.MatchString(inner) {
+			return true
+		}
+		return strings.Contains(inner, ":") // IPv6
+	}
+	// Domain: must have at least one dot.
+	dot := strings.LastIndex(host, ".")
+	if dot < 0 {
+		return false
+	}
+	tld := host[dot+1:]
+	// TLD: 2+ alpha chars; reject all-numeric (dotted-quad guard).
+	if len(tld) < 2 || !allAlpha(tld) {
+		return false
+	}
+	// All labels: valid chars, no leading/trailing hyphen.
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+				(c >= '0' && c <= '9') || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // isOSC8Openable reports whether a Raw token should be wrapped as an OSC-8

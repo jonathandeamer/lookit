@@ -112,12 +112,14 @@ type appModel struct {
 
 	flash string
 
-	history    []histNode
-	pos        int  // -1 == landing (nothing fetched yet)
-	showingRaw bool // r-toggled "view source" of the current node's raw body
-	help       bool // help panel open
-	helpModel  help.Model
-	listReady  bool
+	history      []histNode
+	pos          int  // -1 == landing (nothing fetched yet)
+	showingRaw   bool // r-toggled "view source" of the current node's raw body
+	showingLinks bool // L-toggled links panel overlay
+	linksPanel   linksPanel
+	help         bool // help panel open
+	helpModel    help.Model
+	listReady    bool
 }
 
 func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
@@ -257,6 +259,7 @@ func (m *appModel) gotoLanding() {
 // stepBack moves one step toward history root, or to the landing from pos 0.
 func (m *appModel) stepBack() {
 	m.showingRaw = false
+	m.showingLinks = false
 	if m.pos < 0 {
 		return
 	}
@@ -540,6 +543,57 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	if m.state == stateList && m.list.filtering() {
 		return false, m, nil // list owns its filter keys
 	}
+
+	// Links panel: when open, panel-mode keys are handled before the main switch.
+	if m.showingLinks {
+		switch {
+		case key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.LinkPanel):
+			m.showingLinks = false
+			if m.pos >= 0 {
+				node := m.history[m.pos]
+				if sel, ok := m.linksPanel.selected(); ok {
+					for i, l := range node.links {
+						if l.Raw == sel.Raw {
+							m.reader.focusedLink = i
+							break
+						}
+					}
+				}
+				m.reader.setEntryWithLinks(node.entry, node.links)
+			}
+			return true, m, nil
+		case key.Matches(msg, m.keys.Open) && m.pos >= 0:
+			node := &m.history[m.pos]
+			if sel, ok := m.linksPanel.selected(); ok {
+				for i, l := range node.links {
+					if l.Raw == sel.Raw {
+						m.reader.focusedLink = i
+						break
+					}
+				}
+				m.showingLinks = false
+				if sel.Action == ActionDrill && sel.Blocked == "" {
+					return true, m, m.startFetch(sel.Target)
+				}
+				flash := m.setFlash("copied " + sel.Raw)
+				return true, m, tea.Batch(setClipboard(sel.Raw), flash)
+			}
+			return true, m, nil
+		case key.Matches(msg, m.keys.LinkFinger):
+			if sel, ok := m.linksPanel.selected(); ok {
+				if sel.Kind == LinkFinger && sel.Ambiguous && sel.Target.HostPort != "" {
+					m.showingLinks = false
+					return true, m, m.startFetch(sel.Target)
+				}
+			}
+			return true, m, nil
+		}
+		// Delegate remaining keys to the panel list.
+		var cmd tea.Cmd
+		m.linksPanel, cmd = m.linksPanel.update(msg)
+		return true, m, cmd
+	}
+
 	switch {
 	case key.Matches(msg, m.keys.Help):
 		m.openHelp()
@@ -602,6 +656,12 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			}
 		}
 		return true, m, nil
+	case key.Matches(msg, m.keys.LinkPanel) && m.pos >= 0:
+		node := m.history[m.pos]
+		m.showingLinks = true
+		m.linksPanel = newLinksPanel(m.common, node.links)
+		m.linksPanel.setSize(m.common.width, m.common.bodyHeight())
+		return true, m, nil
 	}
 	return false, m, nil
 }
@@ -650,6 +710,7 @@ func (m appModel) routeFetch(entry Entry) appModel {
 	m.input.Blur()
 	m.snapshot() // save current position's scroll/selection before replacing it
 	m.showingRaw = false
+	m.showingLinks = false
 	node := histNode{entry: entry, state: stateReader}
 	node.links = DetectLinks(entry.Body, entry.Target.HostPort)
 	if len(entry.Body) > 0 && shouldOpenList(entry) {
@@ -803,10 +864,14 @@ func (m *appModel) updateKeymap() {
 	m.keys.Jump.SetEnabled(content)
 
 	inReader := content && m.state == stateReader && !m.showingRaw
-	m.keys.LinkNext.SetEnabled(inReader)
-	m.keys.LinkPrev.SetEnabled(inReader)
-	m.keys.LinkFinger.SetEnabled(inReader)
-	m.keys.LinkPanel.SetEnabled(inReader)
+	m.keys.LinkNext.SetEnabled(inReader && !m.showingLinks)
+	m.keys.LinkPrev.SetEnabled(inReader && !m.showingLinks)
+	m.keys.LinkFinger.SetEnabled(inReader || m.showingLinks)
+	m.keys.LinkPanel.SetEnabled(inReader || m.showingLinks)
+	if m.showingLinks {
+		m.keys.Open.SetEnabled(true)
+		m.keys.Back.SetEnabled(true)
+	}
 
 	if m.state == stateAbout {
 		// The about screen's own actions are live regardless of input focus.
@@ -962,6 +1027,9 @@ func (m *appModel) resize() {
 	if m.listReady {
 		m.list.setSize(m.common.width, h)
 	}
+	if m.showingLinks {
+		m.linksPanel.setSize(m.common.width, m.common.bodyHeight())
+	}
 	ah := m.common.height - 1
 	if ah < 1 {
 		ah = 1
@@ -1076,11 +1144,15 @@ func (m appModel) View() tea.View {
 	}
 
 	var content string
-	switch m.state {
-	case stateList:
-		content = m.list.View()
-	default:
-		content = m.reader.View()
+	if m.showingLinks {
+		content = m.linksPanel.View()
+	} else {
+		switch m.state {
+		case stateList:
+			content = m.list.View()
+		default:
+			content = m.reader.View()
+		}
 	}
 	body := m.inputChromeView() + "\n" + content
 	if m.help {

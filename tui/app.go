@@ -85,6 +85,8 @@ type histNode struct {
 	listFltr    string // applied list filter
 	listUsers   int
 	listGeneric bool
+	links       []Link // cached detected links for the reader
+	linkIdx     int    // focused link index (-1 == none)
 }
 
 // appModel is the top-level state machine. It routes input and fetch results
@@ -110,12 +112,14 @@ type appModel struct {
 
 	flash string
 
-	history    []histNode
-	pos        int  // -1 == landing (nothing fetched yet)
-	showingRaw bool // r-toggled "view source" of the current node's raw body
-	help       bool // help panel open
-	helpModel  help.Model
-	listReady  bool
+	history      []histNode
+	pos          int  // -1 == landing (nothing fetched yet)
+	showingRaw   bool // r-toggled "view source" of the current node's raw body
+	showingLinks bool // L-toggled links panel overlay
+	linksPanel   linksPanel
+	help         bool // help panel open
+	helpModel    help.Model
+	listReady    bool
 }
 
 func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
@@ -204,6 +208,8 @@ func (m *appModel) snapshot() {
 	n := &m.history[m.pos]
 	if n.state == stateReader {
 		n.scrollY = m.reader.viewport.YOffset()
+		n.links = m.reader.links
+		n.linkIdx = m.reader.focusedLink
 	} else {
 		n.listIdx = m.list.list.Index()
 		n.listFltr = m.list.list.FilterValue()
@@ -214,11 +220,13 @@ func (m *appModel) snapshot() {
 func (m *appModel) restore(n histNode) {
 	if n.state == stateReader {
 		m.state = stateReader
-		m.reader.setEntry(n.entry)
+		m.reader.links = n.links
+		m.reader.focusedLink = n.linkIdx
+		m.reader.setEntryWithLinks(n.entry, n.links)
 		m.reader.viewport.SetYOffset(n.scrollY)
 		return
 	}
-	if parsed, ok := parseUserList(n.entry.Body); ok {
+	if parsed, ok := parseUserList(n.entry.Body, n.entry.Target.HostPort); ok {
 		m.state = stateList
 		m.list = newListWithPreamble(m.common, n.entry.Target, parsed.users, n.entry.Body, parsed.generic)
 		m.listReady = true
@@ -232,7 +240,9 @@ func (m *appModel) restore(n histNode) {
 	// reader rather than leaving a stale list on screen. Unreachable in
 	// practice (parseUserList is deterministic on the same bytes).
 	m.state = stateReader
-	m.reader.setEntry(n.entry)
+	m.reader.links = n.links
+	m.reader.focusedLink = n.linkIdx
+	m.reader.setEntryWithLinks(n.entry, n.links)
 }
 
 // gotoLanding returns the reader to its empty pre-fetch state.
@@ -249,6 +259,7 @@ func (m *appModel) gotoLanding() {
 // stepBack moves one step toward history root, or to the landing from pos 0.
 func (m *appModel) stepBack() {
 	m.showingRaw = false
+	m.showingLinks = false
 	if m.pos < 0 {
 		return
 	}
@@ -351,7 +362,7 @@ func (m *appModel) exitRaw() {
 	node := m.history[m.pos]
 	m.state = node.state
 	if node.state == stateReader {
-		m.reader.setEntry(node.entry) // re-render the profile
+		m.reader.setEntryWithLinks(node.entry, node.links) // re-render the profile
 	}
 }
 
@@ -532,6 +543,57 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	if m.state == stateList && m.list.filtering() {
 		return false, m, nil // list owns its filter keys
 	}
+
+	// Links panel: when open, panel-mode keys are handled before the main switch.
+	if m.showingLinks {
+		switch {
+		case key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.LinkPanel):
+			m.showingLinks = false
+			if m.pos >= 0 {
+				node := m.history[m.pos]
+				if sel, ok := m.linksPanel.selected(); ok {
+					for i, l := range node.links {
+						if l.Raw == sel.Raw {
+							m.reader.focusedLink = i
+							break
+						}
+					}
+				}
+				m.reader.setEntryWithLinks(node.entry, node.links)
+			}
+			return true, m, nil
+		case key.Matches(msg, m.keys.Open) && m.pos >= 0:
+			node := &m.history[m.pos]
+			if sel, ok := m.linksPanel.selected(); ok {
+				for i, l := range node.links {
+					if l.Raw == sel.Raw {
+						m.reader.focusedLink = i
+						break
+					}
+				}
+				m.showingLinks = false
+				if sel.Action == ActionDrill && sel.Blocked == "" {
+					return true, m, m.startFetch(sel.Target)
+				}
+				flash := m.setFlash("copied " + sel.Raw)
+				return true, m, tea.Batch(setClipboard(sel.Raw), flash)
+			}
+			return true, m, nil
+		case key.Matches(msg, m.keys.LinkFinger):
+			if sel, ok := m.linksPanel.selected(); ok {
+				if sel.Kind == LinkFinger && sel.Ambiguous && sel.Target.HostPort != "" {
+					m.showingLinks = false
+					return true, m, m.startFetch(sel.Target)
+				}
+			}
+			return true, m, nil
+		}
+		// Delegate remaining keys to the panel list.
+		var cmd tea.Cmd
+		m.linksPanel, cmd = m.linksPanel.update(msg)
+		return true, m, cmd
+	}
+
 	switch {
 	case key.Matches(msg, m.keys.Help):
 		m.openHelp()
@@ -559,12 +621,46 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		return true, m, cmd
 	case key.Matches(msg, m.keys.Open) && m.state == stateList:
 		return m.drill()
+	case key.Matches(msg, m.keys.Open) && m.state == stateReader && m.pos >= 0:
+		node := &m.history[m.pos]
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
+			return m.activateFocusedLink(node)
+		}
+		return false, m, nil // no focused link — fall through
 	case key.Matches(msg, m.keys.Raw) && m.pos >= 0:
 		if m.showingRaw {
 			m.exitRaw()
 		} else {
 			m.enterRaw()
 		}
+		return true, m, nil
+	case key.Matches(msg, m.keys.LinkNext) && m.pos >= 0:
+		node := &m.history[m.pos]
+		m.reader.nextLink(len(node.links))
+		node.linkIdx = m.reader.focusedLink
+		m.reader.setEntryWithLinks(node.entry, node.links)
+		return true, m, nil
+	case key.Matches(msg, m.keys.LinkPrev) && m.pos >= 0:
+		node := &m.history[m.pos]
+		m.reader.prevLink(len(node.links))
+		node.linkIdx = m.reader.focusedLink
+		m.reader.setEntryWithLinks(node.entry, node.links)
+		return true, m, nil
+	case key.Matches(msg, m.keys.LinkFinger) && m.pos >= 0:
+		node := &m.history[m.pos]
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
+			link := node.links[m.reader.focusedLink]
+			if link.Kind == LinkFinger && link.Target.HostPort != "" {
+				cmd := m.startFetch(link.Target)
+				return true, m, cmd
+			}
+		}
+		return true, m, nil
+	case key.Matches(msg, m.keys.LinkPanel) && m.pos >= 0:
+		node := m.history[m.pos]
+		m.showingLinks = true
+		m.linksPanel = newLinksPanel(m.common, node.links)
+		m.linksPanel.setSize(m.common.width, m.common.bodyHeight())
 		return true, m, nil
 	}
 	return false, m, nil
@@ -614,9 +710,11 @@ func (m appModel) routeFetch(entry Entry) appModel {
 	m.input.Blur()
 	m.snapshot() // save current position's scroll/selection before replacing it
 	m.showingRaw = false
+	m.showingLinks = false
 	node := histNode{entry: entry, state: stateReader}
+	node.links = DetectLinks(entry.Body, entry.Target.HostPort)
 	if len(entry.Body) > 0 && shouldOpenList(entry) {
-		if parsed, ok := parseUserList(entry.Body); ok {
+		if parsed, ok := parseUserList(entry.Body, entry.Target.HostPort); ok {
 			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, parsed.generic)
 			m.listReady = true
 			node.state = stateList
@@ -625,7 +723,8 @@ func (m appModel) routeFetch(entry Entry) appModel {
 		}
 	}
 	if node.state == stateReader {
-		m.reader.setEntry(entry)
+		m.reader.focusedLink = -1
+		m.reader.setEntryWithLinks(entry, node.links)
 	}
 	m.state = node.state
 	m.push(node)
@@ -657,8 +756,54 @@ func (m *appModel) setFlash(msg string) tea.Cmd {
 	return m.clearFlashCmd()
 }
 
+// linkKindLabel returns a short human-readable label for the kind of link.
+func linkKindLabel(l Link) string {
+	if l.Blocked != "" {
+		return "forwarded finger"
+	}
+	switch l.Kind {
+	case LinkFinger:
+		if l.Ambiguous {
+			return "address (auto)"
+		}
+		return "finger"
+	case LinkURL:
+		return "url"
+	case LinkEmail:
+		return "email"
+	case LinkSocial:
+		return "social"
+	}
+	return "link"
+}
+
+// activateFocusedLink dispatches the default action for the currently focused link.
+func (m appModel) activateFocusedLink(node *histNode) (bool, appModel, tea.Cmd) {
+	link := node.links[m.reader.focusedLink]
+	switch link.Action {
+	case ActionDrill:
+		if link.Blocked != "" {
+			flash := m.setFlash(link.Blocked)
+			return true, m, flash
+		}
+		cmd := m.startFetch(link.Target)
+		return true, m, cmd
+	case ActionCopy:
+		flash := m.setFlash("copied " + link.Raw)
+		return true, m, tea.Batch(setClipboard(link.Raw), flash)
+	}
+	return true, m, nil
+}
+
 // copyAddress copies the relevant address to the clipboard and flashes it.
 func (m *appModel) copyAddress() tea.Cmd {
+	if m.state == stateReader && m.pos >= 0 {
+		node := m.history[m.pos]
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
+			raw := node.links[m.reader.focusedLink].Raw
+			return tea.Batch(setClipboard(raw), m.setFlash("copied "+raw))
+		}
+	}
 	var addr string
 	if m.state == stateList {
 		if sel, ok := m.list.selected(); ok {
@@ -717,6 +862,16 @@ func (m *appModel) updateKeymap() {
 	m.keys.Move.SetEnabled(content)
 	m.keys.Page.SetEnabled(content)
 	m.keys.Jump.SetEnabled(content)
+
+	inReader := content && m.state == stateReader && !m.showingRaw
+	m.keys.LinkNext.SetEnabled(inReader && !m.showingLinks)
+	m.keys.LinkPrev.SetEnabled(inReader && !m.showingLinks)
+	m.keys.LinkFinger.SetEnabled(inReader || m.showingLinks)
+	m.keys.LinkPanel.SetEnabled(inReader || m.showingLinks)
+	if m.showingLinks {
+		m.keys.Open.SetEnabled(true)
+		m.keys.Back.SetEnabled(true)
+	}
 
 	if m.state == stateAbout {
 		// The about screen's own actions are live regardless of input focus.
@@ -827,6 +982,30 @@ func (m appModel) buildStatusBar() statusBar {
 		if node.entry.Meta.Truncated {
 			bar.flags = append(bar.flags, "partial (truncated)")
 		}
+		// Focused-link mode overrides the resting hints.
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
+			link := node.links[m.reader.focusedLink]
+			n := m.reader.focusedLink + 1
+			total := len(node.links)
+			label := linkKindLabel(link)
+			action := "↵ copy"
+			if link.Action == ActionDrill && link.Blocked == "" {
+				action = "↵ drill"
+			}
+			var extra []string
+			if link.Ambiguous {
+				extra = append(extra, "f finger")
+			}
+			if link.Blocked != "" {
+				extra = append(extra, link.Blocked)
+			}
+			if isOSC8Openable(link.Raw) {
+				extra = append(extra, "⌘-click opens")
+			}
+			extra = append(extra, "y copy", "⇥ next")
+			bar.hints = fmt.Sprintf("link %d/%d · %s · %s · %s", n, total, label, action, strings.Join(extra, " · "))
+			return bar
+		}
 		bar.hints = joinHints([]string{"↑↓ scroll"}, bar.escTarget)
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
 			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))
@@ -847,6 +1026,9 @@ func (m *appModel) resize() {
 	m.reader.setSize(m.common.width, h)
 	if m.listReady {
 		m.list.setSize(m.common.width, h)
+	}
+	if m.showingLinks {
+		m.linksPanel.setSize(m.common.width, m.common.bodyHeight())
 	}
 	ah := m.common.height - 1
 	if ah < 1 {
@@ -962,11 +1144,15 @@ func (m appModel) View() tea.View {
 	}
 
 	var content string
-	switch m.state {
-	case stateList:
-		content = m.list.View()
-	default:
-		content = m.reader.View()
+	if m.showingLinks {
+		content = m.linksPanel.View()
+	} else {
+		switch m.state {
+		case stateList:
+			content = m.list.View()
+		default:
+			content = m.reader.View()
+		}
 	}
 	body := m.inputChromeView() + "\n" + content
 	if m.help {

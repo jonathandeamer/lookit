@@ -46,12 +46,12 @@ type parsedUserList struct {
 // header), grid (cue line), and marker ("> login") formats, then service-
 // specific menu/table formats (typed-hole, sava, redterminal, the Finger Ring,
 // telehack). Results are deduplicated, order preserved.
-func ParseUsers(body []byte) ([]User, bool) {
-	parsed, ok := parseUserList(body)
+func ParseUsers(body []byte, originHostPort string) ([]User, bool) {
+	parsed, ok := parseUserList(body, originHostPort)
 	return parsed.users, ok
 }
 
-func parseUserList(body []byte) (parsedUserList, bool) {
+func parseUserList(body []byte, originHostPort string) (parsedUserList, bool) {
 	lines := strings.Split(string(body), "\n")
 
 	if users, ok := parseColumnar(lines); ok {
@@ -78,7 +78,7 @@ func parseUserList(body []byte) (parsedUserList, bool) {
 	if users, preamble, ok := parseTelehackStatus(lines); ok {
 		return parsedUserList{users: users, preamble: preamble}, true
 	}
-	if users, preamble, ok := parseGenericList(lines); ok {
+	if users, preamble, ok := parseGenericList(lines, originHostPort); ok {
 		return parsedUserList{users: users, preamble: preamble, generic: true}, true
 	}
 	return parsedUserList{}, false
@@ -494,14 +494,15 @@ func structuredLogin(line string) (login, name string, ok bool) {
 }
 
 // appendHarvestedTargets adds cross-host drill targets found anywhere in the
-// body via the existing strong-signal regexes (finger:// URLs and
-// "finger user@host" commands) — the same contexts parseFingerRing and
-// parseSavaTable already trust. Targets are additive: this is called only after
-// the structured-login gate has already opened the list, so a stray mention
-// can never open a list on its own. Bare emails and @handles are not harvested.
-// Server-supplied targets are pinned to port 79 later, at drill time, via
-// finger.ParseTargetPinned.
-func appendHarvestedTargets(users []User, lines []string) []User {
+// body via DetectLinks — the same contexts parseFingerRing and parseSavaTable
+// already trust. Targets are additive: this is called only after the
+// structured-login gate has already opened the list, so a stray mention can
+// never open a list on its own. Only strong Finger links with harvestable
+// logins that are not host queries are added. Bare emails and @handles are not
+// harvested. Server-supplied targets are pinned to port 79 via
+// finger.ParseTargetPinned (inside classifyFingerURL/classifyAtToken).
+func appendHarvestedTargets(users []User, body []byte, originHostPort string) []User {
+	links := DetectLinks(body, originHostPort)
 	// Key on Target so a structured login (Target=="") never blocks a harvested cross-host entry.
 	seen := map[string]bool{}
 	for _, u := range users {
@@ -509,28 +510,34 @@ func appendHarvestedTargets(users []User, lines []string) []User {
 			seen[u.Target] = true
 		}
 	}
-	body := strings.Join(lines, "\n")
-	for _, m := range fingerURLRe.FindAllStringSubmatch(body, -1) {
-		host, login := m[1], m[2]
-		target := login + "@" + host
+	for _, link := range links {
+		if link.Kind != LinkFinger {
+			continue
+		}
+		if !link.Strong {
+			continue
+		}
+		if link.Blocked != "" {
+			continue
+		}
+		if link.Target.HostQuery() {
+			continue
+		}
+		if !harvestableLogin(link.Target) {
+			continue
+		}
+		target := link.Target.Raw
 		if seen[target] {
 			continue
 		}
 		seen[target] = true
-		users = append(users, User{Login: login, Name: host, Target: target})
-	}
-	for _, m := range fingerCommandRe.FindAllStringSubmatch(body, -1) {
-		target := m[1] // already in login@host form
-		if seen[target] {
-			continue
+		// For finger:// URLs, set Name to the host (e.g. "example.org") to
+		// match the legacy parseFingerRing/parseSavaTable convention.
+		name := ""
+		if strings.HasPrefix(strings.ToLower(link.Raw), "finger://") {
+			name = canonicalHost(link.Target.HostPort)
 		}
-		seen[target] = true
-		login := target
-		// fingerCommandRe guarantees an '@' in the capture; the guard is defensive.
-		if at := strings.IndexByte(target, '@'); at >= 0 {
-			login = target[:at]
-		}
-		users = append(users, User{Login: login, Target: target})
+		users = append(users, User{Login: link.Target.Query, Name: name, Target: target})
 	}
 	return users
 }
@@ -539,7 +546,7 @@ func appendHarvestedTargets(users []User, lines []string) []User {
 // parser declines. It finds the longest contiguous run of structuredLogin
 // lines and opens a list when that run holds >= 2 distinct logins; otherwise it
 // declines. A blank or non-entry line ends a run.
-func parseGenericList(lines []string) ([]User, string, bool) {
+func parseGenericList(lines []string, originHostPort string) ([]User, string, bool) {
 	bestStart, bestCount := -1, 0
 	var bestUsers []User
 
@@ -569,6 +576,6 @@ func parseGenericList(lines []string) ([]User, string, bool) {
 	if bestCount < 2 {
 		return nil, "", false
 	}
-	bestUsers = appendHarvestedTargets(bestUsers, lines)
+	bestUsers = appendHarvestedTargets(bestUsers, []byte(strings.Join(lines, "\n")), originHostPort)
 	return bestUsers, trimPreamble(lines[:bestStart]), true
 }

@@ -47,6 +47,22 @@ func TestReaderSetEntryError(t *testing.T) {
 	}
 }
 
+func TestReaderSetEntryWithLinks_StoresLinks(t *testing.T) {
+	// setEntryWithLinks must set m.links so snapshot() can save them.
+	m := newReader(colorprofile.NoTTY)
+	target, err := finger.ParseTarget("alice@plan.cat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := []Link{
+		{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com", Strong: true},
+	}
+	m.setEntryWithLinks(Entry{Target: target, Body: []byte("see https://example.com\n")}, links)
+	if len(m.links) != 1 || m.links[0].Raw != "https://example.com" {
+		t.Errorf("m.links = %v, want the passed link slice stored", m.links)
+	}
+}
+
 func TestReaderSetSize(t *testing.T) {
 	m := newReader(colorprofile.NoTTY)
 	m.setSize(100, 30)

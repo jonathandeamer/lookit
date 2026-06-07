@@ -567,6 +567,12 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		return true, m, cmd
 	case key.Matches(msg, m.keys.Open) && m.state == stateList:
 		return m.drill()
+	case key.Matches(msg, m.keys.Open) && m.state == stateReader && m.pos >= 0:
+		node := &m.history[m.pos]
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
+			return m.activateFocusedLink(node)
+		}
+		return false, m, nil // no focused link — fall through
 	case key.Matches(msg, m.keys.Raw) && m.pos >= 0:
 		if m.showingRaw {
 			m.exitRaw()
@@ -585,6 +591,16 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		m.reader.prevLink(len(node.links))
 		node.linkIdx = m.reader.focusedLink
 		m.reader.setEntryWithLinks(node.entry, node.links)
+		return true, m, nil
+	case key.Matches(msg, m.keys.LinkFinger) && m.pos >= 0:
+		node := &m.history[m.pos]
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
+			link := node.links[m.reader.focusedLink]
+			if link.Kind == LinkFinger && link.Target.HostPort != "" {
+				cmd := m.startFetch(link.Target)
+				return true, m, cmd
+			}
+		}
 		return true, m, nil
 	}
 	return false, m, nil
@@ -679,8 +695,54 @@ func (m *appModel) setFlash(msg string) tea.Cmd {
 	return m.clearFlashCmd()
 }
 
+// linkKindLabel returns a short human-readable label for the kind of link.
+func linkKindLabel(l Link) string {
+	if l.Blocked != "" {
+		return "forwarded finger"
+	}
+	switch l.Kind {
+	case LinkFinger:
+		if l.Ambiguous {
+			return "address (auto)"
+		}
+		return "finger"
+	case LinkURL:
+		return "url"
+	case LinkEmail:
+		return "email"
+	case LinkSocial:
+		return "social"
+	}
+	return "link"
+}
+
+// activateFocusedLink dispatches the default action for the currently focused link.
+func (m appModel) activateFocusedLink(node *histNode) (bool, appModel, tea.Cmd) {
+	link := node.links[m.reader.focusedLink]
+	switch link.Action {
+	case ActionDrill:
+		if link.Blocked != "" {
+			flash := m.setFlash(link.Blocked)
+			return true, m, flash
+		}
+		cmd := m.startFetch(link.Target)
+		return true, m, cmd
+	case ActionCopy:
+		flash := m.setFlash("copied " + link.Raw)
+		return true, m, tea.Batch(setClipboard(link.Raw), flash)
+	}
+	return true, m, nil
+}
+
 // copyAddress copies the relevant address to the clipboard and flashes it.
 func (m *appModel) copyAddress() tea.Cmd {
+	if m.state == stateReader && m.pos >= 0 {
+		node := m.history[m.pos]
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
+			raw := node.links[m.reader.focusedLink].Raw
+			return tea.Batch(setClipboard(raw), m.setFlash("copied "+raw))
+		}
+	}
 	var addr string
 	if m.state == stateList {
 		if sel, ok := m.list.selected(); ok {
@@ -854,6 +916,30 @@ func (m appModel) buildStatusBar() statusBar {
 		// ErrLine, but truncation had no other home, so surface it here.
 		if node.entry.Meta.Truncated {
 			bar.flags = append(bar.flags, "partial (truncated)")
+		}
+		// Focused-link mode overrides the resting hints.
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
+			link := node.links[m.reader.focusedLink]
+			n := m.reader.focusedLink + 1
+			total := len(node.links)
+			label := linkKindLabel(link)
+			action := "↵ copy"
+			if link.Action == ActionDrill && link.Blocked == "" {
+				action = "↵ drill"
+			}
+			var extra []string
+			if link.Ambiguous {
+				extra = append(extra, "f finger")
+			}
+			if link.Blocked != "" {
+				extra = append(extra, link.Blocked)
+			}
+			if isOSC8Openable(link.Raw) {
+				extra = append(extra, "⌘-click opens")
+			}
+			extra = append(extra, "y copy", "⇥ next")
+			bar.hints = fmt.Sprintf("link %d/%d · %s · %s · %s", n, total, label, action, strings.Join(extra, " · "))
+			return bar
 		}
 		bar.hints = joinHints([]string{"↑↓ scroll"}, bar.escTarget)
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {

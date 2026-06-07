@@ -218,10 +218,10 @@ func (m *appModel) snapshot() {
 func (m *appModel) restore(n histNode) {
 	if n.state == stateReader {
 		m.state = stateReader
-		m.reader.setEntry(n.entry)
-		m.reader.viewport.SetYOffset(n.scrollY)
 		m.reader.links = n.links
 		m.reader.focusedLink = n.linkIdx
+		m.reader.setEntryWithLinks(n.entry, n.links)
+		m.reader.viewport.SetYOffset(n.scrollY)
 		return
 	}
 	if parsed, ok := parseUserList(n.entry.Body, n.entry.Target.HostPort); ok {
@@ -238,7 +238,9 @@ func (m *appModel) restore(n histNode) {
 	// reader rather than leaving a stale list on screen. Unreachable in
 	// practice (parseUserList is deterministic on the same bytes).
 	m.state = stateReader
-	m.reader.setEntry(n.entry)
+	m.reader.links = n.links
+	m.reader.focusedLink = n.linkIdx
+	m.reader.setEntryWithLinks(n.entry, n.links)
 }
 
 // gotoLanding returns the reader to its empty pre-fetch state.
@@ -357,7 +359,7 @@ func (m *appModel) exitRaw() {
 	node := m.history[m.pos]
 	m.state = node.state
 	if node.state == stateReader {
-		m.reader.setEntry(node.entry) // re-render the profile
+		m.reader.setEntryWithLinks(node.entry, node.links) // re-render the profile
 	}
 }
 
@@ -572,6 +574,18 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			m.enterRaw()
 		}
 		return true, m, nil
+	case key.Matches(msg, m.keys.LinkNext) && m.pos >= 0:
+		node := &m.history[m.pos]
+		m.reader.nextLink(len(node.links))
+		node.linkIdx = m.reader.focusedLink
+		m.reader.setEntryWithLinks(node.entry, node.links)
+		return true, m, nil
+	case key.Matches(msg, m.keys.LinkPrev) && m.pos >= 0:
+		node := &m.history[m.pos]
+		m.reader.prevLink(len(node.links))
+		node.linkIdx = m.reader.focusedLink
+		m.reader.setEntryWithLinks(node.entry, node.links)
+		return true, m, nil
 	}
 	return false, m, nil
 }
@@ -621,6 +635,7 @@ func (m appModel) routeFetch(entry Entry) appModel {
 	m.snapshot() // save current position's scroll/selection before replacing it
 	m.showingRaw = false
 	node := histNode{entry: entry, state: stateReader}
+	node.links = DetectLinks(entry.Body, entry.Target.HostPort)
 	if len(entry.Body) > 0 && shouldOpenList(entry) {
 		if parsed, ok := parseUserList(entry.Body, entry.Target.HostPort); ok {
 			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, parsed.generic)
@@ -631,7 +646,8 @@ func (m appModel) routeFetch(entry Entry) appModel {
 		}
 	}
 	if node.state == stateReader {
-		m.reader.setEntry(entry)
+		m.reader.focusedLink = -1
+		m.reader.setEntryWithLinks(entry, node.links)
 	}
 	m.state = node.state
 	m.push(node)

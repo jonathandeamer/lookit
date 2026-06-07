@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -62,14 +64,14 @@ func (m *readerModel) setSize(width, height int) {
 func (m *readerModel) setProfile(p colorprofile.Profile) {
 	m.profile = p
 	if m.current != nil {
-		m.viewport.SetContent(renderEntry(m.profile, m.darkBackground, *m.current))
+		m.viewport.SetContent(render.RenderWithBackground(m.current.Target, m.current.Body, m.current.Meta, m.current.Err, m.profile, m.darkBackground))
 	}
 }
 
 func (m *readerModel) setBackground(dark bool) {
 	m.darkBackground = dark
 	if m.current != nil {
-		m.viewport.SetContent(renderEntry(m.profile, m.darkBackground, *m.current))
+		m.viewport.SetContent(render.RenderWithBackground(m.current.Target, m.current.Body, m.current.Meta, m.current.Err, m.profile, m.darkBackground))
 	}
 }
 
@@ -77,6 +79,66 @@ func (m *readerModel) setBackground(dark bool) {
 func (m *readerModel) setEntry(entry Entry) {
 	m.current = &entry
 	m.viewport.SetContent(renderEntry(m.profile, m.darkBackground, entry))
+}
+
+// setEntryWithLinks displays a fetched result and applies the link overlay
+// (focus highlight + OSC-8 hyperlinks) to the body portion of the rendered
+// output. links is the DetectLinks result for this entry; focusedLink is the
+// current focused index (-1 = none).
+func (m *readerModel) setEntryWithLinks(entry Entry, links []Link) {
+	m.current = &entry
+	rendered := render.RenderWithBackground(entry.Target, entry.Body, entry.Meta, entry.Err, m.profile, m.darkBackground)
+	header, body := render.Split(rendered)
+	body = applyLinkOverlay(body, links, m.focusedLink, m.styles)
+	m.viewport.SetContent(header + body)
+	m.scrollToFocusedLink(header, links)
+}
+
+// scrollToFocusedLink scrolls the viewport so the focused link is roughly
+// centred vertically. It works by counting newlines in the body bytes before
+// the link's raw token and adding the header line count.
+func (m *readerModel) scrollToFocusedLink(header string, links []Link) {
+	if m.focusedLink < 0 || m.focusedLink >= len(links) || m.current == nil {
+		return
+	}
+	raw := links[m.focusedLink].Raw
+	bodyText := string(m.current.Body)
+	pos := strings.Index(bodyText, raw)
+	if pos < 0 {
+		return
+	}
+	bodyLine := strings.Count(bodyText[:pos], "\n")
+	headerLines := strings.Count(header, "\n")
+	targetLine := headerLines + bodyLine
+	offset := targetLine - m.viewport.Height()/2
+	if offset < 0 {
+		offset = 0
+	}
+	m.viewport.SetYOffset(offset)
+}
+
+// nextLink advances the focused link index by one (wrapping).
+func (m *readerModel) nextLink(count int) {
+	if count == 0 {
+		return
+	}
+	if m.focusedLink < 0 {
+		m.focusedLink = 0
+		return
+	}
+	m.focusedLink = (m.focusedLink + 1) % count
+}
+
+// prevLink moves the focused link index back by one (wrapping).
+func (m *readerModel) prevLink(count int) {
+	if count == 0 {
+		return
+	}
+	if m.focusedLink <= 0 {
+		m.focusedLink = count - 1
+		return
+	}
+	m.focusedLink--
 }
 
 // setRaw shows the unprocessed response body as plain text ("view source"),

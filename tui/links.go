@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -508,6 +509,37 @@ func classifyForwardedAtToken(raw, origin string) (Link, bool) {
 		Raw:       raw,
 		Blocked:   "cross-relay: relay " + relay + " does not match current host",
 	}, true
+}
+
+// applyLinkOverlay rewrites body, highlighting the focused link and wrapping
+// OSC-8 hyperlinks where the terminal is expected to support them. It operates
+// on the rendered body string (after render.Split) using simple string search:
+// each Link.Raw is looked up left-to-right in the remaining text and replaced
+// in-place, so the order of DetectLinks (document order) matches correctly.
+func applyLinkOverlay(body string, links []Link, focusedIdx int, st styles) string {
+	if len(links) == 0 {
+		return body
+	}
+	var sb strings.Builder
+	remaining := body
+	for i, link := range links {
+		pos := strings.Index(remaining, link.Raw)
+		if pos < 0 {
+			continue
+		}
+		sb.WriteString(remaining[:pos])
+		span := link.Raw
+		if i == focusedIdx {
+			span = st.linkFocus.Render(span)
+		}
+		if isOSC8Openable(link.Raw) {
+			span = lipgloss.NewStyle().Hyperlink(link.Raw).Render(span)
+		}
+		sb.WriteString(span)
+		remaining = remaining[pos+len(link.Raw):]
+	}
+	sb.WriteString(remaining)
+	return sb.String()
 }
 
 // allAlpha reports whether s contains only ASCII letters.

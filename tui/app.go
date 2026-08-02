@@ -1122,7 +1122,8 @@ func joinHints(parts []string, escTarget string) string {
 
 func (m appModel) statusBarModel() statusBar {
 	if m.pending != nil {
-		return statusBar{width: m.common.width, styles: m.common.styles, hints: m.pendingStatus(time.Now())}
+		priority := m.pendingPriorityStatus(time.Now())
+		return statusBar{width: m.common.width, styles: m.common.styles, priority: &priority}
 	}
 	bar := m.buildStatusBar()
 	if m.flash != "" {
@@ -1130,7 +1131,9 @@ func (m appModel) statusBarModel() statusBar {
 		return bar
 	}
 	if m.requestFailure != nil && (m.state != stateList || !m.list.filtering()) {
-		bar.hints = m.requestFailure.statusText()
+		priority := m.requestFailure.priorityStatus()
+		bar.hints = ""
+		bar.priority = &priority
 	}
 	return bar
 }

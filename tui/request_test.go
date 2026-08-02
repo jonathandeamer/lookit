@@ -324,6 +324,28 @@ func TestPendingStatusIncludesElapsedAndControls(t *testing.T) {
 	}
 }
 
+func TestPendingStatusPrioritizesCancellationControls(t *testing.T) {
+	target := hostTarget(t, "alice-with-an-extraordinarily-long-login-name@a-very-long-finger-hostname.example.org")
+	for _, width := range []int{80, 40} {
+		m := newApp(stubFetch(t), colorprofile.NoTTY)
+		m.common.width = width
+		m.pending = &pendingRequest{target: target, started: time.Now(), cancel: func() {}}
+
+		bar := ansi.Strip(m.statusBarModel().render())
+		if got := ansi.StringWidth(bar); got != width {
+			t.Fatalf("width %d: rendered width = %d, want %d: %q", width, got, width, bar)
+		}
+		if strings.Contains(bar, "\n") {
+			t.Fatalf("width %d: loading status wrapped: %q", width, bar)
+		}
+		for _, want := range []string{"loading", "…", "esc cancel", "q quit"} {
+			if !strings.Contains(bar, want) {
+				t.Fatalf("width %d: loading status %q missing %q", width, bar, want)
+			}
+		}
+	}
+}
+
 func TestSessionCancellationCancelsAndQuits(t *testing.T) {
 	ctx, cancelSession := context.WithCancel(context.Background())
 	m := newAppWithContext(ctx, stubFetch(t), colorprofile.NoTTY, Options{})
@@ -475,6 +497,33 @@ func TestFailedRefreshWarningCopy(t *testing.T) {
 	bar = m.statusBarModel().render()
 	if !strings.Contains(bar, "retry failed") || strings.Contains(bar, "showing previous response") {
 		t.Fatalf("retry bar = %q", bar)
+	}
+}
+
+func TestFailedRefreshWarningPrioritizesConsequenceAndRetry(t *testing.T) {
+	target := hostTarget(t, "alice-with-a-long-login@a-very-long-finger-hostname.example.org")
+	entry := Entry{Target: target, Body: []byte(strings.Repeat("old response line\n", 40))}
+	for _, width := range []int{80, 40} {
+		m := settledReader(t, entry)
+		m.common.width = width
+		m.reader.setSize(width, 5)
+		m.requestFailure = &requestFailure{target: target, err: errors.New(strings.Repeat("upstream read timed out; ", 8))}
+
+		bar := ansi.Strip(m.statusBarModel().render())
+		if got := ansi.StringWidth(bar); got != width {
+			t.Fatalf("width %d: rendered width = %d, want %d: %q", width, got, width, bar)
+		}
+		if strings.Contains(bar, "\n") {
+			t.Fatalf("width %d: refresh warning wrapped: %q", width, bar)
+		}
+		for _, want := range []string{"showing previous response", "r retry"} {
+			if !strings.Contains(bar, want) {
+				t.Fatalf("width %d: refresh warning %q missing %q", width, bar, want)
+			}
+		}
+		if strings.Contains(bar, "%") || strings.Contains(bar, formatBytes(len(entry.Body))) {
+			t.Fatalf("width %d: lower-priority scroll/meta survived ahead of warning: %q", width, bar)
+		}
 	}
 }
 

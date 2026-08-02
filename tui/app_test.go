@@ -781,8 +781,8 @@ func TestVViewsSourceOnRecognizedList(t *testing.T) {
 	}
 }
 
-func TestRTogglesRawBodyOnProfile(t *testing.T) {
-	// 'r' toggles "view source" on a profile too; a second 'r' restores it.
+func TestVTogglesRawBodyOnProfile(t *testing.T) {
+	// 'v' toggles "view source" on a profile too; a second 'v' restores it.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "alice@plan.cat")
 	body := "Login: alice\nPlan:\nhello from the raw body\n"
@@ -809,7 +809,7 @@ func TestRTogglesRawBodyOnProfile(t *testing.T) {
 	off, _ := gotRaw.Update(tea.KeyPressMsg{Code: 'v'})
 	gotOff := off.(appModel)
 	if gotOff.showingRaw {
-		t.Fatal("a second r should exit raw view")
+		t.Fatal("a second v should exit source view")
 	}
 	if gotOff.state != stateReader {
 		t.Fatalf("exiting raw on a profile returns to the reader (state=%d)", gotOff.state)

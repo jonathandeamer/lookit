@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -88,20 +87,32 @@ func (m *appModel) cancelRequest() tea.Cmd {
 }
 
 func (m appModel) pendingStatus(now time.Time) string {
-	if m.pending == nil {
-		return ""
-	}
-	parts := []string{m.spin.View() + " loading " + m.pending.target.Raw}
-	if elapsed := now.Sub(m.pending.started).Truncate(time.Second); elapsed >= time.Second {
-		parts = append(parts, elapsed.String())
-	}
-	return strings.Join(append(parts, "esc cancel", "q quit"), " · ")
+	return m.pendingPriorityStatus(now).text()
 }
 
-func (f requestFailure) statusText() string {
+func (m appModel) pendingPriorityStatus(now time.Time) priorityStatus {
+	if m.pending == nil {
+		return priorityStatus{}
+	}
+	suffix := ""
+	if elapsed := now.Sub(m.pending.started).Truncate(time.Second); elapsed >= time.Second {
+		suffix = " · " + elapsed.String()
+	}
+	return priorityStatus{
+		prefix: m.spin.View() + " loading ",
+		detail: m.pending.target.Raw,
+		suffix: suffix + " · esc cancel · q quit",
+	}
+}
+
+func (f requestFailure) priorityStatus() priorityStatus {
 	operation, consequence := "refresh", " · showing previous response"
 	if f.retry {
 		operation, consequence = "retry", ""
 	}
-	return fmt.Sprintf("%s failed: %s%s · r retry", operation, f.err, consequence)
+	return priorityStatus{
+		prefix: fmt.Sprintf("%s failed: ", operation),
+		detail: fmt.Sprintf("%s", f.err),
+		suffix: consequence + " · r retry",
+	}
 }

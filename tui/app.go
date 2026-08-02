@@ -452,8 +452,10 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		_ = request // Task 2 dispatches on this intent.
-		return m.routeFetch(msg.entry), nil
+		if request.intent == requestRefresh {
+			return m.landRefresh(msg.entry, request), nil
+		}
+		return m.landNavigation(msg.entry), nil
 
 	case clearFlashMsg:
 		m.flash = ""
@@ -739,40 +741,91 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 		}
 		return true, m, nil
 	}
-	// Keep the current view (the list) on screen while loading; routeFetch sets
+	// Keep the current view (the list) on screen while loading; landNavigation sets
 	// the final state when the result lands. Switching to the reader eagerly here
 	// flashed the previous profile for a frame before the new one arrived.
 	cmd := m.startRequest(target, requestNavigate, false)
 	return true, m, cmd
 }
 
-// routeFetch is the single decision point for a completed fetch: a host
-// response that parses opens the list; everything else renders in the reader.
-// Either way it pushes a history node.
-func (m appModel) routeFetch(entry Entry) appModel {
+type routedEntry struct {
+	node   histNode
+	parsed *parsedUserList
+}
+
+func routeEntry(entry Entry) routedEntry {
+	routed := routedEntry{node: histNode{entry: entry, state: stateReader, linkIdx: -1}}
+	routed.node.links = DetectLinks(entry.Body, entry.Target.HostPort)
+	if len(entry.Body) == 0 || !shouldOpenList(entry) {
+		return routed
+	}
+	parsed, ok := parseUserList(entry.Body, entry.Target.HostPort)
+	if !ok {
+		return routed
+	}
+	routed.node.state = stateList
+	routed.node.listUsers = len(parsed.users)
+	routed.node.listGeneric = parsed.generic
+	routed.parsed = &parsed
+	return routed
+}
+
+func (m *appModel) showRouted(routed routedEntry) {
 	m.inputFocused = false
 	m.input.Blur()
-	m.snapshot() // save current position's scroll/selection before replacing it
 	m.showingRaw = false
 	m.showingLinks = false
-	node := histNode{entry: entry, state: stateReader}
-	node.links = DetectLinks(entry.Body, entry.Target.HostPort)
-	if len(entry.Body) > 0 && shouldOpenList(entry) {
-		if parsed, ok := parseUserList(entry.Body, entry.Target.HostPort); ok {
-			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, parsed.generic)
-			m.listReady = true
-			node.state = stateList
-			node.listUsers = len(parsed.users)
-			node.listGeneric = parsed.generic
-		}
+	m.state = routed.node.state
+	if routed.node.state == stateList {
+		m.list = newListWithPreamble(m.common, routed.node.entry.Target, routed.parsed.users, routed.node.entry.Body, routed.node.listGeneric)
+		m.listReady = true
+		return
 	}
-	if node.state == stateReader {
-		m.reader.focusedLink = -1
-		m.reader.setEntryWithLinks(entry, node.links)
-	}
-	m.state = node.state
-	m.push(node)
+	m.reader.focusedLink = -1
+	m.reader.setEntryWithLinks(routed.node.entry, routed.node.links)
+}
+
+func (m appModel) landNavigation(entry Entry) appModel {
+	m.snapshot()
+	routed := routeEntry(entry)
+	m.showRouted(routed)
+	m.push(routed.node)
+	m.requestFailure = nil
 	return m
+}
+
+func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return m
+	}
+	if entry.Err != nil && len(entry.Body) == 0 {
+		m.requestFailure = &requestFailure{retry: request.retry, target: request.target, err: entry.Err}
+		return m
+	}
+	routed := routeEntry(entry)
+	m.history[m.pos] = routed.node
+	m.showRouted(routed)
+	m.requestFailure = nil
+	return m
+}
+
+func (m appModel) shouldRetry() bool {
+	if m.requestFailure != nil {
+		return true
+	}
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return false
+	}
+	entry := m.history[m.pos].entry
+	return entry.Err != nil && len(entry.Body) == 0
+}
+
+func (m *appModel) refreshCurrent() tea.Cmd {
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return nil
+	}
+	m.snapshot()
+	return m.startRequest(m.history[m.pos].entry.Target, requestRefresh, m.shouldRetry())
 }
 
 // shouldOpenList reports whether a fetch result is a host-style listing that

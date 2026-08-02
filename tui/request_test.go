@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"image/color"
 	"strings"
 	"testing"
@@ -59,6 +60,79 @@ func deliverNavigation(m appModel, entry Entry) appModel {
 
 func deliverNavigationResult(m appModel, msg fetchResultMsg) (tea.Model, tea.Cmd) {
 	return deliverNavigation(m, msg.entry), nil
+}
+
+func settledReader(t *testing.T, entry Entry) appModel {
+	t.Helper()
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.inputFocused = false
+	m.input.Blur()
+	node := histNode{entry: entry, state: stateReader, links: DetectLinks(entry.Body, entry.Target.HostPort), linkIdx: -1}
+	m.history, m.pos, m.state = []histNode{node}, 0, stateReader
+	m.reader.focusedLink = -1
+	m.reader.setEntryWithLinks(entry, node.links)
+	return m
+}
+
+func deliverRefresh(m appModel, entry Entry, retry bool) appModel {
+	m.reqSeq++
+	m.pending = &pendingRequest{id: m.reqSeq, target: entry.Target, intent: requestRefresh, retry: retry, cancel: func() {}}
+	next, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: entry})
+	return next.(appModel)
+}
+
+func TestRefreshReplacesNodeWithoutChangingHistoryShape(t *testing.T) {
+	old := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
+	m := settledReader(t, old)
+	tail := histNode{entry: Entry{Target: hostTarget(t, "bob@plan.cat"), Body: []byte("tail\n")}, state: stateReader}
+	m.history = append(m.history, tail)
+	got := deliverRefresh(m, Entry{Target: old.Target, Body: []byte("fresh\n")}, false)
+	if got.pos != 0 || len(got.history) != 2 || string(got.history[0].entry.Body) != "fresh\n" || string(got.history[1].entry.Body) != "tail\n" {
+		t.Fatalf("refresh changed history shape: pos=%d len=%d", got.pos, len(got.history))
+	}
+}
+
+func TestNavigationFailureStillPushesErrorNode(t *testing.T) {
+	old := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
+	m := settledReader(t, old)
+	failed := Entry{Target: hostTarget(t, "bob@plan.cat"), Err: errors.New("dial failed")}
+	got := deliverNavigation(m, failed)
+	if got.pos != 1 || len(got.history) != 2 || got.history[1].entry.Err == nil || got.requestFailure != nil {
+		t.Fatalf("navigation failure = pos %d history %#v warning %#v", got.pos, got.history, got.requestFailure)
+	}
+}
+
+func TestEmptyBodyRefreshFailurePreservesEntry(t *testing.T) {
+	old := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
+	got := deliverRefresh(settledReader(t, old), Entry{Target: old.Target, Err: errors.New("dial failed")}, false)
+	if string(got.history[0].entry.Body) != "old\n" || got.requestFailure == nil || got.requestFailure.err.Error() != "dial failed" {
+		t.Fatalf("empty failure result = entry %#v failure %#v", got.history[0].entry, got.requestFailure)
+	}
+}
+
+func TestCleanEmptyRefreshReplacesNode(t *testing.T) {
+	old := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
+	got := deliverRefresh(settledReader(t, old), Entry{Target: old.Target}, false)
+	if len(got.history[0].entry.Body) != 0 || got.history[0].entry.Err != nil {
+		t.Fatalf("clean empty refresh did not replace: %#v", got.history[0].entry)
+	}
+}
+
+func TestBodyBearingRefreshErrorReplacesNode(t *testing.T) {
+	old := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
+	partial := Entry{Target: old.Target, Body: []byte("partial\n"), Meta: finger.Meta{Truncated: true}, Err: errors.New("read timed out")}
+	got := deliverRefresh(settledReader(t, old), partial, false)
+	if string(got.history[0].entry.Body) != "partial\n" || got.history[0].entry.Err == nil || got.requestFailure != nil {
+		t.Fatalf("partial refresh = entry %#v failure %#v", got.history[0].entry, got.requestFailure)
+	}
+}
+
+func TestSuccessfulRetryReplacesEmptyErrorNode(t *testing.T) {
+	failed := Entry{Target: hostTarget(t, "alice@plan.cat"), Err: errors.New("dial failed")}
+	got := deliverRefresh(settledReader(t, failed), Entry{Target: failed.Target, Body: []byte("recovered\n")}, true)
+	if got.pos != 0 || len(got.history) != 1 || string(got.history[0].entry.Body) != "recovered\n" || got.history[0].entry.Err != nil || got.requestFailure != nil {
+		t.Fatalf("successful retry = history %#v warning %#v", got.history, got.requestFailure)
+	}
 }
 
 func TestEscapeCancelsPendingRequestAndDropsResult(t *testing.T) {

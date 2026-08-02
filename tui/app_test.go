@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -42,6 +43,28 @@ func readerWithFocusedLink(t *testing.T, fetch FetchFunc, link Link) appModel {
 	m.pos, m.state, m.inputFocused = 0, stateReader, false
 	m.reader.focusedLink = 0
 	m.reader.setEntryWithLinks(entry, []Link{link})
+	return m
+}
+
+func linksPanelModel(t *testing.T, fetch FetchFunc, links []Link) appModel {
+	t.Helper()
+	if len(links) == 0 {
+		t.Fatal("linksPanelModel requires at least one link")
+	}
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	target := hostTarget(t, "viewer@origin.example")
+	entry := Entry{Target: target, Body: []byte(links[0].Raw + "\n")}
+	m.history = []histNode{{entry: entry, state: stateReader, links: links, linkIdx: 0}}
+	m.pos, m.state, m.inputFocused = 0, stateReader, false
+	m.reader.focusedLink = 0
+	m.reader.setEntryWithLinks(entry, links)
+	m.showingLinks = true
+	m.linksPanel = newLinksPanel(m.common, links)
+	m.linksPanel.setSize(m.common.width, m.common.bodyHeight())
+	if _, ok := m.linksPanel.selected(); !ok {
+		t.Fatal("links panel should select its first row")
+	}
 	return m
 }
 
@@ -1548,6 +1571,278 @@ func TestReaderYCopiesFocusedLink(t *testing.T) {
 	}
 	if !strings.Contains(got.flash, link.Raw) {
 		t.Fatalf("flash = %q, want it to mention %q", got.flash, link.Raw)
+	}
+}
+
+func TestLinksPanelEnterDefiniteFingersSelectedLink(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	fetch, seen := fetchRecorder("Plan: hi\n")
+	m := linksPanelModel(t, fetch, []Link{{
+		Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target,
+	}})
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if got.showingLinks {
+		t.Fatal("Enter on a definite finger link should close the links panel")
+	}
+	if !got.loading || cmd == nil {
+		t.Fatalf("after Enter: loading=%v cmd=nil=%v, want a fetch", got.loading, cmd == nil)
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != target.Raw {
+		t.Fatalf("fetched targets = %v, want [%s]", *seen, target.Raw)
+	}
+}
+
+func TestLinksPanelEnterURLStaysOpen(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}
+	m := linksPanelModel(t, stubFetch(t), []Link{link})
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if !got.showingLinks {
+		t.Fatal("Enter on a URL should leave the links panel open")
+	}
+	if cmd != nil || got.loading {
+		t.Fatalf("after Enter: cmd=nil=%v loading=%v, want no action", cmd == nil, got.loading)
+	}
+	if copied != "" {
+		t.Fatalf("Enter on a URL copied %q, want no clipboard write", copied)
+	}
+}
+
+func TestLinksPanelEnterBlockedStaysOpenAndFlashesRefusal(t *testing.T) {
+	link := Link{
+		Kind: LinkFinger, Action: ActionCopy, Raw: "alice@tilde.team@relay.example",
+		Blocked: "cross-relay: relay relay.example does not match current host",
+	}
+	m := linksPanelModel(t, stubFetch(t), []Link{link})
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if !got.showingLinks {
+		t.Fatal("Enter on a blocked link should leave the links panel open")
+	}
+	if got.flash != link.Blocked {
+		t.Fatalf("flash = %q, want %q", got.flash, link.Blocked)
+	}
+	if got.loading {
+		t.Fatal("Enter on a blocked link should not start loading")
+	}
+}
+
+func TestLinksPanelFAmbiguousFingersSelectedLink(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	fetch, seen := fetchRecorder("Plan: hi\n")
+	m := linksPanelModel(t, fetch, []Link{{
+		Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true,
+	}})
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'f'})
+	got := next.(appModel)
+	if got.showingLinks {
+		t.Fatal("f on an ambiguous finger link should close the links panel")
+	}
+	if !got.loading || cmd == nil {
+		t.Fatalf("after f: loading=%v cmd=nil=%v, want a fetch", got.loading, cmd == nil)
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != target.Raw {
+		t.Fatalf("fetched targets = %v, want [%s]", *seen, target.Raw)
+	}
+}
+
+func TestLinksPanelYCopiesSelectedRawAndStaysOpen(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}
+	m := linksPanelModel(t, stubFetch(t), []Link{link})
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'y'})
+	got := next.(appModel)
+	if !got.showingLinks {
+		t.Fatal("y should leave the links panel open")
+	}
+	if cmd == nil {
+		t.Fatal("y should return the clipboard/flash command")
+	}
+	if copied != link.Raw {
+		t.Fatalf("copied = %q, want selected Raw %q", copied, link.Raw)
+	}
+	if !strings.Contains(got.flash, link.Raw) {
+		t.Fatalf("flash = %q, want it to mention %q", got.flash, link.Raw)
+	}
+}
+
+func TestLinksPanelFilteringConsumesActionKeys(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	target := hostTarget(t, "yfL@tilde.team")
+	for _, code := range []rune{'y', 'f', 'L'} {
+		t.Run(string(code), func(t *testing.T) {
+			fetch, seen := fetchRecorder("Plan: hi\n")
+			m := linksPanelModel(t, fetch, []Link{{
+				Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true,
+			}})
+
+			next, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+			m = next.(appModel)
+			if m.linksPanel.list.FilterState() != list.Filtering {
+				t.Fatal("/ should start filtering the links panel")
+			}
+
+			next, _ = m.Update(tea.KeyPressMsg{Code: code, Text: string(code)})
+			got := next.(appModel)
+			if !got.showingLinks {
+				t.Fatalf("%q while filtering should not close the links panel", code)
+			}
+			if value := got.linksPanel.list.FilterValue(); value != string(code) {
+				t.Fatalf("FilterValue = %q, want %q", value, string(code))
+			}
+			if got.loading || len(*seen) != 0 {
+				t.Fatalf("%q while filtering triggered a fetch: loading=%v targets=%v", code, got.loading, *seen)
+			}
+			if copied != "" {
+				t.Fatalf("%q while filtering copied %q, want no clipboard write", code, copied)
+			}
+		})
+	}
+}
+
+func TestLinksPanelAcceptsNonEmptyMatchingFilter(t *testing.T) {
+	for _, keyMsg := range []tea.KeyPressMsg{
+		{Code: tea.KeyEnter},
+		{Code: tea.KeyTab},
+	} {
+		t.Run(keyMsg.String(), func(t *testing.T) {
+			link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://yellow.example"}
+			m := linksPanelModel(t, stubFetch(t), []Link{link})
+
+			for _, msg := range []tea.KeyPressMsg{{Code: '/'}, {Code: 'y', Text: "y"}, keyMsg} {
+				next, _ := m.Update(msg)
+				m = next.(appModel)
+			}
+			if state := m.linksPanel.list.FilterState(); state != list.FilterApplied {
+				t.Fatalf("FilterState = %v, want FilterApplied", state)
+			}
+			if value := m.linksPanel.list.FilterValue(); value != "y" {
+				t.Fatalf("FilterValue = %q, want y", value)
+			}
+			if !m.showingLinks {
+				t.Fatal("accepting a filter should leave the links panel open")
+			}
+		})
+	}
+}
+
+func TestLinksPanelEscWhileFilteringCancelsWithoutClosing(t *testing.T) {
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://yellow.example"}
+	m := linksPanelModel(t, stubFetch(t), []Link{link})
+	for _, msg := range []tea.KeyPressMsg{{Code: '/'}, {Code: 'y', Text: "y"}} {
+		next, _ := m.Update(msg)
+		m = next.(appModel)
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	got := next.(appModel)
+	if !got.showingLinks {
+		t.Fatal("Esc while filtering should not close the links panel")
+	}
+	if state := got.linksPanel.list.FilterState(); state != list.Unfiltered {
+		t.Fatalf("FilterState = %v, want Unfiltered", state)
+	}
+}
+
+func TestLinksPanelEscClearsAppliedFilterBeforeClosing(t *testing.T) {
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://yellow.example"}
+	m := linksPanelModel(t, stubFetch(t), []Link{link})
+	for _, msg := range []tea.KeyPressMsg{{Code: '/'}, {Code: 'y', Text: "y"}, {Code: tea.KeyTab}} {
+		next, _ := m.Update(msg)
+		m = next.(appModel)
+	}
+	if state := m.linksPanel.list.FilterState(); state != list.FilterApplied {
+		t.Fatalf("precondition: FilterState = %v, want FilterApplied", state)
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = next.(appModel)
+	if !m.showingLinks {
+		t.Fatal("first Esc should clear the applied filter without closing the links panel")
+	}
+	if state := m.linksPanel.list.FilterState(); state != list.Unfiltered {
+		t.Fatalf("after first Esc: FilterState = %v, want Unfiltered", state)
+	}
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if next.(appModel).showingLinks {
+		t.Fatal("second Esc should close the links panel")
+	}
+}
+
+func TestLinksPanelCtrlCQuits(t *testing.T) {
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}
+	m := linksPanelModel(t, stubFetch(t), []Link{link})
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if !isQuit(cmd) {
+		t.Fatal("Ctrl+C should quit while the links panel is open")
+	}
+}
+
+func TestLinksPanelBindingsFollowSelectedAction(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	tests := []struct {
+		name           string
+		link           Link
+		wantOpen       bool
+		wantLinkFinger bool
+	}{
+		{
+			name: "definite finger", link: Link{Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target},
+			wantOpen: true,
+		},
+		{
+			name: "ambiguous finger", link: Link{Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true},
+			wantLinkFinger: true,
+		},
+		{
+			name: "URL", link: Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"},
+		},
+		{
+			name: "blocked finger", link: Link{Kind: LinkFinger, Action: ActionCopy, Raw: "alice@tilde.team@relay.example", Blocked: "cross-relay"},
+			wantOpen: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := linksPanelModel(t, stubFetch(t), []Link{tt.link})
+			(&m).updateKeymap()
+			if m.keys.Open.Enabled() != tt.wantOpen {
+				t.Errorf("Open enabled = %v, want %v", m.keys.Open.Enabled(), tt.wantOpen)
+			}
+			if m.keys.LinkFinger.Enabled() != tt.wantLinkFinger {
+				t.Errorf("LinkFinger enabled = %v, want %v", m.keys.LinkFinger.Enabled(), tt.wantLinkFinger)
+			}
+			if !m.keys.Back.Enabled() || !m.keys.LinkPanel.Enabled() || !m.keys.Filter.Enabled() || !m.keys.Copy.Enabled() {
+				t.Error("links panel should enable back, panel, filter, and copy")
+			}
+
+			next, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+			m = next.(appModel)
+			(&m).updateKeymap()
+			if m.keys.Filter.Enabled() {
+				t.Error("Filter should be disabled while the links panel filter is active")
+			}
+		})
 	}
 }
 

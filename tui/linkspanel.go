@@ -58,6 +58,12 @@ func (p *linksPanel) setSize(w, h int) {
 
 func (p linksPanel) View() string { return p.list.View() }
 
+func (p linksPanel) filtering() bool { return p.list.FilterState() == list.Filtering }
+
+func (p linksPanel) filterApplied() bool { return p.list.FilterState() == list.FilterApplied }
+
+func (p linksPanel) filterValue() string { return p.list.FilterValue() }
+
 func (p linksPanel) update(msg tea.Msg) (linksPanel, tea.Cmd) {
 	var cmd tea.Cmd
 	p.list, cmd = p.list.Update(msg)

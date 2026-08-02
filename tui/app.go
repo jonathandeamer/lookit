@@ -543,6 +543,16 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	if m.state == stateList && m.list.filtering() {
 		return false, m, nil // list owns its filter keys
 	}
+	if m.showingLinks && m.linksPanel.filtering() {
+		var cmd tea.Cmd
+		m.linksPanel, cmd = m.linksPanel.update(msg)
+		return true, m, cmd
+	}
+	if m.showingLinks && m.linksPanel.filterApplied() && key.Matches(msg, m.keys.Back) {
+		var cmd tea.Cmd
+		m.linksPanel, cmd = m.linksPanel.update(msg)
+		return true, m, cmd
+	}
 
 	// Links panel: when open, panel-mode keys are handled before the main switch.
 	if m.showingLinks {
@@ -571,20 +581,29 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 						break
 					}
 				}
-				m.showingLinks = false
-				if sel.Action == ActionDrill && sel.Blocked == "" {
+				switch actionsForLink(sel).enter {
+				case linkEnterGo:
+					m.showingLinks = false
 					return true, m, m.startFetch(sel.Target)
+				case linkEnterRefuse:
+					return true, m, m.setFlash(sel.Blocked)
+				default:
+					return true, m, nil
 				}
-				flash := m.setFlash("copied " + sel.Raw)
-				return true, m, tea.Batch(setClipboard(sel.Raw), flash)
 			}
 			return true, m, nil
 		case key.Matches(msg, m.keys.LinkFinger):
 			if sel, ok := m.linksPanel.selected(); ok {
-				if sel.Kind == LinkFinger && sel.Ambiguous && sel.Target.HostPort != "" {
+				if actionsForLink(sel).finger {
 					m.showingLinks = false
 					return true, m, m.startFetch(sel.Target)
 				}
+			}
+			return true, m, nil
+		case key.Matches(msg, m.keys.Copy):
+			if sel, ok := m.linksPanel.selected(); ok && actionsForLink(sel).copy {
+				flash := m.setFlash("copied " + sel.Raw)
+				return true, m, tea.Batch(setClipboard(sel.Raw), flash)
 			}
 			return true, m, nil
 		}
@@ -888,9 +907,16 @@ func (m *appModel) updateKeymap() {
 		}
 	}
 	if m.showingLinks {
-		m.keys.Open.SetEnabled(true)
 		m.keys.Back.SetEnabled(true)
-		m.keys.LinkFinger.SetEnabled(true)
+		m.keys.LinkPanel.SetEnabled(true)
+		m.keys.Filter.SetEnabled(!m.linksPanel.filtering())
+		m.keys.Open.SetEnabled(false)
+		m.keys.LinkFinger.SetEnabled(false)
+		if link, ok := m.linksPanel.selected(); ok {
+			actions := actionsForLink(link)
+			m.keys.Open.SetEnabled(actions.enter != linkEnterNone)
+			m.keys.LinkFinger.SetEnabled(actions.finger)
+		}
 	}
 
 	if m.state == stateAbout {

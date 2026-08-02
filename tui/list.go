@@ -228,6 +228,24 @@ func (m listModel) selected() (userItem, bool) {
 	return it, ok
 }
 
+func sameUserIdentity(want, candidate userItem) bool {
+	if want.target != "" {
+		return candidate.target == want.target
+	}
+	return candidate.login == want.login
+}
+
+func (m *listModel) selectIdentity(want userItem) {
+	for i, raw := range m.list.VisibleItems() {
+		candidate, ok := raw.(userItem)
+		if ok && sameUserIdentity(want, candidate) {
+			m.list.Select(i)
+			return
+		}
+	}
+	m.list.Select(0)
+}
+
 // filtering reports whether the user is actively typing a filter.
 func (m listModel) filtering() bool {
 	return m.list.FilterState() == list.Filtering

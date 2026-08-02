@@ -90,6 +90,14 @@ type histNode struct {
 	linkIdx     int    // focused link index (-1 == none)
 }
 
+type refreshViewState struct {
+	state      appState
+	scrollY    int
+	linkRaw    string
+	listFilter string
+	selected   userItem
+}
+
 // appModel is the top-level state machine. It routes input and fetch results
 // between the reader and the list, and owns quit/back behavior.
 type appModel struct {
@@ -223,6 +231,45 @@ func (m *appModel) snapshot() {
 		n.listIdx = m.list.list.Index()
 		n.listFltr = m.list.list.FilterValue()
 	}
+}
+
+func (m appModel) captureRefreshView() refreshViewState {
+	view := refreshViewState{state: m.state}
+	if m.state == stateList {
+		view.listFilter = m.list.list.FilterValue()
+		view.selected, _ = m.list.selected()
+	} else if m.state == stateReader {
+		view.scrollY = m.reader.viewport.YOffset()
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(m.reader.links) {
+			view.linkRaw = m.reader.links[m.reader.focusedLink].Raw
+		}
+	}
+	return view
+}
+
+func (m *appModel) restoreRefreshView(view refreshViewState) {
+	if view.state != m.state {
+		return
+	}
+	if m.state == stateList {
+		if view.listFilter != "" {
+			m.list.list.SetFilterText(view.listFilter)
+		}
+		m.list.selectIdentity(view.selected)
+		m.snapshot()
+		return
+	}
+	m.reader.focusedLink = -1
+	for i, link := range m.reader.links {
+		if view.linkRaw != "" && link.Raw == view.linkRaw {
+			m.reader.focusedLink = i
+			break
+		}
+	}
+	node := m.history[m.pos]
+	m.reader.setEntryWithLinks(node.entry, node.links)
+	m.reader.viewport.SetYOffset(view.scrollY)
+	m.snapshot()
 }
 
 // restore rebuilds the active sub-model from a node (no network).
@@ -802,9 +849,14 @@ func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
 		m.requestFailure = &requestFailure{retry: request.retry, target: request.target, err: entry.Err}
 		return m
 	}
+	view := refreshViewState{}
+	if request.view != nil {
+		view = *request.view
+	}
 	routed := routeEntry(entry)
 	m.history[m.pos] = routed.node
 	m.showRouted(routed)
+	m.restoreRefreshView(view)
 	m.requestFailure = nil
 	return m
 }
@@ -825,7 +877,10 @@ func (m *appModel) refreshCurrent() tea.Cmd {
 		return nil
 	}
 	m.snapshot()
-	return m.startRequest(m.history[m.pos].entry.Target, requestRefresh, m.shouldRetry())
+	view := m.captureRefreshView()
+	cmd := m.startRequest(m.history[m.pos].entry.Target, requestRefresh, m.shouldRetry())
+	m.pending.view = &view
+	return cmd
 }
 
 // shouldOpenList reports whether a fetch result is a host-style listing that

@@ -74,11 +74,137 @@ func settledReader(t *testing.T, entry Entry) appModel {
 	return m
 }
 
+func settledList(t *testing.T) appModel {
+	t.Helper()
+	target := hostTarget(t, "@tilde.team")
+	routed := routeEntry(Entry{Target: target, Body: []byte("Users currently online:\n\nalice bob\n")})
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history, m.pos = []histNode{routed.node}, 0
+	m.showRouted(routed)
+	return m
+}
+
 func deliverRefresh(m appModel, entry Entry, retry bool) appModel {
+	view := m.captureRefreshView()
 	m.reqSeq++
-	m.pending = &pendingRequest{id: m.reqSeq, target: entry.Target, intent: requestRefresh, retry: retry, cancel: func() {}}
+	m.pending = &pendingRequest{id: m.reqSeq, target: entry.Target, intent: requestRefresh, retry: retry, cancel: func() {}, view: &view}
 	next, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: entry})
 	return next.(appModel)
+}
+
+func TestReaderRefreshPreservesScrollAndLinkRaw(t *testing.T) {
+	target := hostTarget(t, "alice@plan.cat")
+	old := Entry{Target: target, Body: []byte("top\nhttps://example.com\n" + strings.Repeat("line\n", 40))}
+	m := settledReader(t, old)
+	m.reader.setSize(40, 6)
+	m.reader.focusedLink = 0
+	m.reader.setEntryWithLinks(old, m.history[0].links)
+	m.reader.viewport.SetYOffset(8)
+	fresh := Entry{Target: target, Body: []byte("changed\nhttps://example.com\n" + strings.Repeat("new\n", 40))}
+	got := deliverRefresh(m, fresh, false)
+	if got.reader.viewport.YOffset() != 8 {
+		t.Fatalf("YOffset = %d", got.reader.viewport.YOffset())
+	}
+	if got.reader.focusedLink < 0 || got.reader.links[got.reader.focusedLink].Raw != "https://example.com" {
+		t.Fatalf("focused link = %d, links=%#v", got.reader.focusedLink, got.reader.links)
+	}
+}
+
+func TestRefreshUsesViewCapturedAtRequestStart(t *testing.T) {
+	target := hostTarget(t, "alice@plan.cat")
+	old := Entry{Target: target, Body: []byte(strings.Repeat("old\n", 40))}
+	m := settledReader(t, old)
+	m.reader.setSize(40, 6)
+	m.reader.viewport.SetYOffset(8)
+	_ = m.refreshCurrent()
+	m.reader.viewport.SetYOffset(1) // simulate a live resize/clamp while modal
+	fresh := Entry{Target: target, Body: []byte(strings.Repeat("fresh\n", 40))}
+	next, _ := m.Update(fetchResultMsg{reqID: m.pending.id, entry: fresh})
+	got := next.(appModel)
+	if got.reader.viewport.YOffset() != 8 {
+		t.Fatalf("YOffset = %d, want start-time snapshot 8", got.reader.viewport.YOffset())
+	}
+}
+
+func TestReaderRefreshClearsMissingLinkInsteadOfReusingIndex(t *testing.T) {
+	target := hostTarget(t, "alice@plan.cat")
+	old := Entry{Target: target, Body: []byte("https://old.example\nhttps://keep.example\n")}
+	m := settledReader(t, old)
+	m.reader.focusedLink = 1
+	m.history[0].linkIdx = 1
+	fresh := Entry{Target: target, Body: []byte("https://replacement.example\n")}
+	got := deliverRefresh(m, fresh, false)
+	if got.reader.focusedLink != -1 || got.history[0].linkIdx != -1 {
+		t.Fatalf("missing link reused numeric index: reader=%d node=%d", got.reader.focusedLink, got.history[0].linkIdx)
+	}
+}
+
+func TestListRefreshPreservesFilterAndIdentity(t *testing.T) {
+	target := hostTarget(t, "@tilde.team")
+	routed := routeEntry(Entry{Target: target, Body: []byte("Users currently online:\n\nalice bob bobby\n")})
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history, m.pos = []histNode{routed.node}, 0
+	m.showRouted(routed)
+	m.list.list.SetFilterText("bob")
+	m.list.selectIdentity(userItem{login: "bobby"})
+	got := deliverRefresh(m, Entry{Target: target, Body: []byte("Users currently online:\n\nbob bobby carol\n")}, false)
+	selected, ok := got.list.selected()
+	if got.list.list.FilterValue() != "bob" || !ok || selected.login != "bobby" {
+		t.Fatalf("filter=%q selected=%#v ok=%v", got.list.list.FilterValue(), selected, ok)
+	}
+}
+
+func TestRefreshTypeChangeResetsViewState(t *testing.T) {
+	target := hostTarget(t, "@tilde.team")
+	old := Entry{Target: target, Body: []byte(strings.Repeat("old\n", 30))}
+	m := settledReader(t, old)
+	m.reader.viewport.SetYOffset(9)
+	got := deliverRefresh(m, Entry{Target: target, Body: []byte("Users currently online:\n\nalice bob\n")}, false)
+	if got.state != stateList || got.list.list.Index() != 0 || got.list.list.FilterValue() != "" {
+		t.Fatal("type-changing refresh retained incompatible state")
+	}
+}
+
+func TestListToReaderRefreshResetsViewState(t *testing.T) {
+	target := hostTarget(t, "@tilde.team")
+	routed := routeEntry(Entry{Target: target, Body: []byte("Users currently online:\n\nalice bob\n")})
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history, m.pos = []histNode{routed.node}, 0
+	m.showRouted(routed)
+	m.list.list.SetFilterText("bob")
+	got := deliverRefresh(m, Entry{Target: target, Body: []byte("plain response\n")}, false)
+	if got.state != stateReader || got.reader.viewport.YOffset() != 0 || got.reader.focusedLink != -1 {
+		t.Fatalf("list-to-reader state = state %d offset %d link %d", got.state, got.reader.viewport.YOffset(), got.reader.focusedLink)
+	}
+}
+
+func TestCancelRefreshPreservesReaderView(t *testing.T) {
+	entry := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("https://example.com\n" + strings.Repeat("line\n", 30))}
+	m := settledReader(t, entry)
+	m.reader.setSize(40, 6)
+	m.reader.focusedLink = 0
+	m.reader.viewport.SetYOffset(7)
+	before := m.history[0].entry
+	_ = m.startRequest(entry.Target, requestRefresh, false)
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	got := next.(appModel)
+	if got.pending != nil || got.reader.viewport.YOffset() != 7 || got.reader.focusedLink != 0 || string(got.history[0].entry.Body) != string(before.Body) {
+		t.Fatalf("cancelled refresh = pending %#v offset %d link %d entry %#v", got.pending, got.reader.viewport.YOffset(), got.reader.focusedLink, got.history[0].entry)
+	}
+}
+
+func TestCancelListDrillPreservesFilterAndSelection(t *testing.T) {
+	m := settledList(t)
+	m.list.list.SetFilterText("bob")
+	m.list.selectIdentity(userItem{login: "bob"})
+	target := hostTarget(t, "bob@tilde.team")
+	_ = m.startRequest(target, requestNavigate, false)
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	got := next.(appModel)
+	selected, ok := got.list.selected()
+	if got.pending != nil || got.list.list.FilterValue() != "bob" || !ok || selected.login != "bob" || got.pos != 0 {
+		t.Fatalf("cancelled drill = pending %#v filter %q selected %#v ok=%v pos=%d", got.pending, got.list.list.FilterValue(), selected, ok, got.pos)
+	}
 }
 
 func TestRefreshReplacesNodeWithoutChangingHistoryShape(t *testing.T) {

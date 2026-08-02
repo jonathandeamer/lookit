@@ -25,6 +25,7 @@ type pendingRequest struct {
 	returnToInput bool
 	started       time.Time
 	cancel        context.CancelFunc
+	view          *refreshViewState
 }
 
 type requestFailure struct {

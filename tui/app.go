@@ -450,12 +450,6 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		request, ok := m.finishRequest(msg.reqID)
 		if !ok {
-			// Tests use an unsequenced result to construct an already-landed
-			// navigation without issuing a request. Real fetch commands always
-			// carry a positive request ID, so stale network results still cannot land.
-			if msg.reqID == 0 && m.pending == nil {
-				return m.routeFetch(msg.entry), nil
-			}
 			return m, nil
 		}
 		_ = request // Task 2 dispatches on this intent.

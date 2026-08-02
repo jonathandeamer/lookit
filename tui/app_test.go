@@ -185,7 +185,7 @@ func TestHostFetchThatParsesOpensList(t *testing.T) {
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: target.HostPort}}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 
 	if got.state != stateList {
@@ -216,7 +216,7 @@ func TestHostFetchWithBodyAndReadErrorCanOpenList(t *testing.T) {
 		Err:    errors.New("read response: connection reset by peer"),
 	}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 
 	if got.state != stateList {
@@ -235,7 +235,7 @@ func TestHostListViewKeepsPreambleWithoutRawUserGrid(t *testing.T) {
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBodyWithPreamble()), Meta: finger.Meta{Addr: target.HostPort}}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 	view := got.View().Content
 
@@ -258,7 +258,7 @@ func TestHostFetchThatDeclinesStaysInReader(t *testing.T) {
 	target := hostTarget(t, "@tilde.town")
 	entry := Entry{Target: target, Body: []byte("just a banner\n"), Meta: finger.Meta{Addr: target.HostPort}}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 
 	if got.state != stateReader {
@@ -274,7 +274,7 @@ func TestUserFetchStaysInReader(t *testing.T) {
 	target := hostTarget(t, "alice@plan.cat")
 	entry := Entry{Target: target, Body: []byte("Plan: hi\n"), Meta: finger.Meta{Addr: target.HostPort}}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 
 	if got.state != stateReader {
@@ -523,7 +523,7 @@ func barFor(t *testing.T, entry Entry) string {
 	t.Helper()
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 100, 24
-	step, _ := m.Update(fetchResultMsg{entry: entry})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	return step.(appModel).statusBarModel().render()
 }
 
@@ -703,7 +703,7 @@ func TestGenericHostFetchOpensFlaggedList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 100, 24
 	target := hostTarget(t, "@unknown.host")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
 	got := step.(appModel)
 	if got.state != stateList || !got.list.generic {
 		t.Fatalf("state=%d generic=%v, want list/true", got.state, got.list.generic)
@@ -717,7 +717,7 @@ func TestVViewsSourceOnGenericList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@unknown.host")
 	entry := Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}
-	opened, _ := m.Update(fetchResultMsg{entry: entry})
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	m = opened.(appModel)
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
@@ -744,7 +744,7 @@ func TestVViewsSourceOnRecognizedList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: target.HostPort}}
-	opened, _ := m.Update(fetchResultMsg{entry: entry})
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	m = opened.(appModel)
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
@@ -768,7 +768,7 @@ func TestRTogglesRawBodyOnProfile(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "alice@plan.cat")
 	body := "Login: alice\nPlan:\nhello from the raw body\n"
-	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(body)}})
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(body)}})
 	m = opened.(appModel)
 	if m.state != stateReader {
 		t.Fatalf("precondition: a profile opens in the reader (state=%d)", m.state)
@@ -804,9 +804,9 @@ func TestEscBackDoesNotRefetch(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
 	userT := hostTarget(t, "bob@tilde.team")
 
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: userT, Body: []byte("Login: bob\n")}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: userT, Body: []byte("Login: bob\n")}})
 	m = step.(appModel)
 
 	if len(m.history) != 2 || m.pos != 1 || m.state != stateReader {
@@ -826,11 +826,11 @@ func TestRouteFetchSnapshotsListBeforeReplacingIt(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
 	nextHost := hostTarget(t, "@sdf.org")
 
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	m.list.list.SetFilterText("kap")
 
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: nextHost, Body: []byte(hostListBody())}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: nextHost, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = step.(appModel)
@@ -853,7 +853,7 @@ func TestNewNavigationTruncatesForwardTail(t *testing.T) {
 	c := hostTarget(t, "@c.example")
 
 	for _, tg := range []finger.Target{a, b} {
-		step, _ := m.Update(fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
+		step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
 		m = step.(appModel)
 	}
 	// Esc back to a (pos=0).
@@ -862,7 +862,7 @@ func TestNewNavigationTruncatesForwardTail(t *testing.T) {
 	// Now fetch c — this must truncate the forward tail (b).
 	fetch, _ := fetchRecorder(hostListBody())
 	m.common.fetch = fetch
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: c, Body: []byte(hostListBody())}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: c, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
 	if len(m.history) != 2 || m.pos != 1 {
@@ -889,7 +889,7 @@ func TestViewIncludesBreadcrumbBar(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 80, 24
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
 	view := m.View().Content
@@ -913,7 +913,7 @@ func TestQuestionMarkTogglesHelpOverlay(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 80, 24
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
@@ -938,7 +938,7 @@ func TestHelpToggleDoesNotRepaginateList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 80, 24
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(manyUserGridBody(30))}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(manyUserGridBody(30))}})
 	m = step.(appModel)
 	if m.state != stateList {
 		t.Fatalf("state=%d, want stateList (body did not parse as a user list)", m.state)
@@ -980,7 +980,7 @@ func TestQuestionMarkWhileFilteringDoesNotOpenHelp(t *testing.T) {
 func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	// Drive a fetch so we reach a content-focused reader state.
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")}})
 	m = step.(appModel)
 	// Now inputFocused==false; '?' should open help.
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
@@ -992,7 +992,7 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 func TestReaderHelpContext(t *testing.T) {
 	t.Run("without links omits navigation", func(t *testing.T) {
 		m := newApp(stubFetch(t), colorprofile.NoTTY)
-		step, _ := m.Update(fetchResultMsg{entry: Entry{
+		step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 			Target: hostTarget(t, "alice@plan.cat"),
 			Body:   []byte("Plan: hi\n"),
 		}})
@@ -1136,7 +1136,7 @@ func TestLinksPanelHelpQuestionMarkRouting(t *testing.T) {
 
 func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	m = step.(appModel)
@@ -1160,7 +1160,7 @@ func TestHelpPanelRowsSpanFullWidth(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 24})
 	m = step.(appModel)
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	m = step.(appModel)
@@ -1191,7 +1191,7 @@ func TestEscFromRawViewClearsRawState(t *testing.T) {
 	// A second Esc backs to landing (pops the history node).
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@unknown.host")
-	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
 	m = opened.(appModel)
 
 	raw, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
@@ -1230,12 +1230,12 @@ func TestEscFromRawViewClearsRawState(t *testing.T) {
 func TestRestorePreservesListSelection(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = step.(appModel)
 	wantIdx := m.list.list.Index()
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "x@tilde.team"), Body: []byte("Login: x\n")}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "x@tilde.team"), Body: []byte("Login: x\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = step.(appModel)
@@ -1275,7 +1275,7 @@ func TestLandingFocusesInput(t *testing.T) {
 func TestIFocusesInputFromContent(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	if m.inputFocused {
 		t.Fatal("after a fetch, content should have focus")
@@ -1349,7 +1349,7 @@ func TestSubmitFetchesForwardedTarget(t *testing.T) {
 func TestQQuitsFromContent(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q'})
 	if cmd == nil || !isQuit(cmd) {
@@ -1380,7 +1380,7 @@ func TestEscFromInputBlursToContentThenQuitsAtLanding(t *testing.T) {
 	// With content present, Esc from the input blurs (does not quit).
 	m2 := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m2.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m2, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m2 = step.(appModel)
 	step, _ = m2.Update(tea.KeyPressMsg{Code: 'i'}) // focus input
 	m2 = step.(appModel)
@@ -1399,7 +1399,7 @@ func TestAltArrowsNoLongerNavigate(t *testing.T) {
 	a := hostTarget(t, "@a.example")
 	b := hostTarget(t, "@b.example")
 	for _, tg := range []finger.Target{a, b} {
-		step, _ := m.Update(fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
+		step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
 		m = step.(appModel)
 	}
 	// Alt+Left used to go back; now it's inert (content key, delegated, no-op for the list).
@@ -1453,7 +1453,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	target := hostTarget(t, "alice@plan.cat")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\n")}})
 	m = step.(appModel)
 	if !strings.Contains(m.reader.viewport.View(), "\x1b[38;2;255;95;162mLogin:\x1b[0m") {
 		t.Fatalf("precondition: reader did not render dark field colour:\n%q", m.reader.viewport.View())
@@ -1469,7 +1469,7 @@ func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {
 func TestBackgroundColorMsgPreservesRawView(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	target := hostTarget(t, "alice@plan.cat")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\nPlan: raw\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\nPlan: raw\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: 'v'})
 	m = step.(appModel)
@@ -1501,7 +1501,7 @@ func TestHelpExpandsAtBottomNotFullScreen(t *testing.T) {
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = step.(appModel)
 	host := hostTarget(t, "@tilde.team")
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
@@ -1529,7 +1529,7 @@ func TestListBarShowsPageIndicatorWhenPaged(t *testing.T) {
 
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
 	m = step.(appModel)
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "@big.host"), Body: []byte(body)}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "@big.host"), Body: []byte(body)}})
 	m = step.(appModel)
 
 	if m.state != stateList {
@@ -1558,7 +1558,7 @@ func TestYCopiesAddressWithFlash(t *testing.T) {
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel) // list of @tilde.team, content focused
 
 	step, _ = m.Update(tea.KeyPressMsg{Code: 'y'})
@@ -1657,7 +1657,7 @@ func TestReaderYCopiesAddressWithFlash(t *testing.T) {
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "alice@plan.cat")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Plan\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte("Plan\n")}})
 	m = step.(appModel) // reader, content focused, pos==0
 
 	if m.state != stateReader {
@@ -2093,7 +2093,7 @@ func TestUpdateKeymapGatesByState(t *testing.T) {
 
 	// Host list lands → content focused, list state: open/filter/back/copy/focus live.
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	(&m).updateKeymap()
 	if !m.keys.Open.Enabled() || !m.keys.Filter.Enabled() || !m.keys.Back.Enabled() ||
@@ -2103,7 +2103,7 @@ func TestUpdateKeymapGatesByState(t *testing.T) {
 
 	// Profile reader → no link actions or panel (nothing to drill, finger, or
 	// browse); raw/copy/back live.
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	(&m).updateKeymap()
 	if m.keys.Open.Enabled() || m.keys.Filter.Enabled() || m.keys.LinkNext.Enabled() ||
@@ -2158,7 +2158,7 @@ func TestUpdateKeymapGatesByState(t *testing.T) {
 // in the current state (bubbles/help skips disabled bindings).
 func TestHelpPanelHidesInertKeys(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
@@ -2178,7 +2178,7 @@ func TestHelpPanelHidesInertKeys(t *testing.T) {
 func TestInputFocusedBarShowsGoCancel(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width = 80
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: 'i'})
 	m = step.(appModel)
@@ -2421,7 +2421,7 @@ func TestAboutOpensFromBlurredResult(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
-	step, _ := m.Update(fetchResultMsg{entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
 	}})
 	m = step.(appModel)
@@ -2477,7 +2477,7 @@ func TestAboutEscReturnsToOrigin(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
-	step, _ := m.Update(fetchResultMsg{entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
 	}})
 	m = step.(appModel)
@@ -2509,7 +2509,7 @@ func TestCopyAddressNothingToCopy(t *testing.T) {
 
 func TestCopyAddressSuccessSetsCopiedFlash(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"),
 		Body:   []byte("Plan: hi\n"),
 	}})
@@ -2523,7 +2523,7 @@ func TestCopyAddressSuccessSetsCopiedFlash(t *testing.T) {
 
 func TestBackClearsFlash(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"),
 		Body:   []byte("Plan: hi\n"),
 	}})
@@ -2551,7 +2551,7 @@ func TestDrillClearsFlash(t *testing.T) {
 
 func TestFocusInputPreservesErrorFlash(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"),
 		Body:   []byte("Plan: hi\n"),
 	}})
@@ -2749,7 +2749,7 @@ func TestAboutStatusBarFromLandingAndResult(t *testing.T) {
 	m2 := newApp(stubFetch(t), colorprofile.NoTTY)
 	sized2, _ := m2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m2 = sized2.(appModel)
-	step, _ := m2.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ := deliverNavigationResult(m2, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m2 = step.(appModel)
 	(&m2).openAbout()
 	bar2 := m2.statusBarModel()

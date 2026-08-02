@@ -57,6 +57,10 @@ func deliverNavigation(m appModel, entry Entry) appModel {
 	return next.(appModel)
 }
 
+func deliverNavigationResult(m appModel, msg fetchResultMsg) (tea.Model, tea.Cmd) {
+	return deliverNavigation(m, msg.entry), nil
+}
+
 func TestEscapeCancelsPendingRequestAndDropsResult(t *testing.T) {
 	started := make(chan struct{})
 	fetch := func(ctx context.Context, _ finger.Target) ([]byte, finger.Meta, error) {
@@ -81,6 +85,16 @@ func TestEscapeCancelsPendingRequestAndDropsResult(t *testing.T) {
 	m = next.(appModel)
 	if m.pos != -1 || len(m.history) != 0 {
 		t.Fatalf("cancelled result landed: pos=%d history=%d", m.pos, len(m.history))
+	}
+}
+
+func TestUnmatchedZeroIDResultIsDropped(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	entry := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: stale\n")}
+	next, _ := m.Update(fetchResultMsg{entry: entry})
+	got := next.(appModel)
+	if got.pos != -1 || len(got.history) != 0 {
+		t.Fatalf("unmatched zero-ID result landed: pos=%d history=%d", got.pos, len(got.history))
 	}
 }
 

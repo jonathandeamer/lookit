@@ -107,6 +107,20 @@ func TestStatusBarWarnFlagRendered(t *testing.T) {
 	}
 }
 
+func TestStatusBarShowsFlagAtExactWidth(t *testing.T) {
+	b := statusBar{flags: []string{"auto-detected"}, width: 15, styles: newStyles(true)}
+	if got := b.render(); !strings.Contains(got, "auto-detected") {
+		t.Fatalf("exact-width flag missing: %q", got)
+	}
+}
+
+func TestStatusBarDoesNotReserveSpaceForHiddenBreadcrumb(t *testing.T) {
+	b := statusBar{host: "@tilde.team", hints: "abcdefghij", width: 10, styles: newStyles(true)}
+	if got := ansi.Strip(b.render()); !strings.Contains(got, "abcdefghij") {
+		t.Fatalf("full-width hint truncated for hidden breadcrumb: %q", got)
+	}
+}
+
 func TestStatusBarFlagNeverOverflowsNarrowWidth(t *testing.T) {
 	for w := 1; w <= 30; w++ {
 		b := statusBar{host: "@tilde.team", flags: []string{"partial (truncated)"},

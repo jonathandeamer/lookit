@@ -56,10 +56,10 @@ func TestReaderFocusedLinkStatus(t *testing.T) {
 		link Link
 		want string
 	}{
-		{"definite", definite, "link 1/1 · finger · ↵ go · y copy · tab next"},
-		{"ambiguous", ambiguous, "link 1/1 · address (ambiguous) · f go · y copy · tab next"},
-		{"url", Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}, "link 1/1 · url · y copy · tab next"},
-		{"blocked", blocked, "link 1/1 · forwarded finger · y copy · cross-relay · tab next"},
+		{"definite", definite, "link 1/1 · finger · ↵ go · y copy · tab next · r refresh"},
+		{"ambiguous", ambiguous, "link 1/1 · address (ambiguous) · f go · y copy · tab next · r refresh"},
+		{"url", Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}, "link 1/1 · url · y copy · tab next · r refresh"},
+		{"blocked", blocked, "link 1/1 · forwarded finger · y copy · cross-relay · tab next · r refresh"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

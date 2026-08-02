@@ -55,12 +55,25 @@ func (b statusBar) render() string {
 	if b.hints != "" {
 		right = append(right, b.hints)
 	}
-	rightText := ansi.Truncate(strings.Join(right, " · "), b.width, "…")
+	// Honesty flags take precedence over contextual hints. Reserve their room
+	// before truncating the right group so a new hint cannot hide a partial or
+	// auto-detected marker on a narrow terminal.
+	allFlags, _ := b.flagsWithin(b.width)
+	separator := 0
+	if len(right) > 0 && (b.host != "" || b.user != "" || allFlags != "") {
+		separator = 1
+	}
+	rightBudget := b.width - lipgloss.Width(allFlags) - separator
+	if rightBudget < 0 {
+		rightBudget = 0
+	}
+	rightJoined := strings.Join(right, " · ")
+	rightText := ansi.Truncate(rightJoined, rightBudget, "…")
 	rightW := lipgloss.Width(rightText)
 
 	// Left group: breadcrumb + flags. Flags are kept whole when they fit; the
 	// breadcrumb truncates first because it is the most expendable content.
-	avail := b.width - rightW - 1
+	avail := b.width - rightW - separator
 	if avail < 0 {
 		avail = 0
 	}
@@ -72,6 +85,10 @@ func (b statusBar) render() string {
 
 	left := b.styleCrumb(crumbBudget) + styledFlags
 	leftW := lipgloss.Width(left)
+	if leftW == 0 && rightW < b.width {
+		rightText = ansi.Truncate(rightJoined, b.width, "…")
+		rightW = lipgloss.Width(rightText)
+	}
 
 	gap := b.width - leftW - rightW
 	if gap < 0 {

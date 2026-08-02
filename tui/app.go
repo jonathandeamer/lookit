@@ -235,10 +235,11 @@ func (m *appModel) snapshot() {
 
 func (m appModel) captureRefreshView() refreshViewState {
 	view := refreshViewState{state: m.state}
-	if m.state == stateList {
+	switch m.state {
+	case stateList:
 		view.listFilter = m.list.list.FilterValue()
 		view.selected, _ = m.list.selected()
-	} else if m.state == stateReader {
+	case stateReader:
 		view.scrollY = m.reader.viewport.YOffset()
 		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(m.reader.links) {
 			view.linkRaw = m.reader.links[m.reader.focusedLink].Raw
@@ -314,6 +315,7 @@ func (m *appModel) gotoLanding() {
 
 // stepBack moves one step toward history root, or to the landing from pos 0.
 func (m *appModel) stepBack() {
+	m.clearRequestFailure()
 	m.showingRaw = false
 	m.showingLinks = false
 	if m.pos < 0 {
@@ -341,6 +343,7 @@ func (m *appModel) back() tea.Cmd {
 // focusInput gives the keyboard to the target input, pre-filled with the
 // current target for browser-style editing.
 func (m *appModel) focusInput() tea.Cmd {
+	m.clearRequestFailure()
 	if m.pos >= 0 {
 		m.input.SetValue(m.history[m.pos].entry.Target.Raw)
 	}
@@ -361,6 +364,7 @@ func (m *appModel) blurInput() {
 // state so closeAbout can restore it without a re-fetch. About is transient: it
 // is not pushed onto history.
 func (m *appModel) openAbout() {
+	m.clearRequestFailure()
 	m.flash = ""
 	m.aboutFromState = m.state
 	m.state = stateAbout
@@ -394,6 +398,7 @@ func (m *appModel) enterRaw() {
 	if m.pos < 0 {
 		return
 	}
+	m.clearRequestFailure()
 	m.reader.setRaw(m.history[m.pos].entry.Body)
 	m.state = stateReader
 	m.showingRaw = true
@@ -713,6 +718,9 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.Copy):
 		cmd := m.copyAddress()
 		return true, m, cmd
+	case key.Matches(msg, m.keys.Refresh):
+		cmd := m.refreshCurrent()
+		return true, m, cmd
 	case key.Matches(msg, m.keys.Open) && m.state == stateList:
 		return m.drill()
 	case key.Matches(msg, m.keys.Open) && m.state == stateReader && m.pos >= 0:
@@ -751,6 +759,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		}
 		return true, m, nil
 	case key.Matches(msg, m.keys.LinkPanel) && m.pos >= 0:
+		m.clearRequestFailure()
 		node := m.history[m.pos]
 		m.showingLinks = true
 		m.linksPanel = newLinksPanel(m.common, node.links)
@@ -870,6 +879,22 @@ func (m appModel) shouldRetry() bool {
 	}
 	entry := m.history[m.pos].entry
 	return entry.Err != nil && len(entry.Body) == 0
+}
+
+func (m appModel) refreshHelp() key.Help {
+	if m.shouldRetry() {
+		return key.Help{Key: "r", Desc: "retry"}
+	}
+	return key.Help{Key: "r", Desc: "refresh"}
+}
+
+func (m appModel) refreshHint() string {
+	help := m.refreshHelp()
+	return help.Key + " " + help.Desc
+}
+
+func (m *appModel) clearRequestFailure() {
+	m.requestFailure = nil
 }
 
 func (m *appModel) refreshCurrent() tea.Cmd {
@@ -998,12 +1023,14 @@ func (m *appModel) copyAddress() tea.Cmd {
 // (help panel); Update and View call it. Pattern: pop's updateKeymap
 // (~/pop/keymap.go).
 func (m *appModel) updateKeymap() {
+	refreshHelp := m.refreshHelp()
+	m.keys.Refresh.SetHelp(refreshHelp.Key, refreshHelp.Desc)
 	if m.pending != nil {
 		for _, binding := range []*key.Binding{
 			&m.keys.Open, &m.keys.FocusInput, &m.keys.Filter, &m.keys.Raw,
 			&m.keys.Copy, &m.keys.Help, &m.keys.About, &m.keys.Move,
 			&m.keys.Page, &m.keys.Jump, &m.keys.LinkNext, &m.keys.LinkPrev,
-			&m.keys.LinkFinger, &m.keys.LinkPanel,
+			&m.keys.LinkFinger, &m.keys.LinkPanel, &m.keys.Refresh,
 		} {
 			binding.SetEnabled(false)
 		}
@@ -1015,6 +1042,10 @@ func (m *appModel) updateKeymap() {
 	content := !m.inputFocused
 	hasResult := m.pos >= 0
 	inList := content && m.state == stateList && !m.showingRaw
+	canRefresh := content && hasResult &&
+		(m.state == stateReader || m.state == stateList) &&
+		!m.showingRaw && !m.showingLinks &&
+		(m.state != stateList || !m.list.filtering())
 
 	// Dual-mode commands — handleKey matches them in BOTH the input-focused and
 	// content branches, so they must stay live while typing: Open=Enter (submit
@@ -1034,6 +1065,7 @@ func (m *appModel) updateKeymap() {
 	m.keys.Move.SetEnabled(content)
 	m.keys.Page.SetEnabled(content)
 	m.keys.Jump.SetEnabled(content)
+	m.keys.Refresh.SetEnabled(canRefresh)
 
 	inReader := content && m.state == stateReader && !m.showingRaw
 	hasReaderLinks := false
@@ -1095,13 +1127,17 @@ func (m appModel) statusBarModel() statusBar {
 	bar := m.buildStatusBar()
 	if m.flash != "" {
 		bar.hints = m.flash // a transient flash message overrides the resting hints
+		return bar
+	}
+	if m.requestFailure != nil && (m.state != stateList || !m.list.filtering()) {
+		bar.hints = m.requestFailure.statusText()
 	}
 	return bar
 }
 
-// buildStatusBar assembles the bar for the current (non-loading) screen. The
-// flash override is applied once by statusBarModel, so each branch here sets
-// bar.hints to its resting value without repeating the check.
+// buildStatusBar assembles the bar for the current (non-loading) screen.
+// statusBarModel applies transient flash and refresh-failure overrides, so each
+// branch here sets bar.hints to its resting value without repeating the check.
 func (m appModel) buildStatusBar() statusBar {
 	st := m.common.styles
 	w := m.common.width
@@ -1173,6 +1209,9 @@ func (m appModel) buildStatusBar() statusBar {
 	case stateList:
 		bar.meta = fmt.Sprintf("%d users", node.listUsers)
 		parts := []string{"↵ go", "/ filter"}
+		if !m.list.filtering() {
+			parts = append(parts, m.refreshHint())
+		}
 		if node.listGeneric {
 			bar.flags = append(bar.flags, "auto-detected")
 			parts = append(parts, "v view source")
@@ -1204,11 +1243,11 @@ func (m appModel) buildStatusBar() statusBar {
 			if link.Blocked != "" {
 				extra = append(extra, link.Blocked)
 			}
-			extra = append(extra, "tab next")
+			extra = append(extra, "tab next", m.refreshHint())
 			bar.hints = fmt.Sprintf("link %d/%d · %s · %s", n, total, label, strings.Join(extra, " · "))
 			return bar
 		}
-		bar.hints = joinHints([]string{"↑↓ scroll"}, bar.escTarget)
+		bar.hints = joinHints([]string{"↑↓ scroll", m.refreshHint()}, bar.escTarget)
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
 			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))
 		}

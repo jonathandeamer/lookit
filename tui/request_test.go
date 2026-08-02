@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -415,5 +417,255 @@ func TestPendingStillProcessesTerminalMessages(t *testing.T) {
 	got := next.(appModel)
 	if got.pending == nil || got.common.width != 91 || got.common.height != 27 || got.common.profile != colorprofile.TrueColor || got.common.darkBackground || got.spin.View() == beforeSpinner || tickCmd == nil {
 		t.Fatalf("terminal updates lost while pending: pending=%#v size=%dx%d profile=%v dark=%v spinner=%q", got.pending, got.common.width, got.common.height, got.common.profile, got.common.darkBackground, got.spin.View())
+	}
+}
+
+func TestRefreshKeyScopeAndDynamicHelp(t *testing.T) {
+	entry := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")}
+	m := settledReader(t, entry)
+	m.updateKeymap()
+	if !m.keys.Refresh.Enabled() || m.keys.Refresh.Help().Desc != "refresh" {
+		t.Fatal("reader refresh disabled")
+	}
+	m.inputFocused = true
+	m.updateKeymap()
+	if m.keys.Refresh.Enabled() {
+		t.Fatal("refresh enabled in input")
+	}
+	m.inputFocused, m.showingRaw = false, true
+	m.updateKeymap()
+	if m.keys.Refresh.Enabled() {
+		t.Fatal("refresh enabled in source")
+	}
+	m.showingRaw = false
+	m.requestFailure = &requestFailure{err: errors.New("timeout")}
+	m.updateKeymap()
+	if !m.keys.Refresh.Enabled() || m.keys.Refresh.Help().Desc != "retry" {
+		t.Fatal("retry help not active")
+	}
+}
+
+func TestRStartsInPlaceRefresh(t *testing.T) {
+	fetch, seen := fetchRecorder("fresh\n")
+	m := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")})
+	m.common.fetch = fetch
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'r'})
+	got := next.(appModel)
+	if got.pending == nil || got.pending.intent != requestRefresh || cmd == nil {
+		t.Fatal("r did not start refresh")
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != "alice@plan.cat" {
+		t.Fatalf("targets = %v", *seen)
+	}
+}
+
+func TestFailedRefreshWarningCopy(t *testing.T) {
+	entry := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
+	m := settledReader(t, entry)
+	m.common.width = 120
+	m.requestFailure = &requestFailure{target: entry.Target, err: errors.New("read timed out")}
+	bar := m.statusBarModel().render()
+	for _, want := range []string{"refresh failed: read timed out", "showing previous response", "r retry"} {
+		if !strings.Contains(bar, want) {
+			t.Fatalf("bar %q missing %q", bar, want)
+		}
+	}
+	m.requestFailure.retry = true
+	bar = m.statusBarModel().render()
+	if !strings.Contains(bar, "retry failed") || strings.Contains(bar, "showing previous response") {
+		t.Fatalf("retry bar = %q", bar)
+	}
+}
+
+func TestCancelledRetryRestoresWarning(t *testing.T) {
+	entry := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
+	m := settledReader(t, entry)
+	failure := &requestFailure{target: entry.Target, err: errors.New("timeout")}
+	m.requestFailure = failure
+	m.pending = &pendingRequest{target: entry.Target, retry: true, cancel: func() {}}
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	got := next.(appModel)
+	if got.pending != nil || got.requestFailure != failure {
+		t.Fatal("cancelled retry lost warning")
+	}
+}
+
+func TestMainContentRefreshStatus(t *testing.T) {
+	reader := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")})
+	if got, want := reader.buildStatusBar().hints, "↑↓ scroll · r refresh · esc back · ? help"; got != want {
+		t.Fatalf("reader hints = %q, want %q", got, want)
+	}
+	failed := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Err: errors.New("dial failed")})
+	if got, want := failed.buildStatusBar().hints, "↑↓ scroll · r retry · esc back · ? help"; got != want {
+		t.Fatalf("error hints = %q, want %q", got, want)
+	}
+	listed := settledList(t)
+	if got, want := listed.buildStatusBar().hints, "↵ go · / filter · r refresh · esc back · ? help"; got != want {
+		t.Fatalf("list hints = %q, want %q", got, want)
+	}
+}
+
+func helpText(m appModel) string {
+	m.updateKeymap()
+	return ansi.Strip(m.helpView())
+}
+
+func TestRefreshHelpContexts(t *testing.T) {
+	reader := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")})
+	if got := helpText(reader); !strings.Contains(got, "r refresh") {
+		t.Fatalf("reader help:\n%s", got)
+	}
+
+	failed := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Err: errors.New("dial failed")})
+	if got := helpText(failed); !strings.Contains(got, "r retry") {
+		t.Fatalf("error help:\n%s", got)
+	}
+
+	warning := reader
+	warning.requestFailure = &requestFailure{err: errors.New("timeout")}
+	if got := helpText(warning); !strings.Contains(got, "r retry") {
+		t.Fatalf("warning help:\n%s", got)
+	}
+
+	raw := reader
+	raw.enterRaw()
+	about := reader
+	about.openAbout()
+	linked := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("https://example.com\n")})
+	next, _ := linked.Update(tea.KeyPressMsg{Code: 'L'})
+	links := next.(appModel)
+	filtering := settledList(t)
+	next, _ = filtering.Update(tea.KeyPressMsg{Code: '/'})
+	filtering = next.(appModel)
+	for name, model := range map[string]appModel{"source": raw, "about": about, "links": links, "filter": filtering} {
+		got := helpText(model)
+		if strings.Contains(got, "r refresh") || strings.Contains(got, "r retry") {
+			t.Fatalf("%s help advertises refresh:\n%s", name, got)
+		}
+	}
+}
+
+func TestRIsLiteralInTargetAndFilterInputs(t *testing.T) {
+	target := newApp(stubFetch(t), colorprofile.NoTTY)
+	next, _ := target.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	gotTarget := next.(appModel)
+	if gotTarget.input.Value() != "r" || gotTarget.pending != nil {
+		t.Fatalf("target r = %q pending %#v", gotTarget.input.Value(), gotTarget.pending)
+	}
+
+	filtered := settledList(t)
+	next, _ = filtered.Update(tea.KeyPressMsg{Code: '/'})
+	filtered = next.(appModel)
+	next, _ = filtered.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	gotFilter := next.(appModel)
+	if gotFilter.list.list.FilterValue() != "r" || gotFilter.pending != nil {
+		t.Fatalf("filter r = %q pending %#v", gotFilter.list.list.FilterValue(), gotFilter.pending)
+	}
+}
+
+func TestListFilteringDoesNotAdvertiseRefreshOrRetry(t *testing.T) {
+	m := settledList(t)
+	next, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = next.(appModel)
+	if got := m.buildStatusBar().hints; strings.Contains(got, "r refresh") {
+		t.Fatalf("filter hints advertise refresh: %q", got)
+	}
+	m.requestFailure = &requestFailure{err: errors.New("timeout")}
+	if got := m.statusBarModel().hints; strings.Contains(got, "r retry") {
+		t.Fatalf("filter warning advertises retry: %q", got)
+	}
+}
+
+func TestRWhileHelpOpenOnlyClosesHelp(t *testing.T) {
+	m := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")})
+	m.help = true
+	m.helpModel.ShowAll = true
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'r'})
+	got := next.(appModel)
+	if got.help || got.pending != nil || cmd != nil {
+		t.Fatalf("r in help = help %v pending %#v cmd %T", got.help, got.pending, cmd)
+	}
+}
+
+func modelWithWarning(t *testing.T) appModel {
+	t.Helper()
+	m := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte(strings.Repeat("line\n", 30))})
+	m.requestFailure = &requestFailure{target: m.history[0].entry.Target, err: errors.New("old error")}
+	return m
+}
+
+func TestWarningSurvivesScrollAndHelpCycle(t *testing.T) {
+	m := modelWithWarning(t)
+	failure := m.requestFailure
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
+	m = next.(appModel)
+	next, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	m = next.(appModel)
+	next, _ = m.Update(tea.KeyPressMsg{Code: '?'})
+	got := next.(appModel)
+	if got.help || got.requestFailure != failure {
+		t.Fatalf("warning after scroll/help = help %v warning %#v", got.help, got.requestFailure)
+	}
+}
+
+func TestWarningClearsOnExplicitTransitions(t *testing.T) {
+	tests := map[string]func(appModel) appModel{
+		"back":   func(m appModel) appModel { m.stepBack(); return m },
+		"input":  func(m appModel) appModel { _ = m.focusInput(); return m },
+		"about":  func(m appModel) appModel { m.openAbout(); return m },
+		"source": func(m appModel) appModel { m.enterRaw(); return m },
+	}
+	for name, transition := range tests {
+		got := transition(modelWithWarning(t))
+		if got.requestFailure != nil {
+			t.Fatalf("%s retained warning %#v", name, got.requestFailure)
+		}
+	}
+
+	links := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("https://example.com\n")})
+	links.requestFailure = &requestFailure{err: errors.New("old error")}
+	next, _ := links.Update(tea.KeyPressMsg{Code: 'L'})
+	if got := next.(appModel); got.requestFailure != nil {
+		t.Fatalf("links retained warning %#v", got.requestFailure)
+	}
+
+	navigation := deliverNavigation(modelWithWarning(t), Entry{Target: hostTarget(t, "bob@plan.cat"), Err: errors.New("new navigation error")})
+	if navigation.requestFailure != nil {
+		t.Fatalf("navigation retained warning %#v", navigation.requestFailure)
+	}
+
+	refreshed := deliverRefresh(modelWithWarning(t), Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("fresh\n")}, true)
+	if refreshed.requestFailure != nil {
+		t.Fatalf("usable refresh retained warning %#v", refreshed.requestFailure)
+	}
+}
+
+func TestRepeatedRetryFailureUsesLatestError(t *testing.T) {
+	m := modelWithWarning(t)
+	got := deliverRefresh(m, Entry{Target: m.history[0].entry.Target, Err: errors.New("new error")}, true)
+	if got.requestFailure == nil || !got.requestFailure.retry || got.requestFailure.err.Error() != "new error" || string(got.history[0].entry.Body) == "" {
+		t.Fatalf("repeated failure = warning %#v entry %#v", got.requestFailure, got.history[0].entry)
+	}
+}
+
+func TestPendingKeymapEnablesOnlyCancellationAndQuit(t *testing.T) {
+	m := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")})
+	m.pending = &pendingRequest{id: 1, cancel: func() {}}
+	m.updateKeymap()
+	bindings := map[string]key.Binding{
+		"focus": m.keys.FocusInput, "back": m.keys.Back, "open": m.keys.Open,
+		"filter": m.keys.Filter, "raw": m.keys.Raw, "refresh": m.keys.Refresh,
+		"copy": m.keys.Copy, "help": m.keys.Help, "about": m.keys.About,
+		"quit": m.keys.Quit, "force-quit": m.keys.ForceQuit, "move": m.keys.Move,
+		"page": m.keys.Page, "jump": m.keys.Jump, "link-next": m.keys.LinkNext,
+		"link-prev": m.keys.LinkPrev, "link-finger": m.keys.LinkFinger,
+		"link-panel": m.keys.LinkPanel,
+	}
+	for name, binding := range bindings {
+		want := name == "back" || name == "quit" || name == "force-quit"
+		if binding.Enabled() != want {
+			t.Fatalf("%s enabled=%v, want %v", name, binding.Enabled(), want)
+		}
 	}
 }

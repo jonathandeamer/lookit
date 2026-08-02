@@ -13,6 +13,7 @@ func TestKeyMapBindings(t *testing.T) {
 	cases := map[string]key.Binding{
 		"i":   k.FocusInput,
 		"y":   k.Copy,
+		"r":   k.Refresh,
 		"v":   k.Raw,
 		"q":   k.Quit,
 		"?":   k.Help,
@@ -22,6 +23,13 @@ func TestKeyMapBindings(t *testing.T) {
 		if got := b.Keys(); len(got) == 0 || !contains(got, want) {
 			t.Fatalf("binding %v keys = %v, want to contain %q", b.Help(), got, want)
 		}
+	}
+}
+
+func TestRefreshKeyHelp(t *testing.T) {
+	got := newKeyMap().Refresh.Help()
+	if got != (key.Help{Key: "r", Desc: "refresh"}) {
+		t.Fatalf("Refresh help = %+v", got)
 	}
 }
 
@@ -54,7 +62,7 @@ func TestKeyMapFullHelpIncludesPageAndMoveKeys(t *testing.T) {
 		}
 	}
 	joined := strings.Join(all, " ")
-	for _, want := range []string{"i", "y", "esc", "q"} {
+	for _, want := range []string{"i", "y", "r", "esc", "q"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("FullHelp missing %q; got %s", want, joined)
 		}

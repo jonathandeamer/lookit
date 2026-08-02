@@ -33,6 +33,18 @@ func fetchRecorder(body string) (FetchFunc, *[]string) {
 	return f, &seen
 }
 
+func readerWithFocusedLink(t *testing.T, fetch FetchFunc, link Link) appModel {
+	t.Helper()
+	m := newApp(fetch, colorprofile.NoTTY)
+	target := hostTarget(t, "viewer@origin.example")
+	entry := Entry{Target: target, Body: []byte(link.Raw + "\n")}
+	m.history = []histNode{{entry: entry, state: stateReader, links: []Link{link}, linkIdx: 0}}
+	m.pos, m.state, m.inputFocused = 0, stateReader, false
+	m.reader.focusedLink = 0
+	m.reader.setEntryWithLinks(entry, []Link{link})
+	return m
+}
+
 func fetchTargetRecorder(body string) (FetchFunc, *[]finger.Target) {
 	var seen []finger.Target
 	f := func(_ context.Context, t finger.Target) ([]byte, finger.Meta, error) {
@@ -1424,6 +1436,121 @@ func TestReaderYCopiesAddressWithFlash(t *testing.T) {
 	}
 }
 
+func TestReaderEnterDefiniteFingersFocusedLink(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	fetch, seen := fetchRecorder("Plan: hi\n")
+	m := readerWithFocusedLink(t, fetch, Link{
+		Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target,
+	})
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if !got.loading {
+		t.Fatal("Enter on a definite finger link should start loading")
+	}
+	if cmd == nil {
+		t.Fatal("Enter on a definite finger link should return a fetch command")
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != target.Raw {
+		t.Fatalf("fetched targets = %v, want [%s]", *seen, target.Raw)
+	}
+}
+
+func TestReaderEnterURLDoesNothing(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}
+	m := readerWithFocusedLink(t, stubFetch(t), link)
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if cmd != nil {
+		t.Fatal("Enter on a URL should not return a command")
+	}
+	if got.loading {
+		t.Fatal("Enter on a URL should not start loading")
+	}
+	if copied != "" {
+		t.Fatalf("Enter on a URL copied %q, want no clipboard write", copied)
+	}
+}
+
+func TestReaderEnterBlockedFlashesRefusal(t *testing.T) {
+	link := Link{
+		Kind: LinkFinger, Action: ActionCopy, Raw: "alice@tilde.team@relay.example",
+		Blocked: "cross-relay: relay relay.example does not match current host",
+	}
+	m := readerWithFocusedLink(t, stubFetch(t), link)
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if got.flash != link.Blocked {
+		t.Fatalf("flash = %q, want %q", got.flash, link.Blocked)
+	}
+	if got.loading {
+		t.Fatal("Enter on a blocked link should not start loading")
+	}
+}
+
+func TestReaderFAmbiguousFingersFocusedLink(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	fetch, seen := fetchRecorder("Plan: hi\n")
+	m := readerWithFocusedLink(t, fetch, Link{
+		Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true,
+	})
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'f'})
+	got := next.(appModel)
+	if !got.loading {
+		t.Fatal("f on an ambiguous finger link should start loading")
+	}
+	if cmd == nil {
+		t.Fatal("f on an ambiguous finger link should return a fetch command")
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != target.Raw {
+		t.Fatalf("fetched targets = %v, want [%s]", *seen, target.Raw)
+	}
+}
+
+func TestReaderFDefiniteDoesNothing(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	m := readerWithFocusedLink(t, stubFetch(t), Link{
+		Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target,
+	})
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'f'})
+	got := next.(appModel)
+	if cmd != nil {
+		t.Fatal("f on a definite finger link should not return a command")
+	}
+	if got.loading {
+		t.Fatal("f on a definite finger link should not start loading")
+	}
+}
+
+func TestReaderYCopiesFocusedLink(t *testing.T) {
+	var copied string
+	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
+	defer func() { setClipboard = tea.SetClipboard }()
+
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}
+	m := readerWithFocusedLink(t, stubFetch(t), link)
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'y'})
+	got := next.(appModel)
+	runCmds(cmd)
+	if copied != link.Raw {
+		t.Fatalf("copied = %q, want focused link %q", copied, link.Raw)
+	}
+	if !strings.Contains(got.flash, link.Raw) {
+		t.Fatalf("flash = %q, want it to mention %q", got.flash, link.Raw)
+	}
+}
+
 // TestClearFlashMsgClearsFlash verifies that receiving a clearFlashMsg zeroes
 // m.flash.
 func TestClearFlashMsgClearsFlash(t *testing.T) {
@@ -1461,15 +1588,56 @@ func TestUpdateKeymapGatesByState(t *testing.T) {
 		t.Fatal("list content keys (open/filter/back/copy/focus) should be enabled")
 	}
 
-	// Profile reader → no Open/Filter (nothing to drill or filter); raw/copy/back live.
+	// Profile reader → no link actions or panel (nothing to drill, finger, or
+	// browse); raw/copy/back live.
 	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	(&m).updateKeymap()
-	if m.keys.Open.Enabled() || m.keys.Filter.Enabled() {
-		t.Fatal("open/filter should be disabled in a profile reader")
+	if m.keys.Open.Enabled() || m.keys.Filter.Enabled() || m.keys.LinkNext.Enabled() ||
+		m.keys.LinkPrev.Enabled() || m.keys.LinkFinger.Enabled() || m.keys.LinkPanel.Enabled() {
+		t.Fatal("link and filter actions should be disabled in a profile reader without links")
 	}
 	if !m.keys.Raw.Enabled() || !m.keys.Copy.Enabled() || !m.keys.Back.Enabled() {
 		t.Fatal("raw/copy/back should be enabled in a content reader with a result")
+	}
+
+	definiteTarget := hostTarget(t, "alice@tilde.team")
+	tests := []struct {
+		name           string
+		link           Link
+		wantOpen       bool
+		wantLinkFinger bool
+	}{
+		{
+			name: "definite finger", link: Link{Kind: LinkFinger, Action: ActionDrill, Raw: definiteTarget.Raw, Target: definiteTarget},
+			wantOpen: true,
+		},
+		{
+			name: "ambiguous finger", link: Link{Kind: LinkFinger, Action: ActionCopy, Raw: definiteTarget.Raw, Target: definiteTarget, Ambiguous: true},
+			wantLinkFinger: true,
+		},
+		{
+			name: "URL", link: Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"},
+		},
+		{
+			name: "blocked finger", link: Link{Kind: LinkFinger, Action: ActionCopy, Raw: "alice@tilde.team@relay.example", Blocked: "cross-relay"},
+			wantOpen: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := readerWithFocusedLink(t, stubFetch(t), tt.link)
+			(&reader).updateKeymap()
+			if reader.keys.Open.Enabled() != tt.wantOpen {
+				t.Errorf("Open enabled = %v, want %v", reader.keys.Open.Enabled(), tt.wantOpen)
+			}
+			if reader.keys.LinkFinger.Enabled() != tt.wantLinkFinger {
+				t.Errorf("LinkFinger enabled = %v, want %v", reader.keys.LinkFinger.Enabled(), tt.wantLinkFinger)
+			}
+			if !reader.keys.LinkNext.Enabled() || !reader.keys.LinkPrev.Enabled() || !reader.keys.LinkPanel.Enabled() {
+				t.Error("reader navigation and panel should be enabled when the current node has links")
+			}
+		})
 	}
 }
 

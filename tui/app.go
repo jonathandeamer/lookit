@@ -650,7 +650,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		node := &m.history[m.pos]
 		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
 			link := node.links[m.reader.focusedLink]
-			if link.Kind == LinkFinger && link.Target.HostPort != "" {
+			if actionsForLink(link).finger {
 				cmd := m.startFetch(link.Target)
 				return true, m, cmd
 			}
@@ -777,22 +777,28 @@ func linkKindLabel(l Link) string {
 	return "link"
 }
 
+func (m appModel) focusedReaderLink() (Link, bool) {
+	if m.state != stateReader || m.pos < 0 || m.pos >= len(m.history) {
+		return Link{}, false
+	}
+	node := m.history[m.pos]
+	if m.reader.focusedLink < 0 || m.reader.focusedLink >= len(node.links) {
+		return Link{}, false
+	}
+	return node.links[m.reader.focusedLink], true
+}
+
 // activateFocusedLink dispatches the default action for the currently focused link.
 func (m appModel) activateFocusedLink(node *histNode) (bool, appModel, tea.Cmd) {
 	link := node.links[m.reader.focusedLink]
-	switch link.Action {
-	case ActionDrill:
-		if link.Blocked != "" {
-			flash := m.setFlash(link.Blocked)
-			return true, m, flash
-		}
-		cmd := m.startFetch(link.Target)
-		return true, m, cmd
-	case ActionCopy:
-		flash := m.setFlash("copied " + link.Raw)
-		return true, m, tea.Batch(setClipboard(link.Raw), flash)
+	switch actionsForLink(link).enter {
+	case linkEnterGo:
+		return true, m, m.startFetch(link.Target)
+	case linkEnterRefuse:
+		return true, m, m.setFlash(link.Blocked)
+	default:
+		return true, m, nil
 	}
-	return true, m, nil
 }
 
 // copyAddress copies the relevant address to the clipboard and flashes it.
@@ -864,13 +870,27 @@ func (m *appModel) updateKeymap() {
 	m.keys.Jump.SetEnabled(content)
 
 	inReader := content && m.state == stateReader && !m.showingRaw
-	m.keys.LinkNext.SetEnabled(inReader && !m.showingLinks)
-	m.keys.LinkPrev.SetEnabled(inReader && !m.showingLinks)
-	m.keys.LinkFinger.SetEnabled(inReader || m.showingLinks)
-	m.keys.LinkPanel.SetEnabled(inReader || m.showingLinks)
+	hasReaderLinks := false
+	if m.state == stateReader && m.pos >= 0 && m.pos < len(m.history) {
+		hasReaderLinks = len(m.history[m.pos].links) > 0
+	}
+	m.keys.LinkNext.SetEnabled(inReader && hasReaderLinks && !m.showingLinks)
+	m.keys.LinkPrev.SetEnabled(inReader && hasReaderLinks && !m.showingLinks)
+	m.keys.LinkFinger.SetEnabled(false)
+	m.keys.LinkPanel.SetEnabled((inReader && hasReaderLinks) || m.showingLinks)
+	if inReader {
+		if link, ok := m.focusedReaderLink(); ok {
+			actions := actionsForLink(link)
+			m.keys.Open.SetEnabled(actions.enter != linkEnterNone)
+			m.keys.LinkFinger.SetEnabled(actions.finger)
+		} else {
+			m.keys.Open.SetEnabled(false)
+		}
+	}
 	if m.showingLinks {
 		m.keys.Open.SetEnabled(true)
 		m.keys.Back.SetEnabled(true)
+		m.keys.LinkFinger.SetEnabled(true)
 	}
 
 	if m.state == stateAbout {

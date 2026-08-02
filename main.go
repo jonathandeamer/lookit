@@ -83,7 +83,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return exitOK
 		default:
 			if strings.HasPrefix(a, "-") {
-				fmt.Fprint(stderr, render.Usage(errProfile))
+				fmt.Fprint(stderr, render.InvocationError(fmt.Sprintf("unknown option %q", a), errProfile))
 				return exitError
 			}
 			positional = append(positional, a)
@@ -91,7 +91,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if len(positional) > 1 {
-		fmt.Fprint(stderr, render.Usage(errProfile))
+		fmt.Fprint(stderr, render.InvocationError("expected at most one target", errProfile))
 		return exitError
 	}
 

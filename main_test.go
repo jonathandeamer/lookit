@@ -59,18 +59,22 @@ func TestVersionStringOmitsUnknownBuildDate(t *testing.T) {
 	}
 }
 
-func TestRunHelp(t *testing.T) {
+func TestRunHelpFlags(t *testing.T) {
 	pinProfile(t, colorprofile.NoTTY)
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--help"}, &stdout, &stderr)
-	if code != exitOK {
-		t.Fatalf("exit code = %d, want %d", code, exitOK)
-	}
-	if !strings.Contains(stdout.String(), "usage:") {
-		t.Fatalf("stdout = %q, want usage block", stdout.String())
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+	for _, flag := range []string{"-h", "--help"} {
+		t.Run(flag, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run([]string{flag}, &stdout, &stderr)
+			if code != exitOK {
+				t.Fatalf("exit code = %d, want %d", code, exitOK)
+			}
+			if !strings.Contains(stdout.String(), "Usage:") {
+				t.Fatalf("stdout = %q, want help block", stdout.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q, want empty", stderr.String())
+			}
+		})
 	}
 }
 
@@ -178,6 +182,21 @@ func TestRunSeedsTUIWithBlankArg(t *testing.T) {
 	}
 }
 
+func TestRunUnknownOptionIdentifiesFlag(t *testing.T) {
+	pinProfile(t, colorprofile.NoTTY)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--bogus"}, &stdout, &stderr)
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d", code, exitError)
+	}
+	if got, want := stderr.String(), "lookit: unknown option \"--bogus\"\nTry 'lookit --help' for usage.\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
 func TestRunTooManyArgs(t *testing.T) {
 	pinProfile(t, colorprofile.NoTTY)
 	var stdout, stderr bytes.Buffer
@@ -185,8 +204,11 @@ func TestRunTooManyArgs(t *testing.T) {
 	if code != exitError {
 		t.Fatalf("exit code = %d, want %d", code, exitError)
 	}
-	if !strings.Contains(stderr.String(), "usage:") {
-		t.Fatalf("stderr = %q, want usage block", stderr.String())
+	if got, want := stderr.String(), "lookit: expected at most one target\nTry 'lookit --help' for usage.\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -198,8 +220,11 @@ func TestRunTUIFailure(t *testing.T) {
 	if code != exitError {
 		t.Fatalf("exit code = %d, want %d", code, exitError)
 	}
-	if !strings.Contains(stderr.String(), "terminal unavailable") {
-		t.Fatalf("stderr = %q, want TUI error", stderr.String())
+	if got, want := stderr.String(), "lookit: terminal unavailable\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 

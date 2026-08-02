@@ -68,11 +68,6 @@ func TestReaderFocusedLinkStatus(t *testing.T) {
 			if got != tt.want {
 				t.Fatalf("status hints = %q, want %q", got, tt.want)
 			}
-			for _, stale := range []string{"drill", "⇥ next", "⌘-click opens"} {
-				if strings.Contains(got, stale) {
-					t.Fatalf("status hints = %q, must omit %q", got, stale)
-				}
-			}
 		})
 	}
 }
@@ -2712,6 +2707,26 @@ func TestAboutCopiesIssuesURL(t *testing.T) {
 	}
 }
 
+func TestAboutTabDoesNothing(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	(&m).openAbout()
+	wantView := m.View().Content
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	got := next.(appModel)
+	if cmd != nil {
+		t.Fatal("Tab on about should not return a command")
+	}
+	if got.state != stateAbout {
+		t.Fatalf("Tab on about: state = %d, want stateAbout", got.state)
+	}
+	if got.View().Content != wantView {
+		t.Fatalf("Tab on about should leave the view unchanged:\nwant:\n%s\n\ngot:\n%s", wantView, got.View().Content)
+	}
+}
+
 func TestAboutStatusBarFromLandingAndResult(t *testing.T) {
 	// Opened from the bare landing (pos<0): left label "about lookit", and the
 	// hints advertise all four about keys including "esc back".
@@ -2723,7 +2738,7 @@ func TestAboutStatusBarFromLandingAndResult(t *testing.T) {
 	if bar.host != "about lookit" {
 		t.Fatalf("landing-origin about bar host = %q, want \"about lookit\"", bar.host)
 	}
-	for _, want := range []string{"↵ go", "y copy", "esc back", "q quit"} {
+	for _, want := range []string{"↵ go to author", "y copy issues URL", "esc back", "q quit"} {
 		if !strings.Contains(bar.hints, want) {
 			t.Fatalf("landing-origin about hints = %q, missing %q", bar.hints, want)
 		}
@@ -2744,7 +2759,7 @@ func TestAboutStatusBarFromLandingAndResult(t *testing.T) {
 	if strings.Contains(bar2.hints, "esc back") {
 		t.Fatalf("result-origin about hints should omit \"esc back\" (breadcrumb shows it): %q", bar2.hints)
 	}
-	for _, want := range []string{"↵ go", "y copy", "q quit"} {
+	for _, want := range []string{"↵ go to author", "y copy issues URL", "q quit"} {
 		if !strings.Contains(bar2.hints, want) {
 			t.Fatalf("result-origin about hints = %q, missing %q", bar2.hints, want)
 		}

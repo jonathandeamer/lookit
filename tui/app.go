@@ -970,7 +970,7 @@ func (m appModel) buildStatusBar() statusBar {
 		} else {
 			bar.host = "about lookit"
 		}
-		parts := []string{"↵ go", "y copy"}
+		parts := []string{"↵ go to author", "y copy issues URL"}
 		if bar.escTarget == "" {
 			parts = append(parts, "esc back")
 		}
@@ -1007,7 +1007,7 @@ func (m appModel) buildStatusBar() statusBar {
 	}
 
 	if m.showingLinks {
-		parts := []string{}
+		var parts []string
 		switch {
 		case m.linksPanel.filtering() && m.linksPanel.filterValue() == "":
 			bar.hints = "type to filter · esc cancel"

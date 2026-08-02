@@ -90,7 +90,7 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	actions := lipgloss.JoinVertical(
 		lipgloss.Left,
 		pad(left1)+dim.Render("↵ go"),
-		pad(left2)+dim.Render("y to copy the issues URL"),
+		pad(left2)+dim.Render("y copy issues URL"),
 	)
 
 	block := lipgloss.JoinVertical(

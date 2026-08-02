@@ -21,7 +21,7 @@ func TestAboutViewRendersIdentityAndActions(t *testing.T) {
 		"finger jonathan@tilde.team",
 		"↵ go",
 		"Report a bug or idea",
-		"y to copy the issues URL",
+		"y copy issues URL",
 		"Thanks for supporting the small internet",
 	} {
 		if !strings.Contains(plain, want) {

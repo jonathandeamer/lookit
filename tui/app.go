@@ -1212,14 +1212,14 @@ func (m appModel) buildStatusBar() statusBar {
 		if !m.list.filtering() {
 			parts = append(parts, m.refreshHint())
 		}
-		if node.listGeneric {
-			bar.flags = append(bar.flags, "auto-detected")
-			parts = append(parts, "v view source")
-		}
 		if node.entry.Err != nil {
 			bar.flags = append(bar.flags, "partial (error)")
 		} else if node.entry.Meta.Truncated {
 			bar.flags = append(bar.flags, "partial (truncated)")
+		}
+		if node.listGeneric {
+			bar.flags = append(bar.flags, "auto-detected")
+			parts = append(parts, "v view source")
 		}
 		bar.hints = joinHints(parts, bar.escTarget)
 		if tp := m.list.list.Paginator.TotalPages; tp > 1 {

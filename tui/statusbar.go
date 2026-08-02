@@ -68,8 +68,14 @@ func (b statusBar) render() string {
 		rightBudget = 0
 	}
 	rightJoined := strings.Join(right, " · ")
-	rightText := ansi.Truncate(rightJoined, rightBudget, "…")
+	rightText := ""
+	if rightBudget > 0 {
+		rightText = ansi.Truncate(rightJoined, rightBudget, "…")
+	}
 	rightW := lipgloss.Width(rightText)
+	if rightW == 0 {
+		separator = 0
+	}
 
 	// Left group: breadcrumb + flags. Flags are kept whole when they fit; the
 	// breadcrumb truncates first because it is the most expendable content.

@@ -699,6 +699,24 @@ func TestGenericTruncatedListShowsBothFlags(t *testing.T) {
 	}
 }
 
+func TestGenericTruncatedListPrioritizesPartialFlagAtNarrowWidth(t *testing.T) {
+	host := hostTarget(t, "@unknown.host")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 21, 24
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
+		Target: host,
+		Body:   []byte(genericListBody()),
+		Meta:   finger.Meta{Addr: host.HostPort, Truncated: true},
+	}})
+	bar := ansi.Strip(step.(appModel).statusBarModel().render())
+	if !strings.Contains(bar, "partial (truncated)") {
+		t.Fatalf("narrow generic truncated bar = %q, want partial flag", bar)
+	}
+	if strings.Contains(bar, "auto-detected") {
+		t.Fatalf("narrow generic truncated bar = %q, should prioritize partial flag", bar)
+	}
+}
+
 func TestGenericHostFetchOpensFlaggedList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 100, 24

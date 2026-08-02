@@ -60,7 +60,7 @@ both one-shot CLI output and the TUI reader viewport.
 | `(no response body)` | `render/render.go:27-29` | Successful query with an empty body. |
 | `<bytes> · <elapsed>` | `render/chrome.go:23-29` | Footer stats. |
 | `truncated` | `render/render.go:40-43` | Footer notice when `finger.Meta.Truncated` is true. |
-| `<queryErr.Error()>` | `render/render.go:46-48` | Error line after the footer. Text comes from `finger.Query`. Explicit TUI cancellation suppresses `context.Canceled` and discards any partial body returned with it. |
+| `<queryErr.Error()>` | `render/render.go`, `tui/request.go`, `tui/app.go` | Renderer error line after the footer for ordinary query errors. Explicit TUI cancellation is suppressed, and any returned partial body is discarded, before rendering. |
 
 ## TUI Landing And Input
 

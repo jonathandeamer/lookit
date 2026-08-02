@@ -32,3 +32,18 @@ func actionsForLink(link Link) linkActions {
 	}
 	return actions
 }
+
+func linkActionHints(link Link) []string {
+	actions := actionsForLink(link)
+	var hints []string
+	if actions.enter == linkEnterGo {
+		hints = append(hints, "↵ go")
+	}
+	if actions.finger {
+		hints = append(hints, "f go")
+	}
+	if actions.copy {
+		hints = append(hints, "y copy")
+	}
+	return hints
+}

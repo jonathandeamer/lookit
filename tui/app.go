@@ -783,7 +783,7 @@ func linkKindLabel(l Link) string {
 	switch l.Kind {
 	case LinkFinger:
 		if l.Ambiguous {
-			return "address (auto)"
+			return "address (ambiguous)"
 		}
 		return "finger"
 	case LinkURL:
@@ -1003,6 +1003,27 @@ func (m appModel) buildStatusBar() statusBar {
 		return bar
 	}
 
+	if m.showingLinks {
+		parts := []string{}
+		switch {
+		case m.linksPanel.filtering() && m.linksPanel.filterValue() == "":
+			bar.hints = "type to filter · esc cancel"
+			return bar
+		case m.linksPanel.filtering():
+			bar.hints = "enter apply · esc cancel"
+			return bar
+		case m.linksPanel.filterApplied():
+			parts = []string{"↑/↓ move", "esc clear filter"}
+		default:
+			parts = []string{"↑/↓ move", "/ filter", "esc back"}
+		}
+		if selected, ok := m.linksPanel.selected(); ok {
+			parts = append(parts, linkActionHints(selected)...)
+		}
+		bar.hints = strings.Join(parts, " · ")
+		return bar
+	}
+
 	switch node.state {
 	case stateList:
 		bar.meta = fmt.Sprintf("%d users", node.listUsers)
@@ -1034,22 +1055,12 @@ func (m appModel) buildStatusBar() statusBar {
 			n := m.reader.focusedLink + 1
 			total := len(node.links)
 			label := linkKindLabel(link)
-			action := "↵ copy"
-			if link.Action == ActionDrill && link.Blocked == "" {
-				action = "↵ drill"
-			}
-			var extra []string
-			if link.Ambiguous {
-				extra = append(extra, "f finger")
-			}
+			extra := linkActionHints(link)
 			if link.Blocked != "" {
 				extra = append(extra, link.Blocked)
 			}
-			if isOSC8Openable(link.Raw) {
-				extra = append(extra, "⌘-click opens")
-			}
-			extra = append(extra, "y copy", "⇥ next")
-			bar.hints = fmt.Sprintf("link %d/%d · %s · %s · %s", n, total, label, action, strings.Join(extra, " · "))
+			extra = append(extra, "tab next")
+			bar.hints = fmt.Sprintf("link %d/%d · %s · %s", n, total, label, strings.Join(extra, " · "))
 			return bar
 		}
 		bar.hints = joinHints([]string{"↑↓ scroll"}, bar.escTarget)

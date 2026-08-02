@@ -46,6 +46,36 @@ func readerWithFocusedLink(t *testing.T, fetch FetchFunc, link Link) appModel {
 	return m
 }
 
+func TestReaderFocusedLinkStatus(t *testing.T) {
+	definite := Link{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}}
+	ambiguous := Link{Kind: LinkFinger, Action: ActionCopy, Raw: "alice@tilde.team", Ambiguous: true, Target: finger.Target{HostPort: "tilde.team:79"}}
+	blocked := Link{Kind: LinkFinger, Action: ActionCopy, Raw: "alice@tilde.team@relay.example", Blocked: "cross-relay"}
+	tests := []struct {
+		name string
+		link Link
+		want string
+	}{
+		{"definite", definite, "link 1/1 · finger · ↵ go · y copy · tab next"},
+		{"ambiguous", ambiguous, "link 1/1 · address (ambiguous) · f go · y copy · tab next"},
+		{"url", Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}, "link 1/1 · url · y copy · tab next"},
+		{"blocked", blocked, "link 1/1 · forwarded finger · y copy · cross-relay · tab next"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := readerWithFocusedLink(t, stubFetch(t), tt.link)
+			got := m.buildStatusBar().hints
+			if got != tt.want {
+				t.Fatalf("status hints = %q, want %q", got, tt.want)
+			}
+			for _, stale := range []string{"drill", "⇥ next", "⌘-click opens"} {
+				if strings.Contains(got, stale) {
+					t.Fatalf("status hints = %q, must omit %q", got, stale)
+				}
+			}
+		})
+	}
+}
+
 func linksPanelModel(t *testing.T, fetch FetchFunc, links []Link) appModel {
 	t.Helper()
 	if len(links) == 0 {
@@ -66,6 +96,53 @@ func linksPanelModel(t *testing.T, fetch FetchFunc, links []Link) appModel {
 		t.Fatal("links panel should select its first row")
 	}
 	return m
+}
+
+func TestLinksPanelStatus(t *testing.T) {
+	link := Link{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}}
+	t.Run("unfiltered", func(t *testing.T) {
+		m := linksPanelModel(t, stubFetch(t), []Link{link})
+		if got, want := m.buildStatusBar().hints, "↑/↓ move · / filter · esc back · ↵ go · y copy"; got != want {
+			t.Fatalf("status hints = %q, want %q", got, want)
+		}
+	})
+	t.Run("empty filter", func(t *testing.T) {
+		m := linksPanelModel(t, stubFetch(t), []Link{link})
+		next, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+		m = next.(appModel)
+		if got, want := m.buildStatusBar().hints, "type to filter · esc cancel"; got != want {
+			t.Fatalf("status hints = %q, want %q", got, want)
+		}
+	})
+	t.Run("non-empty filter", func(t *testing.T) {
+		m := linksPanelModel(t, stubFetch(t), []Link{link})
+		for _, msg := range []tea.KeyPressMsg{{Code: '/'}, {Code: 'a', Text: "a"}} {
+			next, _ := m.Update(msg)
+			m = next.(appModel)
+		}
+		if got, want := m.buildStatusBar().hints, "enter apply · esc cancel"; got != want {
+			t.Fatalf("status hints = %q, want %q", got, want)
+		}
+	})
+	t.Run("applied filter", func(t *testing.T) {
+		m := linksPanelModel(t, stubFetch(t), []Link{link})
+		for _, msg := range []tea.KeyPressMsg{{Code: '/'}, {Code: 'a', Text: "a"}, {Code: tea.KeyEnter}} {
+			next, _ := m.Update(msg)
+			m = next.(appModel)
+		}
+		if got, want := m.buildStatusBar().hints, "↑/↓ move · esc clear filter · ↵ go · y copy"; got != want {
+			t.Fatalf("status hints = %q, want %q", got, want)
+		}
+	})
+	for _, flash := range []string{"copied alice@tilde.team", "cross-relay"} {
+		t.Run("flash overrides resting hints: "+flash, func(t *testing.T) {
+			m := linksPanelModel(t, stubFetch(t), []Link{link})
+			m.flash = flash
+			if got, want := m.statusBarModel().hints, m.flash; got != want {
+				t.Fatalf("status hints = %q, want flash %q", got, want)
+			}
+		})
+	}
 }
 
 func fetchTargetRecorder(body string) (FetchFunc, *[]finger.Target) {

@@ -25,6 +25,26 @@ func TestKeyMapBindings(t *testing.T) {
 	}
 }
 
+func TestLinkKeyHelp(t *testing.T) {
+	k := newKeyMap()
+	tests := []struct {
+		name string
+		got  key.Help
+		want key.Help
+	}{
+		{name: "next", got: k.LinkNext.Help(), want: key.Help{Key: "tab/n", Desc: "next link"}},
+		{name: "previous", got: k.LinkPrev.Help(), want: key.Help{Key: "shift+tab/N", Desc: "previous link"}},
+		{name: "panel", got: k.LinkPanel.Help(), want: key.Help{Key: "L", Desc: "browse links"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Fatalf("link help = %+v, want %+v", tt.got, tt.want)
+			}
+		})
+	}
+}
+
 func TestKeyMapFullHelpIncludesPageAndMoveKeys(t *testing.T) {
 	k := newKeyMap()
 	var all []string

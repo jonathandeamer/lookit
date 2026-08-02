@@ -557,6 +557,9 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	// Links panel: when open, panel-mode keys are handled before the main switch.
 	if m.showingLinks {
 		switch {
+		case key.Matches(msg, m.keys.Help):
+			m.openHelp()
+			return true, m, nil
 		case key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.LinkPanel):
 			m.showingLinks = false
 			if m.pos >= 0 {
@@ -1097,7 +1100,43 @@ func (m *appModel) resize() {
 func (m appModel) helpView() string {
 	st := m.common.styles
 	w := m.common.width
-	return fullWidthHelpView(m.keys.FullHelp(), st, w, m.helpModel.FullSeparator)
+	return fullWidthHelpView(m.helpGroups(), st, w, m.helpModel.FullSeparator)
+}
+
+func (m appModel) helpGroups() [][]key.Binding {
+	if m.showingLinks {
+		groups := [][]key.Binding{{m.keys.Move, m.keys.Filter, m.keys.Back}}
+		var actionsGroup []key.Binding
+		if link, ok := m.linksPanel.selected(); ok {
+			actions := actionsForLink(link)
+			if actions.enter == linkEnterGo {
+				actionsGroup = append(actionsGroup, m.keys.Open)
+			}
+			if actions.finger {
+				actionsGroup = append(actionsGroup, key.NewBinding(
+					key.WithKeys("f"),
+					key.WithHelp("f", "go"),
+				))
+			}
+			if actions.copy {
+				actionsGroup = append(actionsGroup, m.keys.Copy)
+			}
+		}
+		if len(actionsGroup) > 0 {
+			groups = append(groups, actionsGroup)
+		}
+		return groups
+	}
+
+	displayKeys := m.keys
+	if link, ok := m.focusedReaderLink(); ok && actionsForLink(link).enter == linkEnterRefuse {
+		displayKeys.Open.SetEnabled(false)
+	}
+	groups := displayKeys.FullHelp()
+	if m.state == stateReader && !m.showingRaw && m.pos >= 0 && m.pos < len(m.history) && len(m.history[m.pos].links) > 0 {
+		groups = append(groups, []key.Binding{displayKeys.LinkNext, displayKeys.LinkPrev, displayKeys.LinkPanel})
+	}
+	return groups
 }
 
 func (m appModel) topChromeHeight() int {

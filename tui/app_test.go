@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -991,6 +992,151 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	if !step.(appModel).help {
 		t.Fatal("'?' should open help from content-focused reader state")
 	}
+}
+
+func TestReaderHelpContext(t *testing.T) {
+	t.Run("without links omits navigation", func(t *testing.T) {
+		m := newApp(stubFetch(t), colorprofile.NoTTY)
+		step, _ := m.Update(fetchResultMsg{entry: Entry{
+			Target: hostTarget(t, "alice@plan.cat"),
+			Body:   []byte("Plan: hi\n"),
+		}})
+		m = step.(appModel)
+		(&m).updateKeymap()
+
+		view := ansi.Strip(m.helpView())
+		for _, unwanted := range []string{"next link", "previous link", "browse links"} {
+			if strings.Contains(view, unwanted) {
+				t.Fatalf("reader help without links contains %q:\n%s", unwanted, view)
+			}
+		}
+	})
+
+	t.Run("with links includes navigation", func(t *testing.T) {
+		m := readerWithFocusedLink(t, stubFetch(t), Link{
+			Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com",
+		})
+		(&m).updateKeymap()
+
+		view := ansi.Strip(m.helpView())
+		for _, want := range []string{"next link", "previous link", "browse links"} {
+			if !strings.Contains(view, want) {
+				t.Fatalf("reader help with links missing %q:\n%s", want, view)
+			}
+		}
+	})
+
+	t.Run("enter follows focused action", func(t *testing.T) {
+		target := hostTarget(t, "alice@tilde.team")
+		tests := []struct {
+			name   string
+			link   Link
+			wantGo bool
+		}{
+			{
+				name:   "definite",
+				link:   Link{Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target},
+				wantGo: true,
+			},
+			{
+				name: "URL",
+				link: Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"},
+			},
+			{
+				name: "blocked",
+				link: Link{Kind: LinkFinger, Action: ActionCopy, Raw: "alice@tilde.team@relay.example", Blocked: "cross-relay"},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				m := readerWithFocusedLink(t, stubFetch(t), tt.link)
+				(&m).updateKeymap()
+
+				view := ansi.Strip(m.helpView())
+				got := strings.Contains(view, "↵ go")
+				if got != tt.wantGo {
+					t.Fatalf("reader help contains ↵ go = %v, want %v:\n%s", got, tt.wantGo, view)
+				}
+			})
+		}
+	})
+}
+
+func TestLinksPanelHelpContext(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	tests := []struct {
+		name   string
+		link   Link
+		wantGo string
+		noGo   bool
+	}{
+		{
+			name: "URL",
+			link: Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"},
+			noGo: true,
+		},
+		{
+			name:   "ambiguous",
+			link:   Link{Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true},
+			wantGo: "f go",
+		},
+		{
+			name:   "definite",
+			link:   Link{Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target},
+			wantGo: "↵ go",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := linksPanelModel(t, stubFetch(t), []Link{tt.link})
+			(&m).updateKeymap()
+
+			view := ansi.Strip(m.helpView())
+			for _, want := range []string{"move", "filter", "back", "copy"} {
+				if !strings.Contains(view, want) {
+					t.Fatalf("panel help missing %q:\n%s", want, view)
+				}
+			}
+			for _, unwanted := range []string{"target", "view source", "page", "top/bottom", "about lookit", "quit"} {
+				if strings.Contains(view, unwanted) {
+					t.Fatalf("panel help contains non-panel action %q:\n%s", unwanted, view)
+				}
+			}
+			if tt.wantGo != "" && !strings.Contains(view, tt.wantGo) {
+				t.Fatalf("panel help missing %q:\n%s", tt.wantGo, view)
+			}
+			if tt.noGo && strings.Contains(view, "go") {
+				t.Fatalf("copy-only panel help advertises go:\n%s", view)
+			}
+		})
+	}
+}
+
+func TestLinksPanelHelpQuestionMarkRouting(t *testing.T) {
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}
+
+	t.Run("opens help when unfiltered", func(t *testing.T) {
+		m := linksPanelModel(t, stubFetch(t), []Link{link})
+		step, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+		got := step.(appModel)
+		if !got.help {
+			t.Fatal("? should open help from an unfiltered links panel")
+		}
+	})
+
+	t.Run("types while filtering", func(t *testing.T) {
+		m := linksPanelModel(t, stubFetch(t), []Link{link})
+		step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+		m = step.(appModel)
+		step, _ = m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+		got := step.(appModel)
+		if got.help {
+			t.Fatal("? must not open help while the links panel filter is active")
+		}
+		if value := got.linksPanel.filterValue(); value != "?" {
+			t.Fatalf("filter value = %q, want ?", value)
+		}
+	})
 }
 
 func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {

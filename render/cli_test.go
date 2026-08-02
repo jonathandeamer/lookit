@@ -8,13 +8,27 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-const plainUsage = "usage:\n" +
-	"  lookit\n" +
-	"  lookit user@host[:port]\n" +
-	"  lookit @host[:port]\n" +
-	"  lookit --version\n" +
+const plainUsage = "A finger client built for exploring, not just querying.\n" +
 	"\n" +
-	"press ? in lookit for keys\n"
+	"Usage:\n" +
+	"  lookit [TARGET]\n" +
+	"\n" +
+	"Targets:\n" +
+	"  user@host[:port]    look up a person\n" +
+	"  @host[:port]        browse a host\n" +
+	"  finger://host/user  open a finger URL\n" +
+	"\n" +
+	"  Ports default to 79. One-relay forwarding is also supported.\n" +
+	"\n" +
+	"Options:\n" +
+	"  -h, --help       show help\n" +
+	"  -v, --version    show version\n" +
+	"\n" +
+	"Examples:\n" +
+	"  lookit jonathan@tilde.team\n" +
+	"  lookit @plan.cat\n" +
+	"\n" +
+	"Press ? inside lookit for keyboard shortcuts.\n"
 
 func TestUsagePlainIsByteIdentical(t *testing.T) {
 	if got := Usage(colorprofile.NoTTY); got != plainUsage {

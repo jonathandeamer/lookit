@@ -32,6 +32,7 @@ jobs:
         run: make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
       # Sign build provenance for the redistributed archives + checksums, so a
       # downloader can run `gh attestation verify <file> --repo <owner>/<repo>`
       # and confirm the binary was built by this workflow from this commit.

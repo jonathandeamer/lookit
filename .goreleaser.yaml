@@ -70,3 +70,17 @@ changelog:
 # reviewable draft to publish by hand rather than going public automatically.
 release:
   draft: true
+
+# Automatically publish/update Homebrew cask in jonathandeamer/homebrew-tap
+# upon a tagged release.
+homebrew_casks:
+  - name: lookit
+    repository:
+      owner: jonathandeamer
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/jonathandeamer/lookit"
+    description: "Finger client (RFC 1288) for the modern terminal"
+

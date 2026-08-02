@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,7 +11,7 @@ import (
 )
 
 func testCommon() *commonModel {
-	return &commonModel{width: 80, height: 24, darkBackground: true, styles: newStyles(true)}
+	return &commonModel{ctx: context.Background(), width: 80, height: 24, darkBackground: true, styles: newStyles(true)}
 }
 
 func hostTarget(t *testing.T, raw string) finger.Target {

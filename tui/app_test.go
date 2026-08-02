@@ -299,8 +299,8 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 
 	// Drilling keeps the list on screen while loading (no eager switch to the
 	// reader, which used to flash the previous profile for a frame).
-	if !got.loading || got.state != stateList {
-		t.Fatalf("after drill: loading=%v state=%d, want loading=true state=stateList", got.loading, got.state)
+	if got.pending == nil || got.state != stateList {
+		t.Fatalf("after drill: pending=%#v state=%d, want pending state=stateList", got.pending, got.state)
 	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
@@ -343,8 +343,8 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.loading || got.state != stateList {
-		t.Fatalf("after drill: loading=%v state=%d, want loading=true state=stateList", got.loading, got.state)
+	if got.pending == nil || got.state != stateList {
+		t.Fatalf("after drill: pending=%#v state=%d, want pending state=stateList", got.pending, got.state)
 	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
@@ -581,8 +581,8 @@ func drillFirstUser(t *testing.T, host finger.Target, users []User, fetch FetchF
 	m.inputFocused = false // Enter must reach the list, not the input
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatal("expected drilling to start loading")
+	if got.pending == nil {
+		t.Fatal("expected drilling to start a request")
 	}
 	if got.state != stateList {
 		t.Fatalf("drill should keep the list on screen while loading (state=%d)", got.state)
@@ -661,8 +661,8 @@ func TestDrillServerSuppliedForwardedTargetFlashesRefusal(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("drill refusal should return a clear-flash command")
 	}
-	if got.loading {
-		t.Fatal("server-supplied forwarded target must not start loading")
+	if got.pending != nil {
+		t.Fatal("server-supplied forwarded target must not start a request")
 	}
 	if got.flash != finger.ErrServerForwarding.Error() {
 		t.Fatalf("flash = %q, want %q", got.flash, finger.ErrServerForwarding.Error())
@@ -1418,8 +1418,8 @@ func TestLoadingShowsSpinnerTarget(t *testing.T) {
 	m.input.SetValue("bob@sdf.org")
 	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = step.(appModel)
-	if !m.loading {
-		t.Fatal("submit should set loading")
+	if m.pending == nil {
+		t.Fatal("submit should start a request")
 	}
 	if !strings.Contains(m.statusBarModel().render(), "bob@sdf.org") {
 		t.Fatalf("loading bar should name the target:\n%s", m.statusBarModel().render())
@@ -1487,12 +1487,12 @@ func TestBackgroundColorMsgPreservesRawView(t *testing.T) {
 
 func TestResultClearsLoading(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	m.loading = true
 	m.reqSeq = 1
 	host := hostTarget(t, "@tilde.team")
+	m.pending = &pendingRequest{id: 1, target: host, intent: requestNavigate, cancel: func() {}}
 	step, _ := m.Update(fetchResultMsg{reqID: 1, entry: Entry{Target: host, Body: []byte(hostListBody())}})
-	if step.(appModel).loading {
-		t.Fatal("a fetch result should clear loading")
+	if step.(appModel).pending != nil {
+		t.Fatal("a fetch result should settle the request")
 	}
 }
 
@@ -1686,8 +1686,8 @@ func TestReaderEnterDefiniteFingersFocusedLink(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatal("Enter on a definite finger link should start loading")
+	if got.pending == nil {
+		t.Fatal("Enter on a definite finger link should start a request")
 	}
 	if cmd == nil {
 		t.Fatal("Enter on a definite finger link should return a fetch command")
@@ -1711,8 +1711,8 @@ func TestReaderEnterURLDoesNothing(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("Enter on a URL should not return a command")
 	}
-	if got.loading {
-		t.Fatal("Enter on a URL should not start loading")
+	if got.pending != nil {
+		t.Fatal("Enter on a URL should not start a request")
 	}
 	if copied != "" {
 		t.Fatalf("Enter on a URL copied %q, want no clipboard write", copied)
@@ -1731,8 +1731,8 @@ func TestReaderEnterBlockedFlashesRefusal(t *testing.T) {
 	if got.flash != link.Blocked {
 		t.Fatalf("flash = %q, want %q", got.flash, link.Blocked)
 	}
-	if got.loading {
-		t.Fatal("Enter on a blocked link should not start loading")
+	if got.pending != nil {
+		t.Fatal("Enter on a blocked link should not start a request")
 	}
 }
 
@@ -1745,8 +1745,8 @@ func TestReaderFAmbiguousFingersFocusedLink(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'f'})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatal("f on an ambiguous finger link should start loading")
+	if got.pending == nil {
+		t.Fatal("f on an ambiguous finger link should start a request")
 	}
 	if cmd == nil {
 		t.Fatal("f on an ambiguous finger link should return a fetch command")
@@ -1768,8 +1768,8 @@ func TestReaderFDefiniteDoesNothing(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("f on a definite finger link should not return a command")
 	}
-	if got.loading {
-		t.Fatal("f on a definite finger link should not start loading")
+	if got.pending != nil {
+		t.Fatal("f on a definite finger link should not start a request")
 	}
 }
 
@@ -1804,8 +1804,8 @@ func TestLinksPanelEnterDefiniteFingersSelectedLink(t *testing.T) {
 	if got.showingLinks {
 		t.Fatal("Enter on a definite finger link should close the links panel")
 	}
-	if !got.loading || cmd == nil {
-		t.Fatalf("after Enter: loading=%v cmd=nil=%v, want a fetch", got.loading, cmd == nil)
+	if got.pending == nil || cmd == nil {
+		t.Fatalf("after Enter: pending=%#v cmd=nil=%v, want a fetch", got.pending, cmd == nil)
 	}
 	runCmds(cmd)
 	if len(*seen) != 1 || (*seen)[0] != target.Raw {
@@ -1826,8 +1826,8 @@ func TestLinksPanelEnterURLStaysOpen(t *testing.T) {
 	if !got.showingLinks {
 		t.Fatal("Enter on a URL should leave the links panel open")
 	}
-	if cmd != nil || got.loading {
-		t.Fatalf("after Enter: cmd=nil=%v loading=%v, want no action", cmd == nil, got.loading)
+	if cmd != nil || got.pending != nil {
+		t.Fatalf("after Enter: cmd=nil=%v pending=%#v, want no action", cmd == nil, got.pending)
 	}
 	if copied != "" {
 		t.Fatalf("Enter on a URL copied %q, want no clipboard write", copied)
@@ -1849,8 +1849,8 @@ func TestLinksPanelEnterBlockedStaysOpenAndFlashesRefusal(t *testing.T) {
 	if got.flash != link.Blocked {
 		t.Fatalf("flash = %q, want %q", got.flash, link.Blocked)
 	}
-	if got.loading {
-		t.Fatal("Enter on a blocked link should not start loading")
+	if got.pending != nil {
+		t.Fatal("Enter on a blocked link should not start a request")
 	}
 }
 
@@ -1866,8 +1866,8 @@ func TestLinksPanelFAmbiguousFingersSelectedLink(t *testing.T) {
 	if got.showingLinks {
 		t.Fatal("f on an ambiguous finger link should close the links panel")
 	}
-	if !got.loading || cmd == nil {
-		t.Fatalf("after f: loading=%v cmd=nil=%v, want a fetch", got.loading, cmd == nil)
+	if got.pending == nil || cmd == nil {
+		t.Fatalf("after f: pending=%#v cmd=nil=%v, want a fetch", got.pending, cmd == nil)
 	}
 	runCmds(cmd)
 	if len(*seen) != 1 || (*seen)[0] != target.Raw {
@@ -1926,8 +1926,8 @@ func TestLinksPanelFilteringConsumesActionKeys(t *testing.T) {
 			if value := got.linksPanel.list.FilterValue(); value != string(code) {
 				t.Fatalf("FilterValue = %q, want %q", value, string(code))
 			}
-			if got.loading || len(*seen) != 0 {
-				t.Fatalf("%q while filtering triggered a fetch: loading=%v targets=%v", code, got.loading, *seen)
+			if got.pending != nil || len(*seen) != 0 {
+				t.Fatalf("%q while filtering triggered a fetch: pending=%#v targets=%v", code, got.pending, *seen)
 			}
 			if copied != "" {
 				t.Fatalf("%q while filtering copied %q, want no clipboard write", code, copied)
@@ -2210,20 +2210,20 @@ func TestStaleFetchResultDropped(t *testing.T) {
 	common := testCommon()
 	m := appModel{common: common}
 	m.reqSeq = 2
-	m.loading = true
+	m.pending = &pendingRequest{id: 2, target: finger.Target{Raw: "b@x"}, intent: requestNavigate, cancel: func() {}}
 
 	stale := fetchResultMsg{reqID: 1, entry: Entry{Target: finger.Target{Raw: "a@x"}, Body: []byte("old\n")}}
 	updated, _ := m.Update(stale)
 	got := updated.(appModel)
-	if !got.loading {
-		t.Fatal("stale result cleared loading; in-flight request should still be loading")
+	if got.pending == nil || got.pending.id != 2 {
+		t.Fatal("stale result cleared or replaced the in-flight request")
 	}
 
 	current := fetchResultMsg{reqID: 2, entry: Entry{Target: finger.Target{Raw: "b@x"}, Body: []byte("new\n")}}
 	updated2, _ := got.Update(current)
 	got2 := updated2.(appModel)
-	if got2.loading {
-		t.Fatal("current result did not clear loading")
+	if got2.pending != nil {
+		t.Fatal("current result did not settle the request")
 	}
 	if got2.state != stateReader {
 		t.Fatalf("current result did not route to reader: state = %d", got2.state)
@@ -2622,8 +2622,8 @@ func TestSeededValidQueryFetchesAndRoutesToReader(t *testing.T) {
 
 	next, cmd := m.Update(seedSubmitMsg{})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatalf("after seed submit: loading=false, want true")
+	if got.pending == nil {
+		t.Fatalf("after seed submit: pending=nil, want request")
 	}
 	if cmd == nil {
 		t.Fatal("seed submit cmd = nil, want a fetch command")
@@ -2645,8 +2645,8 @@ func TestSeededInvalidQueryShowsErrorOnLanding(t *testing.T) {
 	next, cmd := m.Update(seedSubmitMsg{})
 	got := next.(appModel)
 
-	if got.loading {
-		t.Fatalf("invalid seed: loading=true, want false")
+	if got.pending != nil {
+		t.Fatalf("invalid seed: pending=%#v, want nil", got.pending)
 	}
 	if cmd != nil {
 		t.Fatalf("invalid seed: cmd != nil, want nil (no fetch)")
@@ -2673,8 +2673,8 @@ func TestAboutEnterFingersAuthor(t *testing.T) {
 	}
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatal("Enter on about should start a fetch (loading=true)")
+	if got.pending == nil {
+		t.Fatal("Enter on about should start a request")
 	}
 	if cmd == nil {
 		t.Fatal("Enter on about should return a fetch command")

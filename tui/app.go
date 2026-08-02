@@ -51,6 +51,7 @@ const (
 
 // commonModel is state shared across sub-models.
 type commonModel struct {
+	ctx            context.Context
 	width          int
 	height         int
 	profile        colorprofile.Profile
@@ -105,10 +106,10 @@ type appModel struct {
 	seeded       bool // a CLI positional arg was supplied; replay it on Init
 	keys         keyMap
 
-	loading       bool
-	loadingTarget finger.Target
-	reqSeq        uint64 // monotonic id of the most recently started fetch
-	spin          spinner.Model
+	pending        *pendingRequest
+	requestFailure *requestFailure
+	reqSeq         uint64 // monotonic id of the most recently started fetch
+	spin           spinner.Model
 
 	flash string
 
@@ -123,15 +124,23 @@ type appModel struct {
 }
 
 func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
-	return newAppWithOptions(fetch, profile, Options{})
+	return newAppWithContext(context.Background(), fetch, profile, Options{})
 }
 
 func newAppWithOptions(fetch FetchFunc, profile colorprofile.Profile, opts Options) appModel {
+	return newAppWithContext(context.Background(), fetch, profile, opts)
+}
+
+func newAppWithContext(ctx context.Context, fetch FetchFunc, profile colorprofile.Profile, opts Options) appModel {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if fetch == nil {
 		fetch = defaultFetch
 	}
 	st := newStyles(true)
 	common := &commonModel{
+		ctx:            ctx,
 		profile:        profile,
 		darkBackground: true,
 		styles:         st,
@@ -294,16 +303,6 @@ func (m *appModel) focusInput() tea.Cmd {
 	return m.input.Focus()
 }
 
-// startFetch marks loading for target, advances the request id so any
-// still-in-flight earlier fetch's result will be discarded on arrival, and
-// returns the command batch that performs the fetch and ticks the spinner.
-func (m *appModel) startFetch(target finger.Target) tea.Cmd {
-	m.loading = true
-	m.loadingTarget = target
-	m.reqSeq++
-	return tea.Batch(fetchCmd(context.Background(), m.common.fetch, target, m.reqSeq), m.spin.Tick)
-}
-
 // blurInput returns the keyboard to the content.
 func (m *appModel) blurInput() {
 	m.inputFocused = false
@@ -375,8 +374,9 @@ func (m *appModel) submit() tea.Cmd {
 		return nil
 	}
 	m.flash = "" // clear any stale parse-error flash from a prior failed submit
+	cmd := m.startRequest(target, requestNavigate, false)
 	m.blurInput()
-	return m.startFetch(target)
+	return cmd
 }
 
 // seedSubmitMsg replays a command-line initial query through submit() on
@@ -395,6 +395,9 @@ func (m appModel) Init() tea.Cmd {
 		// a blank arg yields the same parse-error flash as Enter-on-empty does
 		// interactively, rather than silently landing.
 		cmds = append(cmds, func() tea.Msg { return seedSubmitMsg{} })
+	}
+	if m.common.ctx.Done() != nil {
+		cmds = append(cmds, waitForSessionCancel(m.common.ctx))
 	}
 	return tea.Batch(cmds...)
 }
@@ -436,12 +439,26 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case sessionCanceledMsg:
+		_ = m.cancelRequest()
+		return m, tea.Quit
+
 	case fetchResultMsg:
-		if msg.reqID != m.reqSeq {
-			// A superseded in-flight fetch finished late; drop it so it cannot
-			// replace the current view/history with stale (or hostile) output.
+		if m.common.ctx != nil && m.common.ctx.Err() != nil {
+			_ = m.cancelRequest()
+			return m, tea.Quit
+		}
+		request, ok := m.finishRequest(msg.reqID)
+		if !ok {
+			// Tests use an unsequenced result to construct an already-landed
+			// navigation without issuing a request. Real fetch commands always
+			// carry a positive request ID, so stale network results still cannot land.
+			if msg.reqID == 0 && m.pending == nil {
+				return m.routeFetch(msg.entry), nil
+			}
 			return m, nil
 		}
+		_ = request // Task 2 dispatches on this intent.
 		return m.routeFetch(msg.entry), nil
 
 	case clearFlashMsg:
@@ -453,7 +470,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case spinner.TickMsg:
-		if m.loading {
+		if m.pending != nil {
 			var cmd tea.Cmd
 			m.spin, cmd = m.spin.Update(msg)
 			return m, cmd
@@ -479,6 +496,18 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey processes app-level keys and focus routing. handled=false lets the
 // caller delegate the key to the active sub-model (content) or the input.
 func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
+	if m.pending != nil {
+		switch {
+		case key.Matches(msg, m.keys.ForceQuit), key.Matches(msg, m.keys.Quit):
+			_ = m.cancelRequest()
+			return true, m, tea.Quit
+		case key.Matches(msg, m.keys.Back):
+			return true, m, m.cancelRequest()
+		default:
+			return true, m, nil
+		}
+	}
+
 	if key.Matches(msg, m.keys.ForceQuit) {
 		return true, m, tea.Quit
 	}
@@ -503,7 +532,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			if err != nil {
 				return true, m, nil
 			}
-			return true, m, m.startFetch(target)
+			return true, m, m.startRequest(target, requestNavigate, false)
 		case key.Matches(msg, m.keys.Copy): // y copy the issues URL
 			// setFlash mutates m, so sequence it before the return reads m by
 			// value (handleKey returns m, not *m): operand order is unspecified.
@@ -587,7 +616,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 				switch actionsForLink(sel).enter {
 				case linkEnterGo:
 					m.showingLinks = false
-					return true, m, m.startFetch(sel.Target)
+					return true, m, m.startRequest(sel.Target, requestNavigate, false)
 				case linkEnterRefuse:
 					return true, m, m.setFlash(sel.Blocked)
 				default:
@@ -599,7 +628,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			if sel, ok := m.linksPanel.selected(); ok {
 				if actionsForLink(sel).finger {
 					m.showingLinks = false
-					return true, m, m.startFetch(sel.Target)
+					return true, m, m.startRequest(sel.Target, requestNavigate, false)
 				}
 			}
 			return true, m, nil
@@ -673,7 +702,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
 			link := node.links[m.reader.focusedLink]
 			if actionsForLink(link).finger {
-				cmd := m.startFetch(link.Target)
+				cmd := m.startRequest(link.Target, requestNavigate, false)
 				return true, m, cmd
 			}
 		}
@@ -719,7 +748,7 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 	// Keep the current view (the list) on screen while loading; routeFetch sets
 	// the final state when the result lands. Switching to the reader eagerly here
 	// flashed the previous profile for a frame before the new one arrived.
-	cmd := m.startFetch(target)
+	cmd := m.startRequest(target, requestNavigate, false)
 	return true, m, cmd
 }
 
@@ -727,7 +756,6 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 // response that parses opens the list; everything else renders in the reader.
 // Either way it pushes a history node.
 func (m appModel) routeFetch(entry Entry) appModel {
-	m.loading = false
 	m.inputFocused = false
 	m.input.Blur()
 	m.snapshot() // save current position's scroll/selection before replacing it
@@ -815,7 +843,7 @@ func (m appModel) activateFocusedLink(node *histNode) (bool, appModel, tea.Cmd) 
 	link := node.links[m.reader.focusedLink]
 	switch actionsForLink(link).enter {
 	case linkEnterGo:
-		return true, m, m.startFetch(link.Target)
+		return true, m, m.startRequest(link.Target, requestNavigate, false)
 	case linkEnterRefuse:
 		return true, m, m.setFlash(link.Blocked)
 	default:
@@ -868,6 +896,20 @@ func (m *appModel) copyAddress() tea.Cmd {
 // (help panel); Update and View call it. Pattern: pop's updateKeymap
 // (~/pop/keymap.go).
 func (m *appModel) updateKeymap() {
+	if m.pending != nil {
+		for _, binding := range []*key.Binding{
+			&m.keys.Open, &m.keys.FocusInput, &m.keys.Filter, &m.keys.Raw,
+			&m.keys.Copy, &m.keys.Help, &m.keys.About, &m.keys.Move,
+			&m.keys.Page, &m.keys.Jump, &m.keys.LinkNext, &m.keys.LinkPrev,
+			&m.keys.LinkFinger, &m.keys.LinkPanel,
+		} {
+			binding.SetEnabled(false)
+		}
+		m.keys.Back.SetEnabled(true)
+		m.keys.Quit.SetEnabled(true)
+		m.keys.ForceQuit.SetEnabled(true)
+		return
+	}
 	content := !m.inputFocused
 	hasResult := m.pos >= 0
 	inList := content && m.state == stateList && !m.showingRaw
@@ -945,10 +987,8 @@ func joinHints(parts []string, escTarget string) string {
 }
 
 func (m appModel) statusBarModel() statusBar {
-	if m.loading {
-		bar := statusBar{width: m.common.width, styles: m.common.styles}
-		bar.hints = m.spin.View() + " loading " + m.loadingTarget.Raw
-		return bar // flash is intentionally suppressed while loading
+	if m.pending != nil {
+		return statusBar{width: m.common.width, styles: m.common.styles, hints: m.pendingStatus(time.Now())}
 	}
 	bar := m.buildStatusBar()
 	if m.flash != "" {

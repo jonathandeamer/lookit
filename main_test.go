@@ -78,6 +78,21 @@ func TestRunHelpFlags(t *testing.T) {
 	}
 }
 
+func TestRunHelpPrecedesEarlierUnknownOption(t *testing.T) {
+	pinProfile(t, colorprofile.NoTTY)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--bogus", "--help"}, &stdout, &stderr)
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	if !strings.Contains(stdout.String(), "Usage:") {
+		t.Fatalf("stdout = %q, want help block", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
 func TestRunVersionFlag(t *testing.T) {
 	oldVersion, oldBuiltAt := version, builtAt
 	t.Cleanup(func() { version, builtAt = oldVersion, oldBuiltAt })
@@ -87,6 +102,26 @@ func TestRunVersionFlag(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--version"}, &stdout, &stderr)
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	if got, want := stdout.String(), "lookit version dev\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunVersionPrecedesEarlierUnknownOption(t *testing.T) {
+	oldVersion, oldBuiltAt := version, builtAt
+	t.Cleanup(func() { version, builtAt = oldVersion, oldBuiltAt })
+	version = "dev"
+	builtAt = "unknown"
+	pinProfile(t, colorprofile.NoTTY)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--bogus", "--version"}, &stdout, &stderr)
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
 	}

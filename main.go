@@ -72,7 +72,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	outProfile := detectProfile(stdout, os.Environ())
 	errProfile := detectProfile(stderr, os.Environ())
 
-	var positional []string
 	for _, a := range args {
 		switch a {
 		case "-h", "--help":
@@ -81,13 +80,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case "-v", "--version":
 			fmt.Fprintln(stdout, render.Version(versionString(), outProfile))
 			return exitOK
-		default:
-			if strings.HasPrefix(a, "-") {
-				fmt.Fprint(stderr, render.InvocationError(fmt.Sprintf("unknown option %q", a), errProfile))
-				return exitError
-			}
-			positional = append(positional, a)
 		}
+	}
+
+	var positional []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			fmt.Fprint(stderr, render.InvocationError(fmt.Sprintf("unknown option %q", a), errProfile))
+			return exitError
+		}
+		positional = append(positional, a)
 	}
 
 	if len(positional) > 1 {

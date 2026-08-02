@@ -79,3 +79,22 @@ func TestErrorLineStyledKeepsTextAddsAnsi(t *testing.T) {
 		t.Fatalf("stripped styled error = %q, want %q", got, "lookit: bad target")
 	}
 }
+
+const plainInvocationError = "lookit: unknown option \"--bogus\"\n" +
+	"Try 'lookit --help' for usage.\n"
+
+func TestInvocationErrorPlain(t *testing.T) {
+	if got := InvocationError(`unknown option "--bogus"`, colorprofile.NoTTY); got != plainInvocationError {
+		t.Fatalf("InvocationError(NoTTY) =\n%q\nwant\n%q", got, plainInvocationError)
+	}
+}
+
+func TestInvocationErrorStyledKeepsTextAddsAnsi(t *testing.T) {
+	out := InvocationError(`unknown option "--bogus"`, colorprofile.TrueColor)
+	if !strings.Contains(out, "\x1b[") {
+		t.Fatalf("styled invocation error has no ANSI:\n%q", out)
+	}
+	if got := ansi.Strip(out); got != plainInvocationError {
+		t.Fatalf("stripped invocation error =\n%q\nwant\n%q", got, plainInvocationError)
+	}
+}

@@ -60,3 +60,13 @@ func ErrorLine(msg string, profile colorprofile.Profile) string {
 	t := NewTheme(profile)
 	return t.ErrLine.Render("lookit: " + msg)
 }
+
+// InvocationError returns a specific CLI argument error followed by a short
+// route to the full help. Unlike ErrorLine, it includes trailing newlines.
+func InvocationError(message string, profile colorprofile.Profile) string {
+	t := NewTheme(profile)
+	var b strings.Builder
+	fmt.Fprintln(&b, ErrorLine(message, profile))
+	fmt.Fprintln(&b, t.Footer.Render("Try 'lookit --help' for usage."))
+	return b.String()
+}

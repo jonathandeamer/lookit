@@ -41,7 +41,7 @@ func TestVersionString(t *testing.T) {
 	t.Cleanup(func() { version, builtAt = oldVersion, oldBuiltAt })
 	version = "0.2.0"
 	builtAt = "2026-05-29"
-	if got, want := versionString(), "lookit 0.2.0 (built 2026-05-29)"; got != want {
+	if got, want := versionString(), "lookit version 0.2.0 (built 2026-05-29)"; got != want {
 		t.Fatalf("versionString() = %q, want %q", got, want)
 	}
 }
@@ -54,7 +54,7 @@ func TestVersionStringOmitsUnknownBuildDate(t *testing.T) {
 	t.Cleanup(func() { version, builtAt = oldVersion, oldBuiltAt })
 	version = "v0.1.0"
 	builtAt = "unknown"
-	if got, want := versionString(), "lookit v0.1.0"; got != want {
+	if got, want := versionString(), "lookit version v0.1.0"; got != want {
 		t.Fatalf("versionString() = %q, want %q", got, want)
 	}
 }
@@ -86,7 +86,7 @@ func TestRunVersionFlag(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
 	}
-	if got, want := stdout.String(), "lookit dev\n"; got != want {
+	if got, want := stdout.String(), "lookit version dev\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	if stderr.Len() != 0 {
@@ -109,8 +109,8 @@ func TestRunVersionFlagStyled(t *testing.T) {
 	if !strings.Contains(stdout.String(), "\x1b[") {
 		t.Fatalf("styled version has no ANSI: %q", stdout.String())
 	}
-	if got := ansi.Strip(stdout.String()); got != "lookit dev\n" {
-		t.Fatalf("stripped version = %q, want %q", got, "lookit dev\n")
+	if got := ansi.Strip(stdout.String()); got != "lookit version dev\n" {
+		t.Fatalf("stripped version = %q, want %q", got, "lookit version dev\n")
 	}
 }
 

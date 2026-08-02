@@ -47,14 +47,14 @@ func TestUsageStyledKeepsTextAddsAnsi(t *testing.T) {
 }
 
 func TestVersionPlainIsInputVerbatim(t *testing.T) {
-	const line = "lookit 1.2.3 (built 2026-05-29)"
+	const line = "lookit version 1.2.3 (built 2026-05-29)"
 	if got := Version(line, colorprofile.NoTTY); got != line {
 		t.Fatalf("Version plain = %q, want %q", got, line)
 	}
 }
 
 func TestVersionStyledKeepsTextAddsAnsi(t *testing.T) {
-	const line = "lookit 1.2.3 (built 2026-05-29)"
+	const line = "lookit version 1.2.3 (built 2026-05-29)"
 	out := Version(line, colorprofile.TrueColor)
 	if !strings.Contains(out, "\x1b[") {
 		t.Fatalf("styled version has no ANSI:\n%q", out)

@@ -263,6 +263,15 @@ func TestRunTUIFailure(t *testing.T) {
 	}
 }
 
+func TestModuleVersionMatchesReleaseForm(t *testing.T) {
+	if got := moduleVersion("v0.2.0"); got != "0.2.0" {
+		t.Fatalf("moduleVersion = %q, want 0.2.0", got)
+	}
+	if got := moduleVersion("0.2.0"); got != "0.2.0" {
+		t.Fatalf("moduleVersion passthrough = %q, want 0.2.0", got)
+	}
+}
+
 func TestVcsDate(t *testing.T) {
 	if got := vcsDate("2026-06-03T10:20:30Z"); got != "2026-06-03" {
 		t.Fatalf("vcsDate = %q, want 2026-06-03", got)

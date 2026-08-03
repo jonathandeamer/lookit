@@ -43,7 +43,7 @@ func init() {
 		return
 	}
 	if version == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		version = info.Main.Version
+		version = moduleVersion(info.Main.Version)
 	}
 	if builtAt == "unknown" {
 		for _, s := range info.Settings {
@@ -52,6 +52,13 @@ func init() {
 			}
 		}
 	}
+}
+
+// moduleVersion normalizes a module-proxy version ("v0.2.0") to the bare form
+// ldflags injects on a release build ("0.2.0"), so `lookit --version` reads the
+// same either way.
+func moduleVersion(v string) string {
+	return strings.TrimPrefix(v, "v")
 }
 
 // vcsDate trims an RFC 3339 VCS timestamp to its date portion.

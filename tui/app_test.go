@@ -56,10 +56,10 @@ func TestReaderFocusedLinkStatus(t *testing.T) {
 		link Link
 		want string
 	}{
-		{"definite", definite, "link 1/1 · finger · ↵ go · y copy · tab next"},
-		{"ambiguous", ambiguous, "link 1/1 · address (ambiguous) · f go · y copy · tab next"},
-		{"url", Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}, "link 1/1 · url · y copy · tab next"},
-		{"blocked", blocked, "link 1/1 · forwarded finger · y copy · cross-relay · tab next"},
+		{"definite", definite, "link 1/1 · finger · ↵ go · y copy · tab next · r refresh"},
+		{"ambiguous", ambiguous, "link 1/1 · address (ambiguous) · f go · y copy · tab next · r refresh"},
+		{"url", Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}, "link 1/1 · url · y copy · tab next · r refresh"},
+		{"blocked", blocked, "link 1/1 · forwarded finger · y copy · cross-relay · tab next · r refresh"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestHostFetchThatParsesOpensList(t *testing.T) {
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: target.HostPort}}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 
 	if got.state != stateList {
@@ -216,7 +216,7 @@ func TestHostFetchWithBodyAndReadErrorCanOpenList(t *testing.T) {
 		Err:    errors.New("read response: connection reset by peer"),
 	}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 
 	if got.state != stateList {
@@ -235,7 +235,7 @@ func TestHostListViewKeepsPreambleWithoutRawUserGrid(t *testing.T) {
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBodyWithPreamble()), Meta: finger.Meta{Addr: target.HostPort}}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 	view := got.View().Content
 
@@ -258,7 +258,7 @@ func TestHostFetchThatDeclinesStaysInReader(t *testing.T) {
 	target := hostTarget(t, "@tilde.town")
 	entry := Entry{Target: target, Body: []byte("just a banner\n"), Meta: finger.Meta{Addr: target.HostPort}}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 
 	if got.state != stateReader {
@@ -274,7 +274,7 @@ func TestUserFetchStaysInReader(t *testing.T) {
 	target := hostTarget(t, "alice@plan.cat")
 	entry := Entry{Target: target, Body: []byte("Plan: hi\n"), Meta: finger.Meta{Addr: target.HostPort}}
 
-	next, _ := m.Update(fetchResultMsg{entry: entry})
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	got := next.(appModel)
 
 	if got.state != stateReader {
@@ -299,8 +299,8 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 
 	// Drilling keeps the list on screen while loading (no eager switch to the
 	// reader, which used to flash the previous profile for a frame).
-	if !got.loading || got.state != stateList {
-		t.Fatalf("after drill: loading=%v state=%d, want loading=true state=stateList", got.loading, got.state)
+	if got.pending == nil || got.state != stateList {
+		t.Fatalf("after drill: pending=%#v state=%d, want pending state=stateList", got.pending, got.state)
 	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
@@ -343,8 +343,8 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.loading || got.state != stateList {
-		t.Fatalf("after drill: loading=%v state=%d, want loading=true state=stateList", got.loading, got.state)
+	if got.pending == nil || got.state != stateList {
+		t.Fatalf("after drill: pending=%#v state=%d, want pending state=stateList", got.pending, got.state)
 	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
@@ -523,7 +523,7 @@ func barFor(t *testing.T, entry Entry) string {
 	t.Helper()
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 100, 24
-	step, _ := m.Update(fetchResultMsg{entry: entry})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	return step.(appModel).statusBarModel().render()
 }
 
@@ -581,8 +581,8 @@ func drillFirstUser(t *testing.T, host finger.Target, users []User, fetch FetchF
 	m.inputFocused = false // Enter must reach the list, not the input
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatal("expected drilling to start loading")
+	if got.pending == nil {
+		t.Fatal("expected drilling to start a request")
 	}
 	if got.state != stateList {
 		t.Fatalf("drill should keep the list on screen while loading (state=%d)", got.state)
@@ -661,8 +661,8 @@ func TestDrillServerSuppliedForwardedTargetFlashesRefusal(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("drill refusal should return a clear-flash command")
 	}
-	if got.loading {
-		t.Fatal("server-supplied forwarded target must not start loading")
+	if got.pending != nil {
+		t.Fatal("server-supplied forwarded target must not start a request")
 	}
 	if got.flash != finger.ErrServerForwarding.Error() {
 		t.Fatalf("flash = %q, want %q", got.flash, finger.ErrServerForwarding.Error())
@@ -699,11 +699,29 @@ func TestGenericTruncatedListShowsBothFlags(t *testing.T) {
 	}
 }
 
+func TestGenericTruncatedListPrioritizesPartialFlagAtNarrowWidth(t *testing.T) {
+	host := hostTarget(t, "@unknown.host")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 21, 24
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
+		Target: host,
+		Body:   []byte(genericListBody()),
+		Meta:   finger.Meta{Addr: host.HostPort, Truncated: true},
+	}})
+	bar := ansi.Strip(step.(appModel).statusBarModel().render())
+	if !strings.Contains(bar, "partial (truncated)") {
+		t.Fatalf("narrow generic truncated bar = %q, want partial flag", bar)
+	}
+	if strings.Contains(bar, "auto-detected") {
+		t.Fatalf("narrow generic truncated bar = %q, should prioritize partial flag", bar)
+	}
+}
+
 func TestGenericHostFetchOpensFlaggedList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 100, 24
 	target := hostTarget(t, "@unknown.host")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
 	got := step.(appModel)
 	if got.state != stateList || !got.list.generic {
 		t.Fatalf("state=%d generic=%v, want list/true", got.state, got.list.generic)
@@ -717,7 +735,7 @@ func TestVViewsSourceOnGenericList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@unknown.host")
 	entry := Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}
-	opened, _ := m.Update(fetchResultMsg{entry: entry})
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	m = opened.(appModel)
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
@@ -744,7 +762,7 @@ func TestVViewsSourceOnRecognizedList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@tilde.team")
 	entry := Entry{Target: target, Body: []byte(hostListBody()), Meta: finger.Meta{Addr: target.HostPort}}
-	opened, _ := m.Update(fetchResultMsg{entry: entry})
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
 	m = opened.(appModel)
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
@@ -763,12 +781,12 @@ func TestVViewsSourceOnRecognizedList(t *testing.T) {
 	}
 }
 
-func TestRTogglesRawBodyOnProfile(t *testing.T) {
-	// 'r' toggles "view source" on a profile too; a second 'r' restores it.
+func TestVTogglesRawBodyOnProfile(t *testing.T) {
+	// 'v' toggles "view source" on a profile too; a second 'v' restores it.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "alice@plan.cat")
 	body := "Login: alice\nPlan:\nhello from the raw body\n"
-	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(body)}})
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(body)}})
 	m = opened.(appModel)
 	if m.state != stateReader {
 		t.Fatalf("precondition: a profile opens in the reader (state=%d)", m.state)
@@ -791,7 +809,7 @@ func TestRTogglesRawBodyOnProfile(t *testing.T) {
 	off, _ := gotRaw.Update(tea.KeyPressMsg{Code: 'v'})
 	gotOff := off.(appModel)
 	if gotOff.showingRaw {
-		t.Fatal("a second r should exit raw view")
+		t.Fatal("a second v should exit source view")
 	}
 	if gotOff.state != stateReader {
 		t.Fatalf("exiting raw on a profile returns to the reader (state=%d)", gotOff.state)
@@ -804,9 +822,9 @@ func TestEscBackDoesNotRefetch(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
 	userT := hostTarget(t, "bob@tilde.team")
 
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: userT, Body: []byte("Login: bob\n")}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: userT, Body: []byte("Login: bob\n")}})
 	m = step.(appModel)
 
 	if len(m.history) != 2 || m.pos != 1 || m.state != stateReader {
@@ -826,11 +844,11 @@ func TestRouteFetchSnapshotsListBeforeReplacingIt(t *testing.T) {
 	host := hostTarget(t, "@tilde.team")
 	nextHost := hostTarget(t, "@sdf.org")
 
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	m.list.list.SetFilterText("kap")
 
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: nextHost, Body: []byte(hostListBody())}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: nextHost, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = step.(appModel)
@@ -853,7 +871,7 @@ func TestNewNavigationTruncatesForwardTail(t *testing.T) {
 	c := hostTarget(t, "@c.example")
 
 	for _, tg := range []finger.Target{a, b} {
-		step, _ := m.Update(fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
+		step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
 		m = step.(appModel)
 	}
 	// Esc back to a (pos=0).
@@ -862,7 +880,7 @@ func TestNewNavigationTruncatesForwardTail(t *testing.T) {
 	// Now fetch c — this must truncate the forward tail (b).
 	fetch, _ := fetchRecorder(hostListBody())
 	m.common.fetch = fetch
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: c, Body: []byte(hostListBody())}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: c, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
 	if len(m.history) != 2 || m.pos != 1 {
@@ -889,7 +907,7 @@ func TestViewIncludesBreadcrumbBar(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 80, 24
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
 	view := m.View().Content
@@ -913,7 +931,7 @@ func TestQuestionMarkTogglesHelpOverlay(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 80, 24
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
@@ -938,7 +956,7 @@ func TestHelpToggleDoesNotRepaginateList(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width, m.common.height = 80, 24
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(manyUserGridBody(30))}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(manyUserGridBody(30))}})
 	m = step.(appModel)
 	if m.state != stateList {
 		t.Fatalf("state=%d, want stateList (body did not parse as a user list)", m.state)
@@ -980,7 +998,7 @@ func TestQuestionMarkWhileFilteringDoesNotOpenHelp(t *testing.T) {
 func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	// Drive a fetch so we reach a content-focused reader state.
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")}})
 	m = step.(appModel)
 	// Now inputFocused==false; '?' should open help.
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
@@ -992,7 +1010,7 @@ func TestQuestionMarkFromReaderOpensHelp(t *testing.T) {
 func TestReaderHelpContext(t *testing.T) {
 	t.Run("without links omits navigation", func(t *testing.T) {
 		m := newApp(stubFetch(t), colorprofile.NoTTY)
-		step, _ := m.Update(fetchResultMsg{entry: Entry{
+		step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 			Target: hostTarget(t, "alice@plan.cat"),
 			Body:   []byte("Plan: hi\n"),
 		}})
@@ -1136,7 +1154,7 @@ func TestLinksPanelHelpQuestionMarkRouting(t *testing.T) {
 
 func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	m = step.(appModel)
@@ -1160,7 +1178,7 @@ func TestHelpPanelRowsSpanFullWidth(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 24})
 	m = step.(appModel)
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	m = step.(appModel)
@@ -1191,7 +1209,7 @@ func TestEscFromRawViewClearsRawState(t *testing.T) {
 	// A second Esc backs to landing (pops the history node).
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@unknown.host")
-	opened, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
 	m = opened.(appModel)
 
 	raw, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
@@ -1230,12 +1248,12 @@ func TestEscFromRawViewClearsRawState(t *testing.T) {
 func TestRestorePreservesListSelection(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = step.(appModel)
 	wantIdx := m.list.list.Index()
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "x@tilde.team"), Body: []byte("Login: x\n")}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "x@tilde.team"), Body: []byte("Login: x\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = step.(appModel)
@@ -1275,7 +1293,7 @@ func TestLandingFocusesInput(t *testing.T) {
 func TestIFocusesInputFromContent(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	if m.inputFocused {
 		t.Fatal("after a fetch, content should have focus")
@@ -1349,7 +1367,7 @@ func TestSubmitFetchesForwardedTarget(t *testing.T) {
 func TestQQuitsFromContent(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q'})
 	if cmd == nil || !isQuit(cmd) {
@@ -1380,7 +1398,7 @@ func TestEscFromInputBlursToContentThenQuitsAtLanding(t *testing.T) {
 	// With content present, Esc from the input blurs (does not quit).
 	m2 := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m2.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m2, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m2 = step.(appModel)
 	step, _ = m2.Update(tea.KeyPressMsg{Code: 'i'}) // focus input
 	m2 = step.(appModel)
@@ -1399,7 +1417,7 @@ func TestAltArrowsNoLongerNavigate(t *testing.T) {
 	a := hostTarget(t, "@a.example")
 	b := hostTarget(t, "@b.example")
 	for _, tg := range []finger.Target{a, b} {
-		step, _ := m.Update(fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
+		step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: tg, Body: []byte(hostListBody())}})
 		m = step.(appModel)
 	}
 	// Alt+Left used to go back; now it's inert (content key, delegated, no-op for the list).
@@ -1418,8 +1436,8 @@ func TestLoadingShowsSpinnerTarget(t *testing.T) {
 	m.input.SetValue("bob@sdf.org")
 	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = step.(appModel)
-	if !m.loading {
-		t.Fatal("submit should set loading")
+	if m.pending == nil {
+		t.Fatal("submit should start a request")
 	}
 	if !strings.Contains(m.statusBarModel().render(), "bob@sdf.org") {
 		t.Fatalf("loading bar should name the target:\n%s", m.statusBarModel().render())
@@ -1453,7 +1471,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	target := hostTarget(t, "alice@plan.cat")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\n")}})
 	m = step.(appModel)
 	if !strings.Contains(m.reader.viewport.View(), "\x1b[38;2;255;95;162mLogin:\x1b[0m") {
 		t.Fatalf("precondition: reader did not render dark field colour:\n%q", m.reader.viewport.View())
@@ -1469,7 +1487,7 @@ func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {
 func TestBackgroundColorMsgPreservesRawView(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	target := hostTarget(t, "alice@plan.cat")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\nPlan: raw\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte("Login: alice\nPlan: raw\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: 'v'})
 	m = step.(appModel)
@@ -1487,12 +1505,12 @@ func TestBackgroundColorMsgPreservesRawView(t *testing.T) {
 
 func TestResultClearsLoading(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	m.loading = true
 	m.reqSeq = 1
 	host := hostTarget(t, "@tilde.team")
+	m.pending = &pendingRequest{id: 1, target: host, intent: requestNavigate, cancel: func() {}}
 	step, _ := m.Update(fetchResultMsg{reqID: 1, entry: Entry{Target: host, Body: []byte(hostListBody())}})
-	if step.(appModel).loading {
-		t.Fatal("a fetch result should clear loading")
+	if step.(appModel).pending != nil {
+		t.Fatal("a fetch result should settle the request")
 	}
 }
 
@@ -1501,7 +1519,7 @@ func TestHelpExpandsAtBottomNotFullScreen(t *testing.T) {
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = step.(appModel)
 	host := hostTarget(t, "@tilde.team")
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
@@ -1529,7 +1547,7 @@ func TestListBarShowsPageIndicatorWhenPaged(t *testing.T) {
 
 	step, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
 	m = step.(appModel)
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "@big.host"), Body: []byte(body)}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "@big.host"), Body: []byte(body)}})
 	m = step.(appModel)
 
 	if m.state != stateList {
@@ -1558,7 +1576,7 @@ func TestYCopiesAddressWithFlash(t *testing.T) {
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel) // list of @tilde.team, content focused
 
 	step, _ = m.Update(tea.KeyPressMsg{Code: 'y'})
@@ -1657,7 +1675,7 @@ func TestReaderYCopiesAddressWithFlash(t *testing.T) {
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "alice@plan.cat")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: target, Body: []byte("Plan\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte("Plan\n")}})
 	m = step.(appModel) // reader, content focused, pos==0
 
 	if m.state != stateReader {
@@ -1686,8 +1704,8 @@ func TestReaderEnterDefiniteFingersFocusedLink(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatal("Enter on a definite finger link should start loading")
+	if got.pending == nil {
+		t.Fatal("Enter on a definite finger link should start a request")
 	}
 	if cmd == nil {
 		t.Fatal("Enter on a definite finger link should return a fetch command")
@@ -1711,8 +1729,8 @@ func TestReaderEnterURLDoesNothing(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("Enter on a URL should not return a command")
 	}
-	if got.loading {
-		t.Fatal("Enter on a URL should not start loading")
+	if got.pending != nil {
+		t.Fatal("Enter on a URL should not start a request")
 	}
 	if copied != "" {
 		t.Fatalf("Enter on a URL copied %q, want no clipboard write", copied)
@@ -1731,8 +1749,8 @@ func TestReaderEnterBlockedFlashesRefusal(t *testing.T) {
 	if got.flash != link.Blocked {
 		t.Fatalf("flash = %q, want %q", got.flash, link.Blocked)
 	}
-	if got.loading {
-		t.Fatal("Enter on a blocked link should not start loading")
+	if got.pending != nil {
+		t.Fatal("Enter on a blocked link should not start a request")
 	}
 }
 
@@ -1745,8 +1763,8 @@ func TestReaderFAmbiguousFingersFocusedLink(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'f'})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatal("f on an ambiguous finger link should start loading")
+	if got.pending == nil {
+		t.Fatal("f on an ambiguous finger link should start a request")
 	}
 	if cmd == nil {
 		t.Fatal("f on an ambiguous finger link should return a fetch command")
@@ -1768,8 +1786,8 @@ func TestReaderFDefiniteDoesNothing(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("f on a definite finger link should not return a command")
 	}
-	if got.loading {
-		t.Fatal("f on a definite finger link should not start loading")
+	if got.pending != nil {
+		t.Fatal("f on a definite finger link should not start a request")
 	}
 }
 
@@ -1804,8 +1822,8 @@ func TestLinksPanelEnterDefiniteFingersSelectedLink(t *testing.T) {
 	if got.showingLinks {
 		t.Fatal("Enter on a definite finger link should close the links panel")
 	}
-	if !got.loading || cmd == nil {
-		t.Fatalf("after Enter: loading=%v cmd=nil=%v, want a fetch", got.loading, cmd == nil)
+	if got.pending == nil || cmd == nil {
+		t.Fatalf("after Enter: pending=%#v cmd=nil=%v, want a fetch", got.pending, cmd == nil)
 	}
 	runCmds(cmd)
 	if len(*seen) != 1 || (*seen)[0] != target.Raw {
@@ -1826,8 +1844,8 @@ func TestLinksPanelEnterURLStaysOpen(t *testing.T) {
 	if !got.showingLinks {
 		t.Fatal("Enter on a URL should leave the links panel open")
 	}
-	if cmd != nil || got.loading {
-		t.Fatalf("after Enter: cmd=nil=%v loading=%v, want no action", cmd == nil, got.loading)
+	if cmd != nil || got.pending != nil {
+		t.Fatalf("after Enter: cmd=nil=%v pending=%#v, want no action", cmd == nil, got.pending)
 	}
 	if copied != "" {
 		t.Fatalf("Enter on a URL copied %q, want no clipboard write", copied)
@@ -1849,8 +1867,8 @@ func TestLinksPanelEnterBlockedStaysOpenAndFlashesRefusal(t *testing.T) {
 	if got.flash != link.Blocked {
 		t.Fatalf("flash = %q, want %q", got.flash, link.Blocked)
 	}
-	if got.loading {
-		t.Fatal("Enter on a blocked link should not start loading")
+	if got.pending != nil {
+		t.Fatal("Enter on a blocked link should not start a request")
 	}
 }
 
@@ -1866,8 +1884,8 @@ func TestLinksPanelFAmbiguousFingersSelectedLink(t *testing.T) {
 	if got.showingLinks {
 		t.Fatal("f on an ambiguous finger link should close the links panel")
 	}
-	if !got.loading || cmd == nil {
-		t.Fatalf("after f: loading=%v cmd=nil=%v, want a fetch", got.loading, cmd == nil)
+	if got.pending == nil || cmd == nil {
+		t.Fatalf("after f: pending=%#v cmd=nil=%v, want a fetch", got.pending, cmd == nil)
 	}
 	runCmds(cmd)
 	if len(*seen) != 1 || (*seen)[0] != target.Raw {
@@ -1926,8 +1944,8 @@ func TestLinksPanelFilteringConsumesActionKeys(t *testing.T) {
 			if value := got.linksPanel.list.FilterValue(); value != string(code) {
 				t.Fatalf("FilterValue = %q, want %q", value, string(code))
 			}
-			if got.loading || len(*seen) != 0 {
-				t.Fatalf("%q while filtering triggered a fetch: loading=%v targets=%v", code, got.loading, *seen)
+			if got.pending != nil || len(*seen) != 0 {
+				t.Fatalf("%q while filtering triggered a fetch: pending=%#v targets=%v", code, got.pending, *seen)
 			}
 			if copied != "" {
 				t.Fatalf("%q while filtering copied %q, want no clipboard write", code, copied)
@@ -2093,7 +2111,7 @@ func TestUpdateKeymapGatesByState(t *testing.T) {
 
 	// Host list lands → content focused, list state: open/filter/back/copy/focus live.
 	host := hostTarget(t, "@tilde.team")
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: host, Body: []byte(hostListBody())}})
 	m = step.(appModel)
 	(&m).updateKeymap()
 	if !m.keys.Open.Enabled() || !m.keys.Filter.Enabled() || !m.keys.Back.Enabled() ||
@@ -2103,7 +2121,7 @@ func TestUpdateKeymapGatesByState(t *testing.T) {
 
 	// Profile reader → no link actions or panel (nothing to drill, finger, or
 	// browse); raw/copy/back live.
-	step, _ = m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ = deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	(&m).updateKeymap()
 	if m.keys.Open.Enabled() || m.keys.Filter.Enabled() || m.keys.LinkNext.Enabled() ||
@@ -2158,7 +2176,7 @@ func TestUpdateKeymapGatesByState(t *testing.T) {
 // in the current state (bubbles/help skips disabled bindings).
 func TestHelpPanelHidesInertKeys(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
@@ -2178,7 +2196,7 @@ func TestHelpPanelHidesInertKeys(t *testing.T) {
 func TestInputFocusedBarShowsGoCancel(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.common.width = 80
-	step, _ := m.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
 	step, _ = m.Update(tea.KeyPressMsg{Code: 'i'})
 	m = step.(appModel)
@@ -2210,20 +2228,20 @@ func TestStaleFetchResultDropped(t *testing.T) {
 	common := testCommon()
 	m := appModel{common: common}
 	m.reqSeq = 2
-	m.loading = true
+	m.pending = &pendingRequest{id: 2, target: finger.Target{Raw: "b@x"}, intent: requestNavigate, cancel: func() {}}
 
 	stale := fetchResultMsg{reqID: 1, entry: Entry{Target: finger.Target{Raw: "a@x"}, Body: []byte("old\n")}}
 	updated, _ := m.Update(stale)
 	got := updated.(appModel)
-	if !got.loading {
-		t.Fatal("stale result cleared loading; in-flight request should still be loading")
+	if got.pending == nil || got.pending.id != 2 {
+		t.Fatal("stale result cleared or replaced the in-flight request")
 	}
 
 	current := fetchResultMsg{reqID: 2, entry: Entry{Target: finger.Target{Raw: "b@x"}, Body: []byte("new\n")}}
 	updated2, _ := got.Update(current)
 	got2 := updated2.(appModel)
-	if got2.loading {
-		t.Fatal("current result did not clear loading")
+	if got2.pending != nil {
+		t.Fatal("current result did not settle the request")
 	}
 	if got2.state != stateReader {
 		t.Fatalf("current result did not route to reader: state = %d", got2.state)
@@ -2421,7 +2439,7 @@ func TestAboutOpensFromBlurredResult(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
-	step, _ := m.Update(fetchResultMsg{entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
 	}})
 	m = step.(appModel)
@@ -2477,7 +2495,7 @@ func TestAboutEscReturnsToOrigin(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
-	step, _ := m.Update(fetchResultMsg{entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
 	}})
 	m = step.(appModel)
@@ -2509,7 +2527,7 @@ func TestCopyAddressNothingToCopy(t *testing.T) {
 
 func TestCopyAddressSuccessSetsCopiedFlash(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"),
 		Body:   []byte("Plan: hi\n"),
 	}})
@@ -2523,7 +2541,7 @@ func TestCopyAddressSuccessSetsCopiedFlash(t *testing.T) {
 
 func TestBackClearsFlash(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"),
 		Body:   []byte("Plan: hi\n"),
 	}})
@@ -2551,7 +2569,7 @@ func TestDrillClearsFlash(t *testing.T) {
 
 func TestFocusInputPreservesErrorFlash(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	step, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: Entry{
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
 		Target: hostTarget(t, "alice@plan.cat"),
 		Body:   []byte("Plan: hi\n"),
 	}})
@@ -2622,8 +2640,8 @@ func TestSeededValidQueryFetchesAndRoutesToReader(t *testing.T) {
 
 	next, cmd := m.Update(seedSubmitMsg{})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatalf("after seed submit: loading=false, want true")
+	if got.pending == nil {
+		t.Fatalf("after seed submit: pending=nil, want request")
 	}
 	if cmd == nil {
 		t.Fatal("seed submit cmd = nil, want a fetch command")
@@ -2645,8 +2663,8 @@ func TestSeededInvalidQueryShowsErrorOnLanding(t *testing.T) {
 	next, cmd := m.Update(seedSubmitMsg{})
 	got := next.(appModel)
 
-	if got.loading {
-		t.Fatalf("invalid seed: loading=true, want false")
+	if got.pending != nil {
+		t.Fatalf("invalid seed: pending=%#v, want nil", got.pending)
 	}
 	if cmd != nil {
 		t.Fatalf("invalid seed: cmd != nil, want nil (no fetch)")
@@ -2673,8 +2691,8 @@ func TestAboutEnterFingersAuthor(t *testing.T) {
 	}
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(appModel)
-	if !got.loading {
-		t.Fatal("Enter on about should start a fetch (loading=true)")
+	if got.pending == nil {
+		t.Fatal("Enter on about should start a request")
 	}
 	if cmd == nil {
 		t.Fatal("Enter on about should return a fetch command")
@@ -2749,7 +2767,7 @@ func TestAboutStatusBarFromLandingAndResult(t *testing.T) {
 	m2 := newApp(stubFetch(t), colorprofile.NoTTY)
 	sized2, _ := m2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m2 = sized2.(appModel)
-	step, _ := m2.Update(fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
+	step, _ := deliverNavigationResult(m2, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m2 = step.(appModel)
 	(&m2).openAbout()
 	bar2 := m2.statusBarModel()

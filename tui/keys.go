@@ -13,6 +13,7 @@ type keyMap struct {
 	Open       key.Binding
 	Filter     key.Binding
 	Raw        key.Binding
+	Refresh    key.Binding
 	Copy       key.Binding
 	Help       key.Binding
 	About      key.Binding
@@ -38,6 +39,7 @@ func newKeyMap() keyMap {
 		Open:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("↵", "go")),
 		Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 		Raw:        key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view source")),
+		Refresh:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Copy:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		About:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about lookit")),
@@ -64,7 +66,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 // listing it inside the open panel (where '?' actually closes) is redundant.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Open, k.FocusInput, k.Copy, k.Raw},
+		{k.Open, k.FocusInput, k.Copy, k.Raw, k.Refresh},
 		{k.Move, k.Page, k.Jump, k.Filter},
 		{k.Back, k.About, k.Quit},
 	}

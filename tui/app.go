@@ -51,6 +51,7 @@ const (
 
 // commonModel is state shared across sub-models.
 type commonModel struct {
+	ctx            context.Context
 	width          int
 	height         int
 	profile        colorprofile.Profile
@@ -89,6 +90,14 @@ type histNode struct {
 	linkIdx     int    // focused link index (-1 == none)
 }
 
+type refreshViewState struct {
+	state      appState
+	scrollY    int
+	linkRaw    string
+	listFilter string
+	selected   userItem
+}
+
 // appModel is the top-level state machine. It routes input and fetch results
 // between the reader and the list, and owns quit/back behavior.
 type appModel struct {
@@ -105,16 +114,16 @@ type appModel struct {
 	seeded       bool // a CLI positional arg was supplied; replay it on Init
 	keys         keyMap
 
-	loading       bool
-	loadingTarget finger.Target
-	reqSeq        uint64 // monotonic id of the most recently started fetch
-	spin          spinner.Model
+	pending        *pendingRequest
+	requestFailure *requestFailure
+	reqSeq         uint64 // monotonic id of the most recently started fetch
+	spin           spinner.Model
 
 	flash string
 
 	history      []histNode
 	pos          int  // -1 == landing (nothing fetched yet)
-	showingRaw   bool // r-toggled "view source" of the current node's raw body
+	showingRaw   bool // v-toggled "view source" of the current node's raw body
 	showingLinks bool // L-toggled links panel overlay
 	linksPanel   linksPanel
 	help         bool // help panel open
@@ -123,15 +132,23 @@ type appModel struct {
 }
 
 func newApp(fetch FetchFunc, profile colorprofile.Profile) appModel {
-	return newAppWithOptions(fetch, profile, Options{})
+	return newAppWithContext(context.Background(), fetch, profile, Options{})
 }
 
 func newAppWithOptions(fetch FetchFunc, profile colorprofile.Profile, opts Options) appModel {
+	return newAppWithContext(context.Background(), fetch, profile, opts)
+}
+
+func newAppWithContext(ctx context.Context, fetch FetchFunc, profile colorprofile.Profile, opts Options) appModel {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if fetch == nil {
 		fetch = defaultFetch
 	}
 	st := newStyles(true)
 	common := &commonModel{
+		ctx:            ctx,
 		profile:        profile,
 		darkBackground: true,
 		styles:         st,
@@ -216,6 +233,49 @@ func (m *appModel) snapshot() {
 	}
 }
 
+func (m appModel) captureRefreshView() refreshViewState {
+	view := refreshViewState{state: m.state}
+	switch m.state {
+	case stateList:
+		view.listFilter = m.list.list.FilterValue()
+		view.selected, _ = m.list.selected()
+	case stateReader:
+		view.scrollY = m.reader.viewport.YOffset()
+		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(m.reader.links) {
+			view.linkRaw = m.reader.links[m.reader.focusedLink].Raw
+		}
+	}
+	return view
+}
+
+func (m *appModel) restoreRefreshView(view refreshViewState) {
+	if view.state != m.state {
+		return
+	}
+	if m.state == stateList {
+		if view.listFilter != "" {
+			m.list.list.SetFilterText(view.listFilter)
+		}
+		m.list.selectIdentity(view.selected)
+		m.snapshot()
+		return
+	}
+	m.reader.focusedLink = -1
+	for i, link := range m.reader.links {
+		if view.linkRaw != "" && link.Raw == view.linkRaw {
+			m.reader.focusedLink = i
+			break
+		}
+	}
+	// Re-render: showRouted already set the entry, but it did so before the
+	// link focus above was restored, so the refreshed body carries no
+	// highlight until the entry goes through the reader a second time.
+	node := m.history[m.pos]
+	m.reader.setEntryWithLinks(node.entry, node.links)
+	m.reader.viewport.SetYOffset(view.scrollY)
+	m.snapshot()
+}
+
 // restore rebuilds the active sub-model from a node (no network).
 func (m *appModel) restore(n histNode) {
 	if n.state == stateReader {
@@ -258,6 +318,7 @@ func (m *appModel) gotoLanding() {
 
 // stepBack moves one step toward history root, or to the landing from pos 0.
 func (m *appModel) stepBack() {
+	m.clearRequestFailure()
 	m.showingRaw = false
 	m.showingLinks = false
 	if m.pos < 0 {
@@ -285,6 +346,7 @@ func (m *appModel) back() tea.Cmd {
 // focusInput gives the keyboard to the target input, pre-filled with the
 // current target for browser-style editing.
 func (m *appModel) focusInput() tea.Cmd {
+	m.clearRequestFailure()
 	if m.pos >= 0 {
 		m.input.SetValue(m.history[m.pos].entry.Target.Raw)
 	}
@@ -292,16 +354,6 @@ func (m *appModel) focusInput() tea.Cmd {
 	m.input.CursorEnd()
 	m.resize()
 	return m.input.Focus()
-}
-
-// startFetch marks loading for target, advances the request id so any
-// still-in-flight earlier fetch's result will be discarded on arrival, and
-// returns the command batch that performs the fetch and ticks the spinner.
-func (m *appModel) startFetch(target finger.Target) tea.Cmd {
-	m.loading = true
-	m.loadingTarget = target
-	m.reqSeq++
-	return tea.Batch(fetchCmd(context.Background(), m.common.fetch, target, m.reqSeq), m.spin.Tick)
 }
 
 // blurInput returns the keyboard to the content.
@@ -315,6 +367,7 @@ func (m *appModel) blurInput() {
 // state so closeAbout can restore it without a re-fetch. About is transient: it
 // is not pushed onto history.
 func (m *appModel) openAbout() {
+	m.clearRequestFailure()
 	m.flash = ""
 	m.aboutFromState = m.state
 	m.state = stateAbout
@@ -348,6 +401,7 @@ func (m *appModel) enterRaw() {
 	if m.pos < 0 {
 		return
 	}
+	m.clearRequestFailure()
 	m.reader.setRaw(m.history[m.pos].entry.Body)
 	m.state = stateReader
 	m.showingRaw = true
@@ -375,8 +429,9 @@ func (m *appModel) submit() tea.Cmd {
 		return nil
 	}
 	m.flash = "" // clear any stale parse-error flash from a prior failed submit
+	cmd := m.startRequest(target, requestNavigate, false)
 	m.blurInput()
-	return m.startFetch(target)
+	return cmd
 }
 
 // seedSubmitMsg replays a command-line initial query through submit() on
@@ -395,6 +450,9 @@ func (m appModel) Init() tea.Cmd {
 		// a blank arg yields the same parse-error flash as Enter-on-empty does
 		// interactively, rather than silently landing.
 		cmds = append(cmds, func() tea.Msg { return seedSubmitMsg{} })
+	}
+	if m.common.ctx.Done() != nil {
+		cmds = append(cmds, waitForSessionCancel(m.common.ctx))
 	}
 	return tea.Batch(cmds...)
 }
@@ -436,13 +494,23 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case sessionCanceledMsg:
+		_ = m.cancelRequest()
+		return m, tea.Quit
+
 	case fetchResultMsg:
-		if msg.reqID != m.reqSeq {
-			// A superseded in-flight fetch finished late; drop it so it cannot
-			// replace the current view/history with stale (or hostile) output.
+		if m.common.ctx != nil && m.common.ctx.Err() != nil {
+			_ = m.cancelRequest()
+			return m, tea.Quit
+		}
+		request, ok := m.finishRequest(msg.reqID)
+		if !ok {
 			return m, nil
 		}
-		return m.routeFetch(msg.entry), nil
+		if request.intent == requestRefresh {
+			return m.landRefresh(msg.entry, request), nil
+		}
+		return m.landNavigation(msg.entry), nil
 
 	case clearFlashMsg:
 		m.flash = ""
@@ -453,7 +521,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case spinner.TickMsg:
-		if m.loading {
+		if m.pending != nil {
 			var cmd tea.Cmd
 			m.spin, cmd = m.spin.Update(msg)
 			return m, cmd
@@ -479,6 +547,18 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey processes app-level keys and focus routing. handled=false lets the
 // caller delegate the key to the active sub-model (content) or the input.
 func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
+	if m.pending != nil {
+		switch {
+		case key.Matches(msg, m.keys.ForceQuit), key.Matches(msg, m.keys.Quit):
+			_ = m.cancelRequest()
+			return true, m, tea.Quit
+		case key.Matches(msg, m.keys.Back):
+			return true, m, m.cancelRequest()
+		default:
+			return true, m, nil
+		}
+	}
+
 	if key.Matches(msg, m.keys.ForceQuit) {
 		return true, m, tea.Quit
 	}
@@ -503,7 +583,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			if err != nil {
 				return true, m, nil
 			}
-			return true, m, m.startFetch(target)
+			return true, m, m.startRequest(target, requestNavigate, false)
 		case key.Matches(msg, m.keys.Copy): // y copy the issues URL
 			// setFlash mutates m, so sequence it before the return reads m by
 			// value (handleKey returns m, not *m): operand order is unspecified.
@@ -587,7 +667,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 				switch actionsForLink(sel).enter {
 				case linkEnterGo:
 					m.showingLinks = false
-					return true, m, m.startFetch(sel.Target)
+					return true, m, m.startRequest(sel.Target, requestNavigate, false)
 				case linkEnterRefuse:
 					return true, m, m.setFlash(sel.Blocked)
 				default:
@@ -599,7 +679,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			if sel, ok := m.linksPanel.selected(); ok {
 				if actionsForLink(sel).finger {
 					m.showingLinks = false
-					return true, m, m.startFetch(sel.Target)
+					return true, m, m.startRequest(sel.Target, requestNavigate, false)
 				}
 			}
 			return true, m, nil
@@ -641,6 +721,9 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.Copy):
 		cmd := m.copyAddress()
 		return true, m, cmd
+	case key.Matches(msg, m.keys.Refresh):
+		cmd := m.refreshCurrent()
+		return true, m, cmd
 	case key.Matches(msg, m.keys.Open) && m.state == stateList:
 		return m.drill()
 	case key.Matches(msg, m.keys.Open) && m.state == stateReader && m.pos >= 0:
@@ -673,12 +756,13 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(node.links) {
 			link := node.links[m.reader.focusedLink]
 			if actionsForLink(link).finger {
-				cmd := m.startFetch(link.Target)
+				cmd := m.startRequest(link.Target, requestNavigate, false)
 				return true, m, cmd
 			}
 		}
 		return true, m, nil
 	case key.Matches(msg, m.keys.LinkPanel) && m.pos >= 0:
+		m.clearRequestFailure()
 		node := m.history[m.pos]
 		m.showingLinks = true
 		m.linksPanel = newLinksPanel(m.common, node.links)
@@ -716,41 +800,115 @@ func (m appModel) drill() (bool, appModel, tea.Cmd) {
 		}
 		return true, m, nil
 	}
-	// Keep the current view (the list) on screen while loading; routeFetch sets
+	// Keep the current view (the list) on screen while loading; landNavigation sets
 	// the final state when the result lands. Switching to the reader eagerly here
 	// flashed the previous profile for a frame before the new one arrived.
-	cmd := m.startFetch(target)
+	cmd := m.startRequest(target, requestNavigate, false)
 	return true, m, cmd
 }
 
-// routeFetch is the single decision point for a completed fetch: a host
-// response that parses opens the list; everything else renders in the reader.
-// Either way it pushes a history node.
-func (m appModel) routeFetch(entry Entry) appModel {
-	m.loading = false
+type routedEntry struct {
+	node   histNode
+	parsed *parsedUserList
+}
+
+func routeEntry(entry Entry) routedEntry {
+	routed := routedEntry{node: histNode{entry: entry, state: stateReader, linkIdx: -1}}
+	routed.node.links = DetectLinks(entry.Body, entry.Target.HostPort)
+	if len(entry.Body) == 0 || !shouldOpenList(entry) {
+		return routed
+	}
+	parsed, ok := parseUserList(entry.Body, entry.Target.HostPort)
+	if !ok {
+		return routed
+	}
+	routed.node.state = stateList
+	routed.node.listUsers = len(parsed.users)
+	routed.node.listGeneric = parsed.generic
+	routed.parsed = &parsed
+	return routed
+}
+
+func (m *appModel) showRouted(routed routedEntry) {
 	m.inputFocused = false
 	m.input.Blur()
-	m.snapshot() // save current position's scroll/selection before replacing it
 	m.showingRaw = false
 	m.showingLinks = false
-	node := histNode{entry: entry, state: stateReader}
-	node.links = DetectLinks(entry.Body, entry.Target.HostPort)
-	if len(entry.Body) > 0 && shouldOpenList(entry) {
-		if parsed, ok := parseUserList(entry.Body, entry.Target.HostPort); ok {
-			m.list = newListWithPreamble(m.common, entry.Target, parsed.users, entry.Body, parsed.generic)
-			m.listReady = true
-			node.state = stateList
-			node.listUsers = len(parsed.users)
-			node.listGeneric = parsed.generic
-		}
+	m.state = routed.node.state
+	if routed.node.state == stateList {
+		m.list = newListWithPreamble(m.common, routed.node.entry.Target, routed.parsed.users, routed.node.entry.Body, routed.node.listGeneric)
+		m.listReady = true
+		return
 	}
-	if node.state == stateReader {
-		m.reader.focusedLink = -1
-		m.reader.setEntryWithLinks(entry, node.links)
-	}
-	m.state = node.state
-	m.push(node)
+	m.reader.focusedLink = -1
+	m.reader.setEntryWithLinks(routed.node.entry, routed.node.links)
+}
+
+func (m appModel) landNavigation(entry Entry) appModel {
+	m.snapshot()
+	routed := routeEntry(entry)
+	m.showRouted(routed)
+	m.push(routed.node)
+	m.requestFailure = nil
 	return m
+}
+
+func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return m
+	}
+	if entry.Err != nil && len(entry.Body) == 0 {
+		m.requestFailure = &requestFailure{retry: request.retry, err: entry.Err}
+		return m
+	}
+	view := refreshViewState{}
+	if request.view != nil {
+		view = *request.view
+	}
+	routed := routeEntry(entry)
+	m.history[m.pos] = routed.node
+	m.showRouted(routed)
+	m.restoreRefreshView(view)
+	m.requestFailure = nil
+	return m
+}
+
+func (m appModel) shouldRetry() bool {
+	if m.requestFailure != nil {
+		return true
+	}
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return false
+	}
+	entry := m.history[m.pos].entry
+	return entry.Err != nil && len(entry.Body) == 0
+}
+
+func (m appModel) refreshHelp() key.Help {
+	if m.shouldRetry() {
+		return key.Help{Key: "r", Desc: "retry"}
+	}
+	return key.Help{Key: "r", Desc: "refresh"}
+}
+
+func (m appModel) refreshHint() string {
+	help := m.refreshHelp()
+	return help.Key + " " + help.Desc
+}
+
+func (m *appModel) clearRequestFailure() {
+	m.requestFailure = nil
+}
+
+func (m *appModel) refreshCurrent() tea.Cmd {
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return nil
+	}
+	m.snapshot()
+	view := m.captureRefreshView()
+	cmd := m.startRequest(m.history[m.pos].entry.Target, requestRefresh, m.shouldRetry())
+	m.pending.view = &view
+	return cmd
 }
 
 // shouldOpenList reports whether a fetch result is a host-style listing that
@@ -815,7 +973,7 @@ func (m appModel) activateFocusedLink(node *histNode) (bool, appModel, tea.Cmd) 
 	link := node.links[m.reader.focusedLink]
 	switch actionsForLink(link).enter {
 	case linkEnterGo:
-		return true, m, m.startFetch(link.Target)
+		return true, m, m.startRequest(link.Target, requestNavigate, false)
 	case linkEnterRefuse:
 		return true, m, m.setFlash(link.Blocked)
 	default:
@@ -868,9 +1026,29 @@ func (m *appModel) copyAddress() tea.Cmd {
 // (help panel); Update and View call it. Pattern: pop's updateKeymap
 // (~/pop/keymap.go).
 func (m *appModel) updateKeymap() {
+	refreshHelp := m.refreshHelp()
+	m.keys.Refresh.SetHelp(refreshHelp.Key, refreshHelp.Desc)
+	if m.pending != nil {
+		for _, binding := range []*key.Binding{
+			&m.keys.Open, &m.keys.FocusInput, &m.keys.Filter, &m.keys.Raw,
+			&m.keys.Copy, &m.keys.Help, &m.keys.About, &m.keys.Move,
+			&m.keys.Page, &m.keys.Jump, &m.keys.LinkNext, &m.keys.LinkPrev,
+			&m.keys.LinkFinger, &m.keys.LinkPanel, &m.keys.Refresh,
+		} {
+			binding.SetEnabled(false)
+		}
+		m.keys.Back.SetEnabled(true)
+		m.keys.Quit.SetEnabled(true)
+		m.keys.ForceQuit.SetEnabled(true)
+		return
+	}
 	content := !m.inputFocused
 	hasResult := m.pos >= 0
 	inList := content && m.state == stateList && !m.showingRaw
+	canRefresh := content && hasResult &&
+		(m.state == stateReader || m.state == stateList) &&
+		!m.showingRaw && !m.showingLinks &&
+		(m.state != stateList || !m.list.filtering())
 
 	// Dual-mode commands — handleKey matches them in BOTH the input-focused and
 	// content branches, so they must stay live while typing: Open=Enter (submit
@@ -890,6 +1068,7 @@ func (m *appModel) updateKeymap() {
 	m.keys.Move.SetEnabled(content)
 	m.keys.Page.SetEnabled(content)
 	m.keys.Jump.SetEnabled(content)
+	m.keys.Refresh.SetEnabled(canRefresh)
 
 	inReader := content && m.state == stateReader && !m.showingRaw
 	hasReaderLinks := false
@@ -945,21 +1124,26 @@ func joinHints(parts []string, escTarget string) string {
 }
 
 func (m appModel) statusBarModel() statusBar {
-	if m.loading {
-		bar := statusBar{width: m.common.width, styles: m.common.styles}
-		bar.hints = m.spin.View() + " loading " + m.loadingTarget.Raw
-		return bar // flash is intentionally suppressed while loading
+	if m.pending != nil {
+		priority := m.pendingPriorityStatus(time.Now())
+		return statusBar{width: m.common.width, styles: m.common.styles, priority: &priority}
 	}
 	bar := m.buildStatusBar()
 	if m.flash != "" {
 		bar.hints = m.flash // a transient flash message overrides the resting hints
+		return bar
+	}
+	if m.requestFailure != nil && (m.state != stateList || !m.list.filtering()) {
+		priority := m.requestFailure.priorityStatus()
+		bar.hints = ""
+		bar.priority = &priority
 	}
 	return bar
 }
 
-// buildStatusBar assembles the bar for the current (non-loading) screen. The
-// flash override is applied once by statusBarModel, so each branch here sets
-// bar.hints to its resting value without repeating the check.
+// buildStatusBar assembles the bar for the current (non-loading) screen.
+// statusBarModel applies transient flash and refresh-failure overrides, so each
+// branch here sets bar.hints to its resting value without repeating the check.
 func (m appModel) buildStatusBar() statusBar {
 	st := m.common.styles
 	w := m.common.width
@@ -1031,14 +1215,17 @@ func (m appModel) buildStatusBar() statusBar {
 	case stateList:
 		bar.meta = fmt.Sprintf("%d users", node.listUsers)
 		parts := []string{"↵ go", "/ filter"}
-		if node.listGeneric {
-			bar.flags = append(bar.flags, "auto-detected")
-			parts = append(parts, "v view source")
+		if !m.list.filtering() {
+			parts = append(parts, m.refreshHint())
 		}
 		if node.entry.Err != nil {
 			bar.flags = append(bar.flags, "partial (error)")
 		} else if node.entry.Meta.Truncated {
 			bar.flags = append(bar.flags, "partial (truncated)")
+		}
+		if node.listGeneric {
+			bar.flags = append(bar.flags, "auto-detected")
+			parts = append(parts, "v view source")
 		}
 		bar.hints = joinHints(parts, bar.escTarget)
 		if tp := m.list.list.Paginator.TotalPages; tp > 1 {
@@ -1062,11 +1249,11 @@ func (m appModel) buildStatusBar() statusBar {
 			if link.Blocked != "" {
 				extra = append(extra, link.Blocked)
 			}
-			extra = append(extra, "tab next")
+			extra = append(extra, "tab next", m.refreshHint())
 			bar.hints = fmt.Sprintf("link %d/%d · %s · %s", n, total, label, strings.Join(extra, " · "))
 			return bar
 		}
-		bar.hints = joinHints([]string{"↑↓ scroll"}, bar.escTarget)
+		bar.hints = joinHints([]string{"↑↓ scroll", m.refreshHint()}, bar.escTarget)
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
 			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))
 		}

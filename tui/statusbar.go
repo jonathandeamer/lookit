@@ -23,8 +23,42 @@ type statusBar struct {
 	scroll    string   // "42%" when reader is scrollable; "" otherwise
 	meta      string   // "1.2 KB", "3 users", …
 	hints     string   // contextual keys, e.g. "↵ go · / filter · ? help"
+	priority  *priorityStatus
 	width     int
 	styles    styles
+}
+
+// priorityStatus keeps an expendable detail between the status context and
+// its consequence/actions. When space runs out, detail is truncated before
+// the suffix so the controls and stale-response warning remain visible.
+type priorityStatus struct {
+	prefix string
+	detail string
+	suffix string
+}
+
+func (s priorityStatus) text() string {
+	return s.prefix + s.detail + s.suffix
+}
+
+func (s priorityStatus) render(width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if full := s.text(); lipgloss.Width(full) <= width {
+		return full
+	}
+
+	suffixWidth := lipgloss.Width(s.suffix)
+	if suffixWidth >= width {
+		return ansi.Cut(s.suffix, suffixWidth-width, suffixWidth)
+	}
+	prefixWidth := lipgloss.Width(s.prefix)
+	detailWidth := width - prefixWidth - suffixWidth
+	if detailWidth > 0 {
+		return s.prefix + ansi.Truncate(s.detail, detailWidth, "…") + s.suffix
+	}
+	return ansi.Truncate(s.prefix, width-suffixWidth, "…") + s.suffix
 }
 
 // landingBar is the bar shown before anything is fetched.
@@ -35,6 +69,9 @@ func landingBar(width int, st styles) statusBar {
 func (b statusBar) render() string {
 	if b.width <= 0 {
 		return ""
+	}
+	if b.priority != nil {
+		return b.renderPriority()
 	}
 	st := b.styles
 
@@ -55,12 +92,31 @@ func (b statusBar) render() string {
 	if b.hints != "" {
 		right = append(right, b.hints)
 	}
-	rightText := ansi.Truncate(strings.Join(right, " · "), b.width, "…")
+	// Honesty flags take precedence over contextual hints. Reserve their room
+	// before truncating the right group so a new hint cannot hide a partial or
+	// auto-detected marker on a narrow terminal.
+	allFlags, _ := b.flagsWithin(b.width)
+	separator := 0
+	if len(right) > 0 && (b.host != "" || b.user != "" || allFlags != "") {
+		separator = 1
+	}
+	rightBudget := b.width - lipgloss.Width(allFlags) - separator
+	if rightBudget < 0 {
+		rightBudget = 0
+	}
+	rightJoined := strings.Join(right, " · ")
+	rightText := ""
+	if rightBudget > 0 {
+		rightText = ansi.Truncate(rightJoined, rightBudget, "…")
+	}
 	rightW := lipgloss.Width(rightText)
+	if rightW == 0 {
+		separator = 0
+	}
 
 	// Left group: breadcrumb + flags. Flags are kept whole when they fit; the
 	// breadcrumb truncates first because it is the most expendable content.
-	avail := b.width - rightW - 1
+	avail := b.width - rightW - separator
 	if avail < 0 {
 		avail = 0
 	}
@@ -72,6 +128,10 @@ func (b statusBar) render() string {
 
 	left := b.styleCrumb(crumbBudget) + styledFlags
 	leftW := lipgloss.Width(left)
+	if leftW == 0 && rightW < b.width {
+		rightText = ansi.Truncate(rightJoined, b.width, "…")
+		rightW = lipgloss.Width(rightText)
+	}
 
 	gap := b.width - leftW - rightW
 	if gap < 0 {
@@ -79,6 +139,35 @@ func (b statusBar) render() string {
 	}
 	line := left + st.barFill.Render(strings.Repeat(" ", gap)) + st.barDim.Render(rightText)
 	return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)
+}
+
+func (b statusBar) renderPriority() string {
+	st := b.styles
+	full := b.priority.text()
+	if priorityWidth := lipgloss.Width(full); priorityWidth < b.width {
+		ordinaryWidth := b.width - priorityWidth - lipgloss.Width(" · ")
+		if ordinaryWidth > 0 && b.hasOrdinaryStatus() {
+			ordinary := b
+			ordinary.priority = nil
+			ordinary.hints = ""
+			ordinary.width = ordinaryWidth
+			line := ordinary.render() + st.barDim.Render(" · "+full)
+			return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)
+		}
+	}
+
+	priority := b.priority.render(b.width)
+	gap := b.width - lipgloss.Width(priority)
+	if gap < 0 {
+		gap = 0
+	}
+	line := st.barFill.Render(strings.Repeat(" ", gap)) + st.barDim.Render(priority)
+	return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)
+}
+
+func (b statusBar) hasOrdinaryStatus() bool {
+	return b.host != "" || b.user != "" || b.escTarget != "" || len(b.flags) > 0 ||
+		b.page != "" || b.scroll != "" || b.meta != ""
 }
 
 func (b statusBar) flagsWithin(width int) (plain, styled string) {

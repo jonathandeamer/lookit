@@ -27,10 +27,12 @@ type pendingRequest struct {
 	view          *refreshViewState
 }
 
+// requestFailure is the persistent warning left behind by an empty-body
+// refresh or retry. It carries no target: the failure always belongs to the
+// current history node, which the status bar's breadcrumb already names.
 type requestFailure struct {
-	retry  bool
-	target finger.Target
-	err    error
+	retry bool
+	err   error
 }
 
 type sessionCanceledMsg struct{}
@@ -86,10 +88,6 @@ func (m *appModel) cancelRequest() tea.Cmd {
 	return m.input.Focus()
 }
 
-func (m appModel) pendingStatus(now time.Time) string {
-	return m.pendingPriorityStatus(now).text()
-}
-
 func (m appModel) pendingPriorityStatus(now time.Time) priorityStatus {
 	if m.pending == nil {
 		return priorityStatus{}
@@ -112,7 +110,7 @@ func (f requestFailure) priorityStatus() priorityStatus {
 	}
 	return priorityStatus{
 		prefix: fmt.Sprintf("%s failed: ", operation),
-		detail: fmt.Sprintf("%s", f.err),
+		detail: f.err.Error(),
 		suffix: consequence + " · r retry",
 	}
 }

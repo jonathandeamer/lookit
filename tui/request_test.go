@@ -316,7 +316,7 @@ func TestPendingRequestIsModal(t *testing.T) {
 func TestPendingStatusIncludesElapsedAndControls(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.pending = &pendingRequest{target: hostTarget(t, "alice@plan.cat"), started: time.Unix(100, 0), cancel: func() {}}
-	got := m.pendingStatus(time.Unix(103, 900_000_000))
+	got := m.pendingPriorityStatus(time.Unix(103, 900_000_000)).text()
 	for _, want := range []string{"loading alice@plan.cat", "3s", "esc cancel", "q quit"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("pending status %q missing %q", got, want)
@@ -486,7 +486,7 @@ func TestFailedRefreshWarningCopy(t *testing.T) {
 	entry := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
 	m := settledReader(t, entry)
 	m.common.width = 120
-	m.requestFailure = &requestFailure{target: entry.Target, err: errors.New("read timed out")}
+	m.requestFailure = &requestFailure{err: errors.New("read timed out")}
 	bar := m.statusBarModel().render()
 	for _, want := range []string{"refresh failed: read timed out", "showing previous response", "r retry"} {
 		if !strings.Contains(bar, want) {
@@ -507,7 +507,7 @@ func TestFailedRefreshWarningPrioritizesConsequenceAndRetry(t *testing.T) {
 		m := settledReader(t, entry)
 		m.common.width = width
 		m.reader.setSize(width, 5)
-		m.requestFailure = &requestFailure{target: target, err: errors.New(strings.Repeat("upstream read timed out; ", 8))}
+		m.requestFailure = &requestFailure{err: errors.New(strings.Repeat("upstream read timed out; ", 8))}
 
 		bar := ansi.Strip(m.statusBarModel().render())
 		if got := ansi.StringWidth(bar); got != width {
@@ -530,7 +530,7 @@ func TestFailedRefreshWarningPrioritizesConsequenceAndRetry(t *testing.T) {
 func TestCancelledRetryRestoresWarning(t *testing.T) {
 	entry := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
 	m := settledReader(t, entry)
-	failure := &requestFailure{target: entry.Target, err: errors.New("timeout")}
+	failure := &requestFailure{err: errors.New("timeout")}
 	m.requestFailure = failure
 	m.pending = &pendingRequest{target: entry.Target, retry: true, cancel: func() {}}
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
@@ -640,7 +640,7 @@ func TestRWhileHelpOpenOnlyClosesHelp(t *testing.T) {
 func modelWithWarning(t *testing.T) appModel {
 	t.Helper()
 	m := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte(strings.Repeat("line\n", 30))})
-	m.requestFailure = &requestFailure{target: m.history[0].entry.Target, err: errors.New("old error")}
+	m.requestFailure = &requestFailure{err: errors.New("old error")}
 	return m
 }
 

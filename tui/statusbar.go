@@ -158,6 +158,9 @@ func (b statusBar) renderPriority() string {
 
 	priority := b.priority.render(b.width)
 	gap := b.width - lipgloss.Width(priority)
+	if gap < 0 {
+		gap = 0
+	}
 	line := st.barFill.Render(strings.Repeat(" ", gap)) + st.barDim.Render(priority)
 	return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)
 }

@@ -123,7 +123,7 @@ type appModel struct {
 
 	history      []histNode
 	pos          int  // -1 == landing (nothing fetched yet)
-	showingRaw   bool // r-toggled "view source" of the current node's raw body
+	showingRaw   bool // v-toggled "view source" of the current node's raw body
 	showingLinks bool // L-toggled links panel overlay
 	linksPanel   linksPanel
 	help         bool // help panel open
@@ -267,6 +267,9 @@ func (m *appModel) restoreRefreshView(view refreshViewState) {
 			break
 		}
 	}
+	// Re-render: showRouted already set the entry, but it did so before the
+	// link focus above was restored, so the refreshed body carries no
+	// highlight until the entry goes through the reader a second time.
 	node := m.history[m.pos]
 	m.reader.setEntryWithLinks(node.entry, node.links)
 	m.reader.viewport.SetYOffset(view.scrollY)
@@ -855,7 +858,7 @@ func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
 		return m
 	}
 	if entry.Err != nil && len(entry.Body) == 0 {
-		m.requestFailure = &requestFailure{retry: request.retry, target: request.target, err: entry.Err}
+		m.requestFailure = &requestFailure{retry: request.retry, err: entry.Err}
 		return m
 	}
 	view := refreshViewState{}

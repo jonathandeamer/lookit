@@ -13,13 +13,12 @@ point rather than a permanent API.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `lookit: <error>` | `main.go:42`, `main.go:60` | TUI startup failure and one-shot target parse failure on stderr. |
-| `usage:` | `main.go:68` | Help/usage output on stderr for invalid arguments, `-h`, and `--help`. |
-| `  lookit` | `main.go:69` | Usage line. |
-| `  lookit user@host[:port]` | `main.go:70` | Usage line. |
-| `  lookit @host[:port]` | `main.go:71` | Usage line. |
-| `  lookit version` | `main.go:72` | Usage line. |
-| `lookit <version> (built <builtAt>)`, or `lookit <version>` when the build date is unknown | `main.go` (`versionString`) | `-v`/`--version` output on stdout. |
+| `A finger client built for exploring, not just querying.` plus the structured `Usage:`, `Targets:`, `Options:`, and `Examples:` sections | `render/cli.go` (`Usage`) | `-h`/`--help` output on stdout. |
+| `Press ? inside lookit for keyboard shortcuts.` | `render/cli.go` (`Usage`) | Final pointer in `-h`/`--help` output. |
+| `lookit version <version> (built <builtAt>)`, or `lookit version <version>` when the build date is unknown | `main.go` (`versionString`) | `-v`/`--version` output on stdout. |
+| `lookit: unknown option "<option>"` followed by `Try 'lookit --help' for usage.` | `main.go` (`run`), `render/cli.go` (`InvocationError`) | Unknown option diagnostic on stderr. |
+| `lookit: expected at most one target` followed by `Try 'lookit --help' for usage.` | `main.go` (`run`), `render/cli.go` (`InvocationError`) | Excess positional-target diagnostic on stderr. |
+| `lookit: <error>` | `main.go` (`run`), `render/cli.go` (`ErrorLine`) | TUI startup failure on stderr. |
 
 ## Target Parsing
 

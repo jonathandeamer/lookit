@@ -141,7 +141,7 @@ target: @plan.cat                                    ← input row, unchanged
   Current weather and a 7-day forecast — weather:city@…
 
 ──────────────────────────────────────────────────
-  26 entries    ↵ go · b bookmark · / filter · ? help
+  26 entries    ↵ go · b bookmark · / filter · i target · ? help
 ```
 
 Every row is the same two-row cell `userDelegate` already renders: **target** on
@@ -157,6 +157,15 @@ invent metadata.
 
 **Bookmarking dedups.** A bookmarked catalog entry is suppressed from its
 catalog section rather than appearing twice, so `b` reads as "pin to the top".
+
+**Identity is the exact `Target.Raw` string**, with no normalization. `@plan.cat`,
+`@Plan.Cat` and `@plan.cat:79` are three different bookmarks, and only the first
+matches the catalog entry and borrows its note. Finger has no canonical address
+form to normalize *to* — case-folding a host is safe, but the query half is
+opaque server-side data (`weather:Oslo@…`), and stripping `:79` would assert that
+an explicit port is redundant when the user chose to type it. Round-tripping is
+what matters in practice and it holds: `b` on a startpage row writes back the
+string the row came from, so pinning a catalog entry always matches.
 
 **Sections.** `BOOKMARKS` first, in file order — then the catalog
 grouped `COMMUNITIES` / `SERVICES`. A `PEOPLE` heading renders only if a future
@@ -221,6 +230,15 @@ untouched.
 | `b` | Toggle bookmark | Content focused, and a target is in scope (see below) |
 | `h` | Jump to the startpage, truncating history | Content focused, not already at `pos == -1` |
 
+**Both keys displace a `bubbles` default, deliberately.** `bubbles` binds `b` to
+PrevPage in the list *and* the viewport, and `h` to PrevPage in the list and
+CursorLeft in the viewport. Because `handleKey` matches before delegating, taking
+`b` and `h` removes back-paging by letter from the reader and every user list.
+That is a real cost against the repo's "vim flavour the components already use"
+priority, accepted because `b` for bookmark and `h` for home are the stronger
+mnemonics and both actions need a bare letter. `←`/`pgup` keep paging in both
+directions, and `l` — still bound by both components — keeps paging forward.
+
 **What `b` acts on**, by screen:
 
 | Screen | Target | Effect |
@@ -241,10 +259,12 @@ whether an address is a community, service or person and is never persisted as
 if it could. A matching catalog entry may supply display metadata; an unmatched
 bookmark remains deliberately unclassified.
 
-`h` displaces its current page-left alias in `keyMap.Page` (`tui/keys.go`);
-`←/→` and `pgup`/`pgdn` keep paging, which is what the status bar advertises.
-Both keys are matched only in the content-focused branch, following the rule
-About already sets — so `b` still types a `b` into `bob@host`.
+`h` drops out of `keyMap.Page`'s key list (`tui/keys.go`), which is display-only
+— it exists so the help panel can advertise what the viewport and list bind at
+runtime. `h` is genuinely intercepted now, so listing it would be a lie; `l`
+stays, because it still pages. Both new keys are matched only in the
+content-focused branch, following the rule About already sets — so `b` still
+types a `b` into `bob@host`.
 
 `b` flashes `✓ bookmarked @tilde.team` / `✓ removed @tilde.team`, reusing the
 existing flash mechanism, and flashes the error on a write failure.
@@ -258,11 +278,11 @@ history entry so Esc returns to where you were, but `histNode` wraps an `Entry`
 Entry-less nodes threaded through `snapshot`/`restore`/`captureRefreshView` plus
 answers for what `r`, `v` and `y` do on a response-less node — a lot of surface
 on delicate machinery for a modest gain. `h` is therefore exactly equivalent to
-holding Esc.
+holding Esc, focus included.
 
 ## Focus model
 
-The input row keeps its current behavior (focused at launch, rotating
+The input row keeps its current behavior at launch (focused, rotating
 placeholder), so letter keys would otherwise type rather than act — the
 collision CLAUDE.md already documents for `a`.
 
@@ -274,6 +294,29 @@ collision CLAUDE.md already documents for `a`.
 Esc always backs out one level and eventually quits. This refines today's "Esc at
 root quits" into "Esc at root quits from the input", which avoids the trap where
 a user presses Esc to leave the input and lookit exits from under them.
+
+**Focus follows how you arrived, so only launch focuses the input.** `h` and
+Esc-to-root both land on the startpage with content focus and a row selected.
+This is the browser distinction the `↓` binding already borrows: a new tab
+focuses the address bar, but navigating Home focuses the document. `h` is matched
+only in the content-focused branch — it has to be, so `b` and `h` still type into
+`bob@host` — so you were browsing when you pressed it, and moving the keyboard
+into the input would be a mode switch you did not ask for, costing a `↓` every
+time. The same holds for Esc: `back`/`stepBack` is only ever reached with content
+focused, because Esc in the input branch at `pos >= 0` blurs rather than stepping
+back. So `gotoStart` stops touching focus at all, and launch is input-focused
+because `newAppWithContext` already made it so.
+
+Two consequences, both accepted:
+
+- **Quitting from a landed result becomes Esc ×3, not ×2** — reader → startpage
+  list → input → quit. That is the price of "Esc removes one layer, focus is
+  preserved", and this design already added the layer for the launch case. An
+  extra press, not a trap.
+- **An empty startpage falls back to the input.** With `catalog off` and no
+  bookmarks there is nothing selectable, so content focus would be a dead end:
+  `↓` does nothing and only `i` or Esc escapes. When the startpage has no
+  selection, `h` and Esc-to-root focus the input instead.
 
 ## Failure modes
 
@@ -287,9 +330,26 @@ All non-fatal.
 | Unwritable file | `b` flashes the error; nothing else breaks |
 | Two instances | Read-modify-write per `b`; last write wins |
 | `catalog off`, no bookmarks | Empty state naming the cause and the fix |
+| Filter matches nothing | The list stays; `bubbles` renders the filter input and *"No entries."* |
 
 The empty state reads: *"No bookmarks yet. The catalog is off — remove
 `catalog off` from `<path>` to see it."*
+
+**The empty state is about the file, not the filter.** It must key off whether
+the startpage has any rows *at all*, never off how many are currently visible: a
+filter matching nothing empties the visible set, and showing the file-level
+message there would both assert something false and hide the filter input the
+user is mid-way through typing.
+
+The zero-match case needs no code of our own — `bubbles` already handles it, and
+handles it in two stages. The filter input renders from `titleView` whenever
+filtering is enabled, independent of `SetShowTitle(false)`, so it stays on screen
+either way. While you are still typing, `populatedView` returns an empty body;
+once the filter is applied it renders `Styles.NoItems`. That message interpolates
+the list's item name, which defaults to "items", so the startpage calls
+`SetStatusBarItemName("entry", "entries")` and it reads *"No entries."* — the
+same noun the status bar's `26 entries` uses. (The status bar itself is hidden,
+so that is the setting's only effect here.)
 
 `<path>` is the **resolved** bookmarks path, never a hardcoded
 `~/.config/lookit/bookmarks`. When `$XDG_CONFIG_HOME` is set, the active file is
@@ -351,17 +411,30 @@ these is one.
 
 ## Structure
 
-Three new files, keeping this out of the already-large `app.go`:
+Four new files, keeping this out of the already-large `app.go`:
 
 - `tui/bookmarks.go` — grammar, load, atomic save, path resolution
 - `tui/catalog.go` + `tui/catalog.txt` — the embedded curated list
-- `tui/start.go` — `startModel`, section assembly, cursor-skip wrapper
+- `tui/sections.go` — merging the two sources into rendered order
+- `tui/start.go` — `startModel` and the cursor-skip wrapper
+
+Section assembly gets its own file because it is pure logic with the densest test
+matrix (dedup, note borrowing, `catalog off`), and keeping it out of `start.go`
+lets it be tested without constructing a Bubble Tea model.
 
 ## Testing
 
 Follows the repo's injected-fakes convention: the bookmarks path is an unexported
 package var tests stub, exactly as `main.go` stubs `startTUI`, with real file
 work confined to `t.TempDir()`. No network.
+
+**The stub is package-wide, via `TestMain`.** Once the startpage is the launch
+screen, every `newApp` in the package reads the bookmarks file — so without a
+default stub the existing suite would read whoever's `$XDG_CONFIG_HOME` or
+`$HOME` it runs under, and a maintainer with `catalog off` in their own file
+would see unrelated tests fail. `TestMain` points `bookmarksPathFn` at a temp
+path for the whole package; individual tests override it when they need to
+assert on file contents.
 
 - **Round-trip preservation** — add and remove against a file with comments,
   blank lines, odd spacing and a `catalog off` line; assert everything but the
@@ -374,8 +447,10 @@ work confined to `t.TempDir()`. No network.
   dir, the empty state and both notices quote that path, not the `~/.config`
   fallback.
 - **Catalog guard** — every embedded entry parses with `ParseTarget`, has a valid
-  kind, and has a non-empty note. Makes it impossible to ship a typo'd catalog,
-  which matters because the catalog is hand-edited data.
+  kind, has a non-empty note, and has no `#` in that note (comments are stripped
+  at the first `#`, so one would silently truncate the description). Makes it
+  impossible to ship a typo'd catalog, which matters because the catalog is
+  hand-edited data.
 - **Cursor skip at the edges** — first row, last row, page boundaries,
   `Select(0)` on a header, the trailing credit, and selection resetting to the
   first match when filtering removes non-entry rows. The fiddly part of the
@@ -385,10 +460,14 @@ work confined to `t.TempDir()`. No network.
   credit under filtering or `catalog off`.
 - **Section assembly** — dedup of a bookmarked catalog entry, note borrowing by
   target match, `catalog off`, the empty state.
-- **App level** — `h` from depth truncates history; `b` toggles both directions
-  while preserving the selected target across section moves; Enter starts the
-  selected target through the existing request lifecycle; filter text owns
-  command letters; focus transitions.
+- **Empty state versus no matches** — a zero-match filter keeps the list and the
+  filter input on screen and does *not* show the file-level empty message. The
+  one place the two conditions are easy to conflate.
+- **App level** — `h` from depth truncates history and lands blurred with a row
+  selected, while `h` onto an empty startpage focuses the input; `b` toggles both
+  directions while preserving the selected target across section moves; Enter
+  starts the selected target through the existing request lifecycle; filter text
+  owns command letters; focus transitions.
 
 ## Initial catalog
 

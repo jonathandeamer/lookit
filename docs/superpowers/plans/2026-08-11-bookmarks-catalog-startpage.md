@@ -251,7 +251,9 @@ func parseCatalogData(data []byte) ([]startEntry, []parseProblem) {
 }
 
 // stripComment drops a trailing "#" comment. Comments are preserved by the
-// write path but never parsed or displayed.
+// write path but never parsed or displayed. The cut is at the FIRST "#", so a
+// catalog note containing one would be truncated; TestCatalogIsWellFormed
+// forbids that rather than complicating the grammar for a case no entry needs.
 func stripComment(line string) string {
 	if i := strings.Index(line, "#"); i >= 0 {
 		return line[:i]
@@ -276,7 +278,11 @@ func parseBookmarkTarget(line string) (string, error) {
 // grammar. Catalog notes are compiled into the binary, never read from the
 // user's file.
 func parseCatalogLine(line string) (startEntry, error) {
-	fields := strings.Fields(line)
+	// SplitN, not Fields: the note is everything after the second token and must
+	// keep its interior spacing. Locating it by searching for the target would
+	// work on today's data but silently depends on no target being a substring
+	// of its own kind word.
+	fields := strings.SplitN(strings.Join(strings.Fields(line), " "), " ", 3)
 	if len(fields) < 3 {
 		return startEntry{}, fmt.Errorf("expected \"<kind> <target> <note>\", got %q", line)
 	}
@@ -288,9 +294,7 @@ func parseCatalogLine(line string) (startEntry, error) {
 	if err := validateTarget(target); err != nil {
 		return startEntry{}, err
 	}
-
-	note := strings.TrimSpace(line[strings.Index(line, target)+len(target):])
-	return startEntry{target: target, kind: kind, note: note, source: sourceCatalog}, nil
+	return startEntry{target: target, kind: kind, note: fields[2], source: sourceCatalog}, nil
 }
 
 // validateTarget screens a target from a config file. finger.ParseTarget rejects
@@ -352,6 +356,50 @@ Writes must preserve the user's comments, blank lines, ordering and the `catalog
 
 - [ ] **Step 1: Write the failing test**
 
+First, the package-wide default stub and the helper every later test uses. Put
+both in `tui/bookmarks_test.go`.
+
+**Why `TestMain` and not per-test `t.Cleanup`:** from Task 6 onward every
+`newApp` in the package reads the bookmarks file, so ~40 existing tests would
+otherwise read whoever's `$XDG_CONFIG_HOME` or `$HOME` the suite runs under. A
+maintainer with `catalog off` in their own file would watch unrelated tests fail.
+The package default is a path that does not exist, which is the normal first-run
+case: catalog shows, no bookmarks, no problems.
+
+```go
+// TestMain points every test at a nonexistent bookmarks path by default, so no
+// test in this package can read (or write) the real user's config. Tests that
+// need a live file call useTempBookmarks.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "lookit-tui-test-*")
+	if err != nil {
+		panic(err)
+	}
+	bookmarksPathFn = func() (string, error) { return filepath.Join(dir, "absent"), nil }
+	code := m.Run()
+	os.RemoveAll(dir) //nolint:errcheck // best-effort cleanup
+	os.Exit(code)
+}
+
+// useTempBookmarks points bookmarksPathFn at a fresh file in t.TempDir for the
+// duration of one test, restoring the package default afterwards. The file is
+// not created: callers that want seeded content write it themselves.
+func useTempBookmarks(t *testing.T) string {
+	t.Helper()
+	saved := bookmarksPathFn
+	path := filepath.Join(t.TempDir(), "lookit", "bookmarks")
+	bookmarksPathFn = func() (string, error) { return path, nil }
+	t.Cleanup(func() { bookmarksPathFn = saved })
+	return path
+}
+```
+
+Note there is no existing `TestMain` in `tui` — check with
+`grep -rn "func TestMain" tui/` before adding this, and merge rather than
+duplicate if Task ordering has introduced one.
+
+Then the behaviour tests:
+
 ```go
 func TestResolveBookmarksPathPrefersXDG(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-example")
@@ -411,10 +459,7 @@ func TestDeleteBookmarkLinePreservesMalformedMatch(t *testing.T) {
 }
 
 func TestSaveAndLoadRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "lookit", "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	path := useTempBookmarks(t)
 
 	if err := saveBookmarkData(path, []byte("@plan.cat\n")); err != nil {
 		t.Fatalf("saveBookmarkData() error = %v", err)
@@ -437,9 +482,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 }
 
 func TestLoadBookmarksMissingFileIsNotAnError(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "absent")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	path := useTempBookmarks(t) // deliberately never created
 
 	file, gotPath := loadBookmarks()
 	if gotPath != path {
@@ -457,6 +500,10 @@ Add `"os"`, `"path/filepath"` to the test file's imports.
 
 Run: `go test ./tui/ -run 'TestResolveBookmarks|TestAppendBookmark|TestDeleteBookmark|TestSaveAndLoad|TestLoadBookmarks' -count=1`
 Expected: FAIL — `undefined: resolveBookmarksPath`
+
+Then run the whole package (`go test ./tui/ -count=1`) once `TestMain` compiles:
+every existing test must still pass with it in place. If any test now depends on
+the real config directory, that is the bug `TestMain` exists to prevent.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -593,7 +640,10 @@ The catalog is hand-edited data compiled into the binary. The guard test exists 
 ```go
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestCatalogIsWellFormed guards hand-edited data that ships compiled in: a
 // typo cannot be corrected without cutting a release, so it must not merge.
@@ -610,6 +660,11 @@ func TestCatalogIsWellFormed(t *testing.T) {
 	for _, e := range entries {
 		if e.note == "" {
 			t.Errorf("%s has no note; every catalog entry must describe itself", e.target)
+		}
+		// stripComment cuts at the first '#', so one in a note would silently
+		// truncate the description rather than fail to parse.
+		if strings.Contains(e.note, "#") {
+			t.Errorf("%s note contains '#', which the comment stripper would eat: %q", e.target, e.note)
 		}
 		if e.source != sourceCatalog {
 			t.Errorf("%s source = %v, want sourceCatalog", e.target, e.source)
@@ -737,10 +792,9 @@ Merging the two sources: target-only bookmarks first, catalog grouped and dedupe
 - Create: `tui/sections.go`
 - Create: `tui/sections_test.go`
 
-> The spec's Structure section lists three new files; this splits assembly into
-> a fourth. Assembly is pure logic with the densest test matrix (dedup, note
-> borrowing, `catalog off`), and keeping it out of `start.go` lets it be tested
-> without constructing a Bubble Tea model. Deliberate divergence, recorded here.
+> Assembly is pure logic with the densest test matrix (dedup, note borrowing,
+> `catalog off`), and keeping it out of `start.go` lets it be tested without
+> constructing a Bubble Tea model. The spec's Structure section lists this file.
 
 **Interfaces:**
 - Consumes: `startEntry`, `bookmarkFile`, `entryKind` from Task 1
@@ -1124,6 +1178,23 @@ func TestStartEmptyStateHasNoSelection(t *testing.T) {
 	}
 }
 
+// A filter matching nothing empties the VISIBLE set, not the list. Showing the
+// file-level empty state there would claim something false and hide the filter
+// input mid-keystroke.
+func TestStartZeroMatchFilterKeepsTheList(t *testing.T) {
+	m := newStart(testCommon(), twoSections(), "", "No bookmarks yet. The catalog is off.")
+	m.list.SetFilterText("zzzznomatch")
+	got := m.View()
+	if strings.Contains(got, "No bookmarks yet.") {
+		t.Fatalf("zero-match filter showed the file-level empty state:\n%s", got)
+	}
+	for _, want := range []string{"zzzznomatch", "No entries."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("View() missing %q; the filter input and no-match line must survive:\n%s", want, got)
+		}
+	}
+}
+
 func TestStartViewShowsNoticeAndHeaders(t *testing.T) {
 	m := newStart(testCommon(), twoSections(), "2 unreadable lines in ~/.config/lookit/bookmarks", "")
 	got := m.View()
@@ -1239,10 +1310,17 @@ func newStart(common *commonModel, sections []startSection, notice, empty string
 	}
 	l := list.New(items, startDelegate{userDelegate: defaultUserDelegate(st), st: st}, common.width, height)
 	applyListStyles(&l, st)
+	// NOT redundant with the delegate passed to list.New: applyListStyles ends
+	// with SetDelegate(defaultUserDelegate(st)) (tui/list.go:141), which clobbers
+	// it. The startpage delegate must be reinstated after every style pass — see
+	// applyStyles below, which orders it the same way for the same reason.
 	l.SetDelegate(startDelegate{userDelegate: defaultUserDelegate(st), st: st})
 	l.SetShowStatusBar(false)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
+	// Only reaches Styles.NoItems ("No entries.") — the status bar is hidden.
+	// Matches the noun our own bar uses, instead of the default "No items.".
+	l.SetStatusBarItemName("entry", "entries")
 
 	m := startModel{common: common, list: l, notice: notice, empty: empty}
 	m.skipNonEntry(1) // never rest on the leading header
@@ -1318,17 +1396,20 @@ func (m *startModel) skipNonEntry(dir int) {
 	}
 }
 
+// View shows the file-level empty state only when the startpage has no rows AT
+// ALL. Gating on VisibleItems() instead would fire on a zero-match filter, where
+// it would assert something false ("no bookmarks yet") and swallow the filter
+// input the user is still typing into. A filter that matches nothing keeps the
+// list, which renders the filter input plus its own "No entries." (Styles.NoItems).
 func (m startModel) View() string {
-	if len(m.list.VisibleItems()) == 0 && m.empty != "" {
-		if m.notice != "" {
-			return m.notice + "\n\n" + m.empty
-		}
-		return m.empty
+	body := m.empty
+	if len(m.list.Items()) > 0 || m.empty == "" {
+		body = m.list.View()
 	}
 	if m.notice != "" {
-		return m.notice + "\n\n" + m.list.View()
+		return m.notice + "\n\n" + body
 	}
-	return m.list.View()
+	return body
 }
 
 func (m *startModel) setSize(width, height int) {
@@ -1406,16 +1487,13 @@ git commit -m "feat(tui): add the catalog startpage list"
 
 **Interfaces:**
 - Consumes: `newStart`, `startModel` from Task 5; `loadCatalog` from Task 3; `loadBookmarks`, `shortenHome` from Task 2; `buildSections` from Task 4
-- Produces: `stateStart` appState, `appModel.start startModel`, `(*appModel).reloadStart()`, `(*appModel).gotoStart()`, `startNotice(bookmarkFile, string) string`, `startEmptyMessage(bookmarkFile, string) string`
+- Produces: `stateStart` appState, `appModel.start startModel`, `(*appModel).reloadStart()`, `(*appModel).gotoStart() tea.Cmd`, `startNotice(bookmarkFile, string) string`, `startEmptyMessage(bookmarkFile, string) string`
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
 func TestAppOpensOnStartpage(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	useTempBookmarks(t)
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	if m.state != stateStart {
@@ -1430,9 +1508,7 @@ func TestAppOpensOnStartpage(t *testing.T) {
 }
 
 func TestStartEnterRequestsSelectedTarget(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	useTempBookmarks(t)
 
 	fetch, seen := fetchRecorder("Plan: hello\n")
 	m := newApp(fetch, colorprofile.NoTTY)
@@ -1473,8 +1549,6 @@ func TestStartEmptyMessageNamesResolvedPath(t *testing.T) {
 	}
 }
 ```
-
-Add `"path/filepath"` to `tui/app_test.go`'s imports.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1546,18 +1620,39 @@ func startEmptyMessage(file bookmarkFile, path string) string {
 Replace `gotoLanding` with `gotoStart` (and update its two callers in `stepBack` and anywhere else `gotoLanding` appears):
 
 ```go
-// gotoStart returns to the launch screen, reloading it so a bookmark added
-// while browsing is present when you walk back.
-func (m *appModel) gotoStart() {
+// gotoStart returns to the launch screen, reloading it so a bookmark added while
+// browsing is present when you walk back.
+//
+// It deliberately does NOT touch focus. Both callers — stepBack's root
+// fall-through and goHome — arrive with content focused (Esc in the input branch
+// at pos >= 0 blurs rather than stepping back), and focus should follow how you
+// arrived: only launch focuses the input, the way a new browser tab focuses the
+// address bar while navigating Home focuses the document. newAppWithContext
+// already focuses the input at launch, so nothing is lost by dropping it here.
+//
+// The exception is an unusable startpage: with `catalog off` and no bookmarks
+// there is nothing selectable, so content focus is a dead end. The caller
+// returns the Focus cmd in that case.
+func (m *appModel) gotoStart() tea.Cmd {
 	m.state = stateStart
 	m.reader.current = nil
 	m.reloadStart()
-	m.inputFocused = true
-	m.input.SetValue("")
-	m.input.Focus() // discard the blink cmd; the cursor still shows
+	m.input.SetValue("") // drop the stale target; 'i' should open on an empty row
 	m.resize()
+	if _, ok := m.start.selected(); !ok {
+		m.inputFocused = true
+		return m.input.Focus()
+	}
+	return nil
 }
 ```
+
+Thread the cmd through so the cursor blinks when Esc does land in the input:
+`stepBack` becomes `func() tea.Cmd` (returning `nil` on its other paths) and
+`back` returns `m.stepBack()` instead of `nil`. Its only other caller is
+`tui/request_test.go:663`, which ignores the result — update it to
+`func(m appModel) appModel { _ = m.stepBack(); return m }`. `Init` is unaffected:
+launch never calls `gotoStart`.
 
 In `newAppWithContext`, after `app.about.setBackground(...)`, add:
 
@@ -1690,33 +1785,65 @@ replace its final state assertion with:
 	if got.state != stateStart || got.pos != -1 {
 		t.Fatalf("state=%d pos=%d, want start/-1 after Esc", got.state, got.pos)
 	}
+	// Focus follows how you arrived: Esc from content lands on the startpage
+	// with a row selected, not in the input.
+	if got.inputFocused {
+		t.Fatal("Esc from the list should land content-focused on the startpage")
+	}
+	if _, ok := got.start.selected(); !ok {
+		t.Fatal("startpage should have a selected row after Esc")
+	}
 ```
 
 Rename `TestLandingViewShowsLandingBar` to `TestLandingViewShowsStartpage` and
-replace its assertions with:
+replace its **whole body** with the following. The size must arrive as a
+`WindowSizeMsg`, not by poking `m.common` — the existing test sets the fields
+directly, which never calls `resize()`, so `m.start.list` keeps the width `0` it
+was built with, and both `DefaultDelegate.Render` (`list/defaultitem.go:158`) and
+`userDelegate.Render` (`tui/list.go:106`) short-circuit at `width <= 0` and emit
+nothing:
 
 ```go
-	view := m.View().Content
-	for _, want := range []string{"type a target", "@plan.cat"} {
+func TestLandingViewShowsStartpage(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	view := stripANSIForLandingTest(m.View().Content)
+	for _, want := range []string{"type a target", "COMMUNITIES", "@plan.cat"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("startpage missing %q:\n%s", want, view)
 		}
 	}
+}
 ```
 
-In `TestBackToLandingShowsBareTargetRow`, replace the post-back assertions with:
+In `TestBackToLandingShowsBareTargetRow`, replace the post-back assertions with
+the following. `target:` is still there — `inputChromeView` is just
+`m.input.View()`, which renders its prompt whether focused or not — but the bar
+now advertises browsing rather than typing:
 
 ```go
 	if m.pos != -1 || m.state != stateStart {
 		t.Fatalf("back-to-start state=%d pos=%d, want start/-1", m.state, m.pos)
 	}
+	if m.inputFocused {
+		t.Fatal("back-to-start should land content-focused, not in the input")
+	}
 	view := stripANSIForLandingTest(m.View().Content)
-	for _, want := range []string{"target:", "@plan.cat"} {
+	for _, want := range []string{"target:", "@plan.cat", "b bookmark"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("back-to-start view missing %q:\n%s", want, view)
 		}
 	}
 ```
+
+`TestEscFromInputBlursToContentThenQuitsAtLanding` and `TestEscInReaderHomeQuits`
+both start at launch with the input already focused, so Esc still quits and they
+need no change. But the Esc-to-quit ladder from a landed result is now three
+presses (content → startpage list → input → quit), not two: check any test that
+walks Esc from depth all the way to a quit and add the extra step.
 
 Update landing comments that say `stateReader` to say `stateStart`; do not
 change tests whose setup explicitly installs a fetched `stateReader` node.
@@ -1744,7 +1871,7 @@ git commit -m "feat(tui): render the startpage as the launch screen"
 
 **Interfaces:**
 - Consumes: everything from Tasks 1-6
-- Produces: `keyMap.Bookmark`, `keyMap.Home`, `(*appModel).toggleBookmark() tea.Cmd`, `(appModel).bookmarkTarget() (string, bool)`, `(*appModel).goHome()`
+- Produces: `keyMap.Bookmark`, `keyMap.Home`, `(*appModel).toggleBookmark() tea.Cmd`, `(appModel).bookmarkTarget() (string, bool)`, `(*appModel).goHome() tea.Cmd`, `keyMap.Browse`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1757,9 +1884,15 @@ func TestBookmarkAndHomeKeysBound(t *testing.T) {
 	if got := k.Home.Keys(); !contains(got, "h") {
 		t.Fatalf("Home keys = %v, want h", got)
 	}
-	// h moved from Page to Home; paging keeps the arrows it advertises.
+	// h moved from Page to Home, so the help must stop claiming it.
 	if got := k.Page.Keys(); contains(got, "h") {
 		t.Fatalf("Page keys = %v, must not still claim h", got)
+	}
+	// ...but l is untouched: keyMap.Page is display-only, and the viewport and
+	// list both still bind l to page forward. Dropping it would advertise LESS
+	// than lookit does, which is the opposite of the honesty this list exists for.
+	if got := k.Page.Keys(); !contains(got, "l") {
+		t.Fatalf("Page keys = %v, want l — it still pages", got)
 	}
 	if got := k.Page.Keys(); !contains(got, "left") || !contains(got, "right") {
 		t.Fatalf("Page keys = %v, want the arrows", got)
@@ -1767,9 +1900,10 @@ func TestBookmarkAndHomeKeysBound(t *testing.T) {
 }
 
 func TestBookmarkOnStartpageTogglesFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
 	if err := os.WriteFile(path, []byte("@tilde.team\n"), 0o600); err != nil {
 		t.Fatalf("seed bookmarks: %v", err)
 	}
@@ -1811,9 +1945,7 @@ func TestBookmarkOnStartpageTogglesFile(t *testing.T) {
 }
 
 func TestHomeTruncatesHistory(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	useTempBookmarks(t)
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.history = []histNode{
@@ -1835,6 +1967,37 @@ func TestHomeTruncatesHistory(t *testing.T) {
 	if len(m.history) != 0 {
 		t.Fatalf("history = %+v, want truncated", m.history)
 	}
+	// Focus follows how you arrived: h is pressed from content, so it lands on
+	// content with a row selected rather than costing an extra ↓.
+	if m.inputFocused {
+		t.Fatal("h should land content-focused on the startpage")
+	}
+	if _, ok := m.start.selected(); !ok {
+		t.Fatal("h should land on a selected row")
+	}
+}
+
+// The exception: nothing to select is a dead end, so fall back to the input.
+func TestHomeOnEmptyStartpageFocusesInput(t *testing.T) {
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("catalog off\n"), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history = []histNode{{entry: Entry{Target: mustTarget(t, "@plan.cat")}, state: stateReader, linkIdx: -1}}
+	m.pos = 0
+	m.state = stateReader
+	m.blurInput()
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	m = next.(appModel)
+	if !m.inputFocused {
+		t.Fatal("h onto an empty startpage should focus the input, not strand the cursor")
+	}
 }
 
 func mustTarget(t *testing.T, raw string) finger.Target {
@@ -1847,12 +2010,11 @@ func mustTarget(t *testing.T, raw string) finger.Target {
 }
 ```
 
-Add `"os"` and `"path/filepath"` to `tui/app_test.go`'s imports if Task 6 has
-not already added the latter.
+Add `"os"` and `"path/filepath"` to `tui/app_test.go`'s imports.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./tui/ -run 'TestBookmarkAndHomeKeys|TestBookmarkOnStartpage|TestHomeTruncates' -count=1`
+Run: `go test ./tui/ -run 'TestBookmarkAndHomeKeys|TestBookmarkOnStartpage|TestHome' -count=1`
 Expected: FAIL — `k.Bookmark undefined`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1867,13 +2029,21 @@ In `tui/keys.go`, add to the struct after `About`:
 In `newKeyMap`, add and amend `Page`:
 
 ```go
+		// Both keys take a letter bubbles binds to paging: 'b' is PrevPage in the
+		// list AND the viewport, 'h' is PrevPage in the list and CursorLeft in the
+		// viewport. handleKey matches before delegating, so letter back-paging goes
+		// away in the reader and every user list. Accepted: 'b'/bookmark and
+		// 'h'/home are the stronger mnemonics and both need a bare letter. ←/pgup
+		// still page back, and 'l' still pages forward.
 		Bookmark: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "bookmark")),
 		Home:     key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "startpage")),
-		// 'h'/'l' dropped: 'h' is now Home. The arrows are what the bar advertises.
-		Page: key.NewBinding(key.WithKeys("left", "right", "pgup", "pgdown"), key.WithHelp("←/→", "page")),
+		// 'h' only. keyMap.Page is display-only (it advertises what the viewport
+		// and list bind at runtime), so it must drop the key we intercept and keep
+		// the ones we don't — 'l' still pages.
+		Page: key.NewBinding(key.WithKeys("left", "right", "l", "pgup", "pgdown"), key.WithHelp("←/→", "page")),
 ```
 
-In `FullHelp`, put both in the navigation row:
+In `FullHelp`, put both in the last row (Task 8 adds `Browse` to the middle one):
 
 ```go
 	return [][]key.Binding{
@@ -1946,16 +2116,17 @@ func (m *appModel) toggleBookmark() tea.Cmd {
 	return m.setFlash(msg)
 }
 
-// goHome is exactly equivalent to holding Esc: return to the startpage and drop
-// the trail. The startpage is not a history node, so there is nothing to push.
-func (m *appModel) goHome() {
+// goHome is exactly equivalent to holding Esc — focus included: return to the
+// startpage, drop the trail, and stay on the content with a row selected. The
+// startpage is not a history node, so there is nothing to push.
+func (m *appModel) goHome() tea.Cmd {
 	m.clearRequestFailure()
 	m.showingRaw = false
 	m.showingLinks = false
 	m.flash = ""
 	m.history = nil
 	m.pos = -1
-	m.gotoStart()
+	return m.gotoStart() // nil unless the startpage is empty, which focuses the input
 }
 ```
 
@@ -1967,8 +2138,7 @@ In `handleKey`, in the content-focused branch (alongside the other content-only 
 	case key.Matches(msg, m.keys.Bookmark):
 		return true, m, m.toggleBookmark()
 	case key.Matches(msg, m.keys.Home):
-		m.goHome()
-		return true, m, nil
+		return true, m, m.goHome()
 ```
 
 In `updateKeymap`, with the other content-only keys:
@@ -1983,7 +2153,7 @@ And in the `m.pending != nil` early-return block, add `&m.keys.Bookmark, &m.keys
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go test ./tui/ -run 'TestBookmarkAndHomeKeys|TestBookmarkOnStartpage|TestHomeTruncates' -count=1 -v`
+Run: `go test ./tui/ -run 'TestBookmarkAndHomeKeys|TestBookmarkOnStartpage|TestHome' -count=1 -v`
 Expected: PASS
 
 - [ ] **Step 5: Run the full gate and commit**
@@ -1998,7 +2168,13 @@ git commit -m "feat(tui): add bookmark and startpage keybindings"
 
 ### Task 8: Focus model
 
-`↓`/`Tab` drops from the input into the list; Esc backs out one level and then quits. This closes the trap where Esc, pressed to leave the input, exits the app.
+`↓`/`Tab` drops from the input into the list; Esc backs out one level and then
+quits. This closes the trap where Esc, pressed to leave the input, exits the app.
+
+Focus follows how you arrived, so only launch focuses the input — Task 6's
+`gotoStart` already implements that half by not touching focus. The ladder from a
+landed result is therefore reader → startpage list → input → quit: **three** Esc
+presses to quit, not two.
 
 **Files:**
 - Modify: `tui/app.go` (`handleKey` input-focused branch)
@@ -2012,9 +2188,7 @@ git commit -m "feat(tui): add bookmark and startpage keybindings"
 
 ```go
 func TestStartpageArrowDownEntersList(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	useTempBookmarks(t)
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	if !m.inputFocused {
@@ -2030,9 +2204,7 @@ func TestStartpageArrowDownEntersList(t *testing.T) {
 }
 
 func TestStartpageEscBacksOutThenQuits(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	useTempBookmarks(t)
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
@@ -2057,9 +2229,7 @@ func TestStartpageEscBacksOutThenQuits(t *testing.T) {
 }
 
 func TestBookmarkKeyTypesIntoFocusedInput(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	useTempBookmarks(t)
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	handled, _, _ := m.handleKey(tea.KeyPressMsg{Code: 'b', Text: "b"})
@@ -2069,9 +2239,7 @@ func TestBookmarkKeyTypesIntoFocusedInput(t *testing.T) {
 }
 
 func TestStartpageFilterOwnsCommandLetters(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	path := useTempBookmarks(t)
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
@@ -2091,9 +2259,7 @@ func TestStartpageFilterOwnsCommandLetters(t *testing.T) {
 }
 
 func TestStartpageEscClearsAppliedFilterBeforeChangingFocus(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bookmarks")
-	bookmarksPathFn = func() (string, error) { return path, nil }
-	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	useTempBookmarks(t)
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
@@ -2107,31 +2273,91 @@ func TestStartpageEscClearsAppliedFilterBeforeChangingFocus(t *testing.T) {
 		t.Fatal("first Esc should clear the applied filter, not focus the input")
 	}
 }
+
+// The full ladder from depth: content -> startpage list -> input -> quit. Three
+// Esc presses, one per layer, with focus preserved until the last content layer.
+func TestEscLadderFromResultToQuit(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
+	}})
+	m = step.(appModel)
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // reader -> startpage
+	m = next.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("first Esc must not quit")
+	}
+	if m.state != stateStart || m.inputFocused {
+		t.Fatalf("state=%d inputFocused=%v, want the startpage, content-focused", m.state, m.inputFocused)
+	}
+
+	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // list -> input
+	m = next.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("second Esc must not quit")
+	}
+	if !m.inputFocused {
+		t.Fatal("second Esc should return focus to the input")
+	}
+
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // input -> quit
+	if cmd == nil || !isQuit(cmd) {
+		t.Fatal("third Esc should quit")
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./tui/ -run 'TestStartpageArrowDown|TestStartpageEsc|TestBookmarkKeyTypes|TestStartpageFilter' -count=1`
+Run: `go test ./tui/ -run 'TestStartpageArrowDown|TestStartpageEsc|TestBookmarkKeyTypes|TestStartpageFilter|TestEscLadder' -count=1`
 Expected: FAIL — esc quits instead of blurring
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `handleKey`'s input-focused branch, before the existing Enter/Esc handling:
+Add a binding for the drop-into-list gesture rather than matching raw key
+strings — the rest of the file routes everything through `key.Binding`, and this
+one needs to appear in `FullHelp` anyway. In `tui/keys.go`:
 
 ```go
-	if m.inputFocused && m.state == stateStart {
-		switch msg.String() {
-		case "down", "tab":
-			if _, ok := m.start.selected(); ok {
-				m.blurInput()
-				return true, m, nil
-			}
-		case "esc":
-			// Esc backs out one level before it quits: from the list it returns
-			// here, so quitting from the input is the outermost step.
-			return true, m, tea.Quit
+	// Browse is the omnibox gesture: from the target input, drop into the
+	// startpage list. Both keys are free in textinput (↓ has no binding, and tab
+	// only matters to the reader's LinkNext, which the input never reaches).
+	Browse: key.NewBinding(key.WithKeys("down", "tab"), key.WithHelp("↓", "browse")),
+```
+
+Then in `handleKey`'s input-focused branch, ahead of the existing `Open`/`Back`
+cases:
+
+```go
+	case key.Matches(msg, m.keys.Browse) && m.state == stateStart:
+		if _, ok := m.start.selected(); ok {
+			m.blurInput()
+			return true, m, nil
 		}
-	}
+		return false, m, nil // nothing to browse: let ↓ fall through to the input
+```
+
+No `esc` case is needed: the existing input branch already returns `tea.Quit`
+when `m.pos < 0` (`tui/app.go:612-613`), which is exactly the startpage. Enable
+it in `updateKeymap` — unlike every other new key, this one is live while the
+*input* is focused, so it does not reuse Task 6's `inStart` (which is
+content-gated):
+
+```go
+	_, browsable := m.start.selected()
+	m.keys.Browse.SetEnabled(m.inputFocused && m.state == stateStart && browsable)
+```
+
+Add `Browse key.Binding` to the `keyMap` struct next to `Bookmark`/`Home`, and
+put it in `FullHelp`'s navigation row so `?` stays truthful:
+
+```go
+		{k.Move, k.Page, k.Jump, k.Filter, k.Browse},
 ```
 
 At the top of the content-focused branch, extend the existing list-filter guard
@@ -2147,13 +2373,17 @@ applied filter before changing focus:
 	}
 ```
 
-Then, before the generic `Back` handling:
+Then the startpage's own Esc. This is a `case` inside the same switch as the
+generic `Back` handling and must come **before** it, since `Back` there calls
+`m.back()`, which quits at `pos < 0`:
 
 ```go
-	if m.state == stateStart && key.Matches(msg, m.keys.Back) {
+	case key.Matches(msg, m.keys.Back) && m.state == stateStart:
 		return true, m, m.focusInput()
-	}
 ```
+
+(The two filter guards above it are plain `if`s before the `switch`, matching how
+the list's guards are already written.)
 
 In `updateKeymap`, keep `Back` live on the startpage in both focus modes:
 
@@ -2163,7 +2393,7 @@ In `updateKeymap`, keep `Back` live on the startpage in both focus modes:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go test ./tui/ -run 'TestStartpageArrowDown|TestStartpageEsc|TestBookmarkKeyTypes|TestStartpageFilter' -count=1 -v`
+Run: `go test ./tui/ -run 'TestStartpageArrowDown|TestStartpageEsc|TestBookmarkKeyTypes|TestStartpageFilter|TestEscLadder' -count=1 -v`
 Expected: PASS
 
 - [ ] **Step 5: Run the full gate and commit**
@@ -2216,8 +2446,12 @@ Replace the first "Coming soon" bullet about discovery:
 And in the Usage section, after the paragraph beginning "Type a target and press Enter", add:
 
 ```markdown
-lookit opens on a startpage: a built-in catalog of finger communities and services, with your own bookmarks pinned above it. Press `↓` to browse it, `↵` to go, and `b` to bookmark whatever you're looking at. Bookmarks live in `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), one `<target>` per line, so you can edit them by hand; add `catalog off` there to hide the built-in list entirely. Press `h` to return to the startpage from anywhere.
+lookit opens on a startpage: a built-in catalog of finger communities and services, with your own bookmarks pinned above it. Press `↓` to browse it, `↵` to go, and `b` to bookmark whatever you're looking at — on a user list that bookmarks the host, so drill into someone before pressing `b` to bookmark the person. Bookmarks live in `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), one `<target>` per line, so you can edit them by hand; add `catalog off` there to hide the built-in list entirely. Press `h` to return to the startpage from anywhere.
 ```
+
+Note for the changelog and any release notes: `b` and `h` take over two letters
+`bubbles` binds to paging, so letter back-paging (`b`, `h`) is gone from the
+reader and user lists. `←`, `pgup` and `l` are unaffected.
 
 - [ ] **Step 3: Verify the docs match the code**
 
@@ -2237,11 +2471,14 @@ git commit -m "docs: document the startpage, bookmarks file and second ingress"
 ## Verification before opening the PR
 
 - [ ] `make check` passes clean
+- [ ] `go test ./tui/ -count=1` passes with the real `~/.config/lookit/bookmarks` present *and* containing `catalog off` — proves `TestMain` isolated the suite
 - [ ] `./lookit` opens on the startpage; arrow down, `/` filter, `↵` on a community opens its user list, `↵` on a service renders in the reader
+- [ ] `/` with a nonsense query keeps the filter input visible and reads `No entries.` — not the `catalog off` empty state
 - [ ] `b` on a catalog row moves it into BOOKMARKS keeping its note; `b` again removes it
 - [ ] Hand-edit the bookmarks file with comments and a `catalog off` line, press `b`, confirm the comments and directive survive verbatim
 - [ ] `XDG_CONFIG_HOME=/tmp/x ./lookit` writes to `/tmp/x/lookit/bookmarks` and any message quotes that path
-- [ ] `h` from several levels deep returns to the startpage
+- [ ] `h` from several levels deep returns to the startpage **with a row selected**, no `↓` needed; with `catalog off` and no bookmarks it focuses the input instead
+- [ ] Esc from a landed result takes three presses to quit (reader → list → input → quit), and `l` still pages forward in a user list while `b` and `h` no longer page back
 - [ ] `b` typed into a focused target input produces the letter `b`
 
 **Do not self-merge.** The spec touches the untrusted-input invariant, which CLAUDE.md says needs a human merge: push the branch, open the PR, and leave the merge to the maintainer.

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -2860,4 +2862,114 @@ func TestStartEmptyMessageNamesResolvedPath(t *testing.T) {
 	if !strings.Contains(got, "catalog off") {
 		t.Fatalf("empty message = %q, want it to name the directive to remove", got)
 	}
+}
+
+func TestBookmarkOnStartpageTogglesFile(t *testing.T) {
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("@tilde.team\n"), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	if !m.start.selectTarget("@plan.cat") {
+		t.Fatal("catalog row @plan.cat not found")
+	}
+	first, ok := m.start.selected()
+	if !ok {
+		t.Fatal("no selection to bookmark")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after bookmark: %v", err)
+	}
+	if want := "@tilde.team\n@plan.cat\n"; string(data) != want {
+		t.Fatalf("file = %q, want %q", data, want)
+	}
+	selected, ok := m.start.selected()
+	if !ok || selected.target != first.target {
+		t.Fatalf("selection after reload = %+v, %v; want %q", selected, ok, first.target)
+	}
+
+	// Selection follows the moved row, so pressing b again removes the same target.
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after unbookmark: %v", err)
+	}
+	if want := "@tilde.team\n"; string(data) != want {
+		t.Fatalf("file = %q, want %q (existing bookmark preserved)", data, want)
+	}
+}
+
+func TestHomeTruncatesHistory(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history = []histNode{
+		{entry: Entry{Target: mustTarget(t, "@plan.cat")}, state: stateReader, linkIdx: -1},
+		{entry: Entry{Target: mustTarget(t, "@tilde.team")}, state: stateReader, linkIdx: -1},
+	}
+	m.pos = 1
+	m.state = stateReader
+	m.blurInput()
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	m = next.(appModel)
+	if m.state != stateStart {
+		t.Fatalf("state = %v, want stateStart", m.state)
+	}
+	if m.pos != -1 {
+		t.Fatalf("pos = %d, want -1", m.pos)
+	}
+	if len(m.history) != 0 {
+		t.Fatalf("history = %+v, want truncated", m.history)
+	}
+	// Focus follows how you arrived: h is pressed from content, so it lands on
+	// content with a row selected rather than costing an extra ↓.
+	if m.inputFocused {
+		t.Fatal("h should land content-focused on the startpage")
+	}
+	if _, ok := m.start.selected(); !ok {
+		t.Fatal("h should land on a selected row")
+	}
+}
+
+// The exception: nothing to select is a dead end, so fall back to the input.
+func TestHomeOnEmptyStartpageFocusesInput(t *testing.T) {
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("catalog off\n"), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history = []histNode{{entry: Entry{Target: mustTarget(t, "@plan.cat")}, state: stateReader, linkIdx: -1}}
+	m.pos = 0
+	m.state = stateReader
+	m.blurInput()
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	m = next.(appModel)
+	if !m.inputFocused {
+		t.Fatal("h onto an empty startpage should focus the input, not strand the cursor")
+	}
+}
+
+func mustTarget(t *testing.T, raw string) finger.Target {
+	t.Helper()
+	target, err := finger.ParseTarget(raw)
+	if err != nil {
+		t.Fatalf("ParseTarget(%q) = %v", raw, err)
+	}
+	return target
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"strings"
 	"time"
 
@@ -334,6 +335,79 @@ func (m *appModel) gotoStart() tea.Cmd {
 		return m.input.Focus()
 	}
 	return nil
+}
+
+// bookmarkTarget reports what 'b' acts on for the current screen. On a list it
+// is the host, not the highlighted user: 'b' on @tilde.team means "come back to
+// this directory". To bookmark a person, drill in and press b there.
+func (m appModel) bookmarkTarget() (string, bool) {
+	if m.state == stateStart {
+		entry, ok := m.start.selected()
+		return entry.target, ok
+	}
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return "", false
+	}
+	return m.history[m.pos].entry.Target.Raw, true
+}
+
+// toggleBookmark adds or removes the current target, then reloads the startpage
+// so it reflects the file. Bookmark records contain only the target: the
+// protocol cannot establish a kind, and routing remains response-derived.
+func (m *appModel) toggleBookmark() tea.Cmd {
+	target, ok := m.bookmarkTarget()
+	if !ok {
+		return nil
+	}
+	path, err := bookmarksPathFn()
+	if err != nil {
+		return m.setFlash("error: " + err.Error())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return m.setFlash("error: " + err.Error())
+	}
+
+	file := parseBookmarks(data)
+	already := false
+	for _, saved := range file.targets {
+		if saved == target {
+			already = true
+			break
+		}
+	}
+
+	var updated []byte
+	var msg string
+	if already {
+		updated = deleteBookmarkLine(data, target)
+		msg = "✓ removed " + target
+	} else {
+		updated = appendBookmarkLine(data, target)
+		msg = "✓ bookmarked " + target
+	}
+	if err := saveBookmarkData(path, updated); err != nil {
+		return m.setFlash("error: " + err.Error())
+	}
+	if m.state == stateStart {
+		m.reloadStart()
+		m.start.selectTarget(target)
+		m.resize()
+	}
+	return m.setFlash(msg)
+}
+
+// goHome is exactly equivalent to holding Esc — focus included: return to the
+// startpage, drop the trail, and stay on the content with a row selected. The
+// startpage is not a history node, so there is nothing to push.
+func (m *appModel) goHome() tea.Cmd {
+	m.clearRequestFailure()
+	m.showingRaw = false
+	m.showingLinks = false
+	m.flash = ""
+	m.history = nil
+	m.pos = -1
+	return m.gotoStart() // nil unless the startpage is empty, which focuses the input
 }
 
 // reloadStart rebuilds the startpage from disk. Called at construction and
@@ -784,6 +858,10 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.Refresh):
 		cmd := m.refreshCurrent()
 		return true, m, cmd
+	case key.Matches(msg, m.keys.Bookmark):
+		return true, m, m.toggleBookmark()
+	case key.Matches(msg, m.keys.Home):
+		return true, m, m.goHome()
 	case key.Matches(msg, m.keys.Open) && m.state == stateStart:
 		entry, ok := m.start.selected()
 		if !ok {
@@ -1104,6 +1182,7 @@ func (m *appModel) updateKeymap() {
 			&m.keys.Copy, &m.keys.Help, &m.keys.About, &m.keys.Move,
 			&m.keys.Page, &m.keys.Jump, &m.keys.LinkNext, &m.keys.LinkPrev,
 			&m.keys.LinkFinger, &m.keys.LinkPanel, &m.keys.Refresh,
+			&m.keys.Bookmark, &m.keys.Home,
 		} {
 			binding.SetEnabled(false)
 		}
@@ -1143,6 +1222,9 @@ func (m *appModel) updateKeymap() {
 	m.keys.Page.SetEnabled(content)
 	m.keys.Jump.SetEnabled(content)
 	m.keys.Refresh.SetEnabled(canRefresh)
+	_, canBookmark := m.bookmarkTarget()
+	m.keys.Bookmark.SetEnabled(content && canBookmark && !m.showingRaw && !m.showingLinks)
+	m.keys.Home.SetEnabled(content && (m.pos >= 0 || m.state != stateStart))
 
 	inReader := content && m.state == stateReader && !m.showingRaw
 	hasReaderLinks := false

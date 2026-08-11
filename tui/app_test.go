@@ -3109,3 +3109,39 @@ func TestEscLadderFromResultToQuit(t *testing.T) {
 		t.Fatal("third Esc should quit")
 	}
 }
+
+// The bookmarks file is hand-editable, so a write from inside the app must be
+// line surgery: comments, blank lines, ordering and the catalog directive all
+// survive verbatim.
+func TestBookmarkWriteThroughAppPreservesHandEdits(t *testing.T) {
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
+	seed := "# my careful notes\n\ncatalog off\n\n@plan.cat\n\n# trailing thought\n"
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	if _, ok := m.start.selected(); !ok {
+		t.Fatal("seeded bookmark is not selectable")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"}) // removes @plan.cat
+	m = next.(appModel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after unbookmark: %v", err)
+	}
+	want := "# my careful notes\n\ncatalog off\n\n\n# trailing thought\n"
+	if string(data) != want {
+		t.Fatalf("file =\n%q\nwant\n%q", data, want)
+	}
+
+	// And the startpage now explains itself rather than looking broken.
+	if got := m.start.View(); !strings.Contains(got, "catalog off") {
+		t.Errorf("empty startpage does not name the directive to remove:\n%s", got)
+	}
+}

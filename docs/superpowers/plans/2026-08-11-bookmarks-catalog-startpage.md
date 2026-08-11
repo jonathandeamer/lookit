@@ -4,7 +4,7 @@
 
 **Goal:** Replace lookit's empty landing screen with a browsable startpage that renders an embedded curated catalog plus the user's own bookmarks as one sectioned list.
 
-**Architecture:** Two sources parse into one `startEntry` type — a catalog embedded with `go:embed` (read-only, carries notes) and a line-oriented bookmarks file the user owns (no notes, machine-appended). A new `startModel` wraps a real `bubbles/v2/list` whose section headers are uniform-height items the cursor steps over. A fourth `appState` (`stateStart`) renders it at `pos == -1`; history semantics are untouched.
+**Architecture:** A catalog embedded with `go:embed` parses `<kind> <target> <note>` records into `startEntry` values; the user's line-oriented bookmarks file parses target-only records and borrows catalog metadata by exact target match during section assembly. A new `startModel` wraps a real `bubbles/v2/list` whose section headers and linked catalog credit are uniform-height items the cursor steps over. A fourth `appState` (`stateStart`) renders it at `pos == -1`; history semantics are untouched.
 
 **Tech Stack:** Go 1.26, `charm.land/bubbletea/v2`, `charm.land/bubbles/v2` (list, key, textinput), `charm.land/lipgloss/v2`, stdlib `embed`/`os`/`strings`. No new dependencies.
 
@@ -19,14 +19,14 @@
 - **Pair every colour with a light/dark value** via the existing `styles`/`palette` structs. Never hardcode a hex in a view.
 - **Avoid Alt/Option chords.** macOS is the primary target.
 - **UI copy is honest.** Don't assert structure the finger protocol lacks. Label uncertainty consequence-first.
-- **`kind` is display grouping only, never routing.** `routeEntry` decides list-vs-reader from the real response.
+- **Catalog `kind` is display grouping only, never routing.** Bookmark records carry no kind. `routeEntry` decides list-vs-reader from the real response.
 - **Package layout is one-way:** `finger/` → `render/` → `tui/`. All new code is in `tui/`.
 
 ---
 
-### Task 1: Bookmarks grammar (pure parser)
+### Task 1: Bookmark and catalog grammars (pure parsers)
 
-The grammar shared by both files: `<kind> <target> [note]`. Bookmark lines refuse the note field — that refusal is what keeps free text out of the terminal, so it is a correctness requirement, not parser trivia.
+Bookmark records are exactly `<target>`; catalog records are `<kind> <target> <note>`. Keeping them separate removes kind inference from user data, and refusing extra bookmark fields keeps free text out of the terminal.
 
 **Files:**
 - Create: `tui/bookmarks.go`
@@ -44,7 +44,7 @@ package tui
 import "testing"
 
 func TestParseBookmarksValidLines(t *testing.T) {
-	in := []byte("# my list\n\ncommunity  @tilde.team\nperson     jonathan@tilde.team\nservice    weather@bbs.airandwave.net\n")
+	in := []byte("# my list\n\n@tilde.team\njonathan@tilde.team\nweather@bbs.airandwave.net # local comment\n")
 	got := parseBookmarks(in)
 	if len(got.problems) != 0 {
 		t.Fatalf("problems = %+v, want none", got.problems)
@@ -52,28 +52,24 @@ func TestParseBookmarksValidLines(t *testing.T) {
 	if got.catalogHidden {
 		t.Fatal("catalogHidden = true, want false")
 	}
-	want := []startEntry{
-		{target: "@tilde.team", kind: kindCommunity, source: sourceBookmark},
-		{target: "jonathan@tilde.team", kind: kindPerson, source: sourceBookmark},
-		{target: "weather@bbs.airandwave.net", kind: kindService, source: sourceBookmark},
-	}
-	if len(got.entries) != len(want) {
-		t.Fatalf("entries = %+v, want %d", got.entries, len(want))
+	want := []string{"@tilde.team", "jonathan@tilde.team", "weather@bbs.airandwave.net"}
+	if len(got.targets) != len(want) {
+		t.Fatalf("targets = %+v, want %d", got.targets, len(want))
 	}
 	for i, w := range want {
-		if got.entries[i] != w {
-			t.Errorf("entry %d = %+v, want %+v", i, got.entries[i], w)
+		if got.targets[i] != w {
+			t.Errorf("target %d = %q, want %q", i, got.targets[i], w)
 		}
 	}
 }
 
 func TestParseBookmarksCatalogOff(t *testing.T) {
-	got := parseBookmarks([]byte("catalog off\ncommunity @plan.cat\n"))
+	got := parseBookmarks([]byte("catalog off\n@plan.cat\n"))
 	if !got.catalogHidden {
 		t.Fatal("catalogHidden = false, want true")
 	}
-	if len(got.entries) != 1 {
-		t.Fatalf("entries = %+v, want 1", got.entries)
+	if len(got.targets) != 1 {
+		t.Fatalf("targets = %+v, want 1", got.targets)
 	}
 	if len(got.problems) != 0 {
 		t.Fatalf("problems = %+v, want none", got.problems)
@@ -85,18 +81,17 @@ func TestParseBookmarksRejects(t *testing.T) {
 		name string
 		line string
 	}{
-		{name: "unknown kind", line: "wombat @plan.cat"},
-		{name: "missing target", line: "community"},
-		{name: "unparseable target", line: "community notatarget"},
-		{name: "trailing note", line: "community @plan.cat Big friendly pubnix"},
-		{name: "bidi override in target", line: "community @plan\u202ecat.example"},
+		{name: "multiple fields", line: "@plan.cat Big friendly pubnix"},
+		{name: "unparseable target", line: "notatarget"},
+		{name: "bidi override in target", line: "@plan\u202ecat.example"},
+		{name: "c1 control in target", line: "@plan\u009bcat.example"},
 		{name: "unknown directive", line: "catalog maybe"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := parseBookmarks([]byte(tt.line + "\n"))
-			if len(got.entries) != 0 {
-				t.Fatalf("entries = %+v, want none", got.entries)
+			if len(got.targets) != 0 {
+				t.Fatalf("targets = %+v, want none", got.targets)
 			}
 			if len(got.problems) != 1 {
 				t.Fatalf("problems = %+v, want exactly 1", got.problems)
@@ -108,15 +103,22 @@ func TestParseBookmarksRejects(t *testing.T) {
 	}
 }
 
+func TestParseBookmarksRejectsInvalidUTF8(t *testing.T) {
+	got := parseBookmarks([]byte{'@', 'p', 'l', 'a', 'n', '.', 0xff, 'c', 'a', 't', '\n'})
+	if len(got.targets) != 0 || len(got.problems) != 1 {
+		t.Fatalf("targets = %v, problems = %+v; want no targets and one problem", got.targets, got.problems)
+	}
+}
+
 func TestParseCatalogAllowsNotes(t *testing.T) {
-	entries, problems := parseCatalogData([]byte("community @tilde.team Big, friendly pubnix\n"))
+	entries, problems := parseCatalogData([]byte("community @tilde.team Small public access unix\n"))
 	if len(problems) != 0 {
 		t.Fatalf("problems = %+v, want none", problems)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("entries = %+v, want 1", entries)
 	}
-	want := startEntry{target: "@tilde.team", kind: kindCommunity, note: "Big, friendly pubnix", source: sourceCatalog}
+	want := startEntry{target: "@tilde.team", kind: kindCommunity, note: "Small public access unix", source: sourceCatalog}
 	if entries[0] != want {
 		t.Errorf("entry = %+v, want %+v", entries[0], want)
 	}
@@ -137,31 +139,22 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/jonathandeamer/lookit/finger"
 )
 
-// entryKind groups a startpage entry under a section heading. It is a DISPLAY
-// grouping only: what a target actually returns is decided by routeEntry from
-// the real response, never asserted here.
+// entryKind groups catalog entries under section headings. It is DISPLAY
+// metadata only: bookmarks do not carry it, and routeEntry decides what a
+// target actually returns from the response.
 type entryKind uint8
 
 const (
-	kindCommunity entryKind = iota
+	kindUnknown entryKind = iota
+	kindCommunity
 	kindService
 	kindPerson
 )
-
-func (k entryKind) String() string {
-	switch k {
-	case kindCommunity:
-		return "community"
-	case kindService:
-		return "service"
-	default:
-		return "person"
-	}
-}
 
 func parseKind(s string) (entryKind, bool) {
 	switch s {
@@ -184,11 +177,12 @@ const (
 	sourceBookmark
 )
 
-// startEntry is one row on the startpage, from either source.
+// startEntry is one assembled row on the startpage. kind and note come only
+// from the catalog; an unmatched bookmark leaves both at their zero values.
 type startEntry struct {
 	target string
 	kind   entryKind
-	note   string // catalog only; always empty for a bookmark
+	note   string
 	source entrySource
 }
 
@@ -200,7 +194,7 @@ type parseProblem struct {
 
 // bookmarkFile is the parsed user file.
 type bookmarkFile struct {
-	entries       []startEntry
+	targets       []string
 	catalogHidden bool
 	problems      []parseProblem
 }
@@ -228,12 +222,12 @@ func parseBookmarks(data []byte) bookmarkFile {
 			}
 			continue
 		}
-		entry, err := parseEntryLine(line, false, sourceBookmark)
+		target, err := parseBookmarkTarget(line)
 		if err != nil {
 			out.problems = append(out.problems, parseProblem{line: lineNo, reason: err.Error()})
 			continue
 		}
-		out.entries = append(out.entries, entry)
+		out.targets = append(out.targets, target)
 	}
 	return out
 }
@@ -246,7 +240,7 @@ func parseCatalogData(data []byte) ([]startEntry, []parseProblem) {
 		if line == "" {
 			continue
 		}
-		entry, err := parseEntryLine(line, true, sourceCatalog)
+		entry, err := parseCatalogLine(line)
 		if err != nil {
 			problems = append(problems, parseProblem{line: i + 1, reason: err.Error()})
 			continue
@@ -256,8 +250,8 @@ func parseCatalogData(data []byte) ([]startEntry, []parseProblem) {
 	return entries, problems
 }
 
-// stripComment drops a trailing "#" comment. A "#" only starts a comment at the
-// start of a field, so it cannot appear inside a target or note we accept.
+// stripComment drops a trailing "#" comment. Comments are preserved by the
+// write path but never parsed or displayed.
 func stripComment(line string) string {
 	if i := strings.Index(line, "#"); i >= 0 {
 		return line[:i]
@@ -265,13 +259,26 @@ func stripComment(line string) string {
 	return line
 }
 
-// parseEntryLine parses "<kind> <target> [note]". allowNote gates the third
-// field: the catalog carries notes, the bookmarks file refuses them, because a
-// note is free text and every displayed byte must be validated or ours.
-func parseEntryLine(line string, allowNote bool, src entrySource) (startEntry, error) {
+// parseBookmarkTarget accepts exactly one target token. Any other text is
+// refused because bookmark records carry no display metadata.
+func parseBookmarkTarget(line string) (string, error) {
 	fields := strings.Fields(line)
-	if len(fields) < 2 {
-		return startEntry{}, fmt.Errorf("expected \"<kind> <target>\", got %q", line)
+	if len(fields) != 1 {
+		return "", fmt.Errorf("expected one target, got %q", line)
+	}
+	if err := validateTarget(fields[0]); err != nil {
+		return "", err
+	}
+	return fields[0], nil
+}
+
+// parseCatalogLine parses the maintainer-authored "<kind> <target> <note>"
+// grammar. Catalog notes are compiled into the binary, never read from the
+// user's file.
+func parseCatalogLine(line string) (startEntry, error) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return startEntry{}, fmt.Errorf("expected \"<kind> <target> <note>\", got %q", line)
 	}
 	kind, ok := parseKind(fields[0])
 	if !ok {
@@ -282,25 +289,22 @@ func parseEntryLine(line string, allowNote bool, src entrySource) (startEntry, e
 		return startEntry{}, err
 	}
 
-	var note string
-	if rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line[strings.Index(line, target)+len(target):]), " ")); rest != "" {
-		if !allowNote {
-			return startEntry{}, fmt.Errorf("unexpected text after target: %q (notes are catalog-only)", rest)
-		}
-		note = rest
-	}
-	return startEntry{target: target, kind: kind, note: note, source: src}, nil
+	note := strings.TrimSpace(line[strings.Index(line, target)+len(target):])
+	return startEntry{target: target, kind: kind, note: note, source: sourceCatalog}, nil
 }
 
 // validateTarget screens a target from a config file. finger.ParseTarget rejects
-// C0/DEL via hasControl, but not the non-printing Unicode format controls that
-// sanitize visualizes in response bodies — and a target is displayed in the
-// breadcrumb, so a bidi override could misrepresent the host being fingered.
+// C0/DEL via hasControl, but not invalid UTF-8, UTF-8-encoded C1 controls, or
+// the non-printing Unicode controls that sanitize visualizes in response bodies.
+// A target is displayed in the list and breadcrumb, so all are refused here.
 // Rejecting matches the treatment targets already get: bodies are visualized
 // because they are content, a target is refused because it is something we send.
 // See issue #49 for the same gap on targets from every other source.
 func validateTarget(target string) error {
-	if hasFormatControl(target) {
+	if !utf8.ValidString(target) {
+		return fmt.Errorf("target is not valid UTF-8")
+	}
+	if hasNonPrintingControl(target) {
 		return fmt.Errorf("target contains a non-printing Unicode control")
 	}
 	if _, err := finger.ParseTarget(target); err != nil {
@@ -309,9 +313,9 @@ func validateTarget(target string) error {
 	return nil
 }
 
-func hasFormatControl(s string) bool {
+func hasNonPrintingControl(s string) bool {
 	for _, r := range s {
-		if unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
+		if r >= 0x80 && r <= 0x9f || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return true
 		}
 	}
@@ -343,8 +347,8 @@ Writes must preserve the user's comments, blank lines, ordering and the `catalog
 - Modify: `tui/bookmarks_test.go`
 
 **Interfaces:**
-- Consumes: `parseBookmarks`, `startEntry`, `entryKind.String()` from Task 1
-- Produces: `bookmarksPathFn` (stubbable package var), `resolveBookmarksPath() (string, error)`, `loadBookmarks() (bookmarkFile, string)`, `appendBookmarkLine([]byte, startEntry) []byte`, `deleteBookmarkLine([]byte, string) []byte`, `saveBookmarkData(string, []byte) error`, `shortenHome(string) string`
+- Consumes: `parseBookmarks`, `parseBookmarkTarget` from Task 1
+- Produces: `bookmarksPathFn` (stubbable package var), `resolveBookmarksPath() (string, error)`, `loadBookmarks() (bookmarkFile, string)`, `appendBookmarkLine([]byte, string) []byte`, `deleteBookmarkLine([]byte, string) []byte`, `saveBookmarkData(string, []byte) error`, `shortenHome(string) string`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -373,27 +377,36 @@ func TestResolveBookmarksPathFallsBackToDotConfig(t *testing.T) {
 }
 
 func TestAppendBookmarkLinePreservesFile(t *testing.T) {
-	in := []byte("# my careful notes\n\ncatalog off\n\ncommunity  @plan.cat\n")
-	got := string(appendBookmarkLine(in, startEntry{target: "@tilde.team", kind: kindCommunity}))
-	want := "# my careful notes\n\ncatalog off\n\ncommunity  @plan.cat\ncommunity @tilde.team\n"
+	in := []byte("# my careful notes\n\ncatalog off\n\n@plan.cat\n")
+	got := string(appendBookmarkLine(in, "@tilde.team"))
+	want := "# my careful notes\n\ncatalog off\n\n@plan.cat\n@tilde.team\n"
 	if got != want {
 		t.Fatalf("appendBookmarkLine =\n%q\nwant\n%q", got, want)
 	}
 }
 
 func TestAppendBookmarkLineToEmptyFile(t *testing.T) {
-	got := string(appendBookmarkLine(nil, startEntry{target: "@plan.cat", kind: kindCommunity}))
-	if want := "community @plan.cat\n"; got != want {
+	got := string(appendBookmarkLine(nil, "@plan.cat"))
+	if want := "@plan.cat\n"; got != want {
 		t.Fatalf("appendBookmarkLine = %q, want %q", got, want)
 	}
 }
 
 func TestDeleteBookmarkLinePreservesEverythingElse(t *testing.T) {
-	in := []byte("# keep me\ncatalog off\ncommunity  @plan.cat\nperson jonathan@tilde.team\n\n# and me\n")
+	in := []byte("# keep me\ncatalog off\n@plan.cat\njonathan@tilde.team\n\n# and me\n")
 	got := string(deleteBookmarkLine(in, "@plan.cat"))
-	want := "# keep me\ncatalog off\nperson jonathan@tilde.team\n\n# and me\n"
+	want := "# keep me\ncatalog off\njonathan@tilde.team\n\n# and me\n"
 	if got != want {
 		t.Fatalf("deleteBookmarkLine =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestDeleteBookmarkLinePreservesMalformedMatch(t *testing.T) {
+	in := []byte("@plan.cat hand-written description\n@plan.cat\n")
+	got := string(deleteBookmarkLine(in, "@plan.cat"))
+	want := "@plan.cat hand-written description\n"
+	if got != want {
+		t.Fatalf("deleteBookmarkLine = %q, want %q", got, want)
 	}
 }
 
@@ -403,15 +416,15 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	bookmarksPathFn = func() (string, error) { return path, nil }
 	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
 
-	if err := saveBookmarkData(path, []byte("community @plan.cat\n")); err != nil {
+	if err := saveBookmarkData(path, []byte("@plan.cat\n")); err != nil {
 		t.Fatalf("saveBookmarkData() error = %v", err)
 	}
 	file, gotPath := loadBookmarks()
 	if gotPath != path {
 		t.Fatalf("path = %q, want %q", gotPath, path)
 	}
-	if len(file.entries) != 1 || file.entries[0].target != "@plan.cat" {
-		t.Fatalf("entries = %+v", file.entries)
+	if len(file.targets) != 1 || file.targets[0] != "@plan.cat" {
+		t.Fatalf("targets = %+v", file.targets)
 	}
 
 	info, err := os.Stat(path)
@@ -432,7 +445,7 @@ func TestLoadBookmarksMissingFileIsNotAnError(t *testing.T) {
 	if gotPath != path {
 		t.Fatalf("path = %q, want %q", gotPath, path)
 	}
-	if len(file.entries) != 0 || len(file.problems) != 0 {
+	if len(file.targets) != 0 || len(file.problems) != 0 {
 		t.Fatalf("file = %+v, want empty", file)
 	}
 }
@@ -488,25 +501,23 @@ func loadBookmarks() (bookmarkFile, string) {
 }
 
 // appendBookmarkLine adds one record, leaving every existing byte untouched.
-func appendBookmarkLine(data []byte, e startEntry) []byte {
+func appendBookmarkLine(data []byte, target string) []byte {
 	out := string(data)
 	if out != "" && !strings.HasSuffix(out, "\n") {
 		out += "\n"
 	}
-	return []byte(out + e.kind.String() + " " + e.target + "\n")
+	return []byte(out + target + "\n")
 }
 
-// deleteBookmarkLine drops every record for target, leaving comments, blank
-// lines, directives and ordering exactly as they were.
+// deleteBookmarkLine drops every valid bookmark record for target, leaving
+// comments, malformed records, blank lines, directives and ordering untouched.
 func deleteBookmarkLine(data []byte, target string) []byte {
 	lines := strings.Split(string(data), "\n")
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
-		fields := strings.Fields(stripComment(line))
-		if len(fields) >= 2 && fields[1] == target {
-			if _, ok := parseKind(fields[0]); ok {
-				continue
-			}
+		parsed, err := parseBookmarkTarget(strings.TrimSpace(stripComment(line)))
+		if err == nil && parsed == target {
+			continue
 		}
 		kept = append(kept, line)
 	}
@@ -635,39 +646,46 @@ Create `tui/catalog.txt` exactly as below. Every address was probed live on 2026
 #
 # Format: <kind> <target> <note>
 # Compiled into the binary; users override nothing here. Their own list lives
-# in ~/.config/lookit/bookmarks, and "catalog off" there hides all of this.
+# in ~/.config/lookit/bookmarks as one target per line, and "catalog off" there
+# hides all of this.
 #
-# Every entry was probed live on 2026-08-11. When refreshing, probe SERIALLY —
-# bbs.airandwave.net rate-limits and a concurrent sweep reports false deaths.
+# Every entry was probed live on 2026-08-11, and every note below is traceable
+# to the server's own words, to 640kb.neocities.org/fingerverse, or to a
+# conclusion the response plainly supports. The spec's catalog tables record the
+# basis for each. Do not describe a host from memory: four notes in an earlier
+# draft were wrong, including one that called tilde.team big when its own banner
+# says small.
+#
+# When refreshing, probe SERIALLY — bbs.airandwave.net rate-limits and a
+# concurrent sweep reports false deaths.
 
-community @plan.cat Finger-first microblogging
-community @tilde.team Big, friendly pubnix
-community @happynetbox.com Hosted .plan pages, no shell account needed
-community @telehack.com Retro-computing sandbox; .plan pages autogenerated
-community ring@thebackupbox.net The Finger Ring — a webring for finger servers
-community @cosmic.voyage Collaborative science fiction
-community @athena.dialup.mit.edu MIT Athena, still answering
+community @plan.cat Classic finger, polished for the present
+community @tilde.team Small public access unix, for teaching and learning
+community @happynetbox.com Finger server of user profiles, run by Ben Brown
+community @telehack.com Live system status and users; .plan pages are autogenerated
+community ring@thebackupbox.net The finger ring — join by linking it from your response
+community @cosmic.voyage Collaborative science fiction; users crew ships
+community @athena.dialup.mit.edu MIT Athena dialup, still answering
 community @zaibatsu.circumlunar.space Circumlunar Space pubnix
-community @chunboan.zone Small community server
+community @chunboan.zone A tiny shared community on one cheap server
 
 service @bbs.airandwave.net Menu of a dozen-plus finger services
-service weather@bbs.airandwave.net Weather and 7-day forecast — weather:city@…
+service weather@bbs.airandwave.net Current weather and a 7-day forecast — weather:city@…
 service @graph.no Weather worldwide by place name — finger oslo@graph.no
 service quake@bbs.airandwave.net Latest earthquakes, M2.5+ past day
-service dict@bbs.airandwave.net Dictionary — dict:word@…
-service urban@bbs.airandwave.net Urban Dictionary — urban:word@…
+service dict@bbs.airandwave.net Dictionary lookup — dict:word@…
+service urban@bbs.airandwave.net Slang, internet terms and memes — urban:word@…
 service wordsearch:today@bbs.airandwave.net Daily word search puzzle
-service sudoku:easy@bbs.airandwave.net Sudoku, easy mode
-service textfile@typed-hole.org A random file from textfiles.com
-service calendar@flanigan.us Historical calendar: on this day
-service bot@happynetbox.com Auto news bot: article titles and URLs
+service sudoku:easy@bbs.airandwave.net An easy sudoku, fresh each day
+service textfile@typed-hole.org A lucky dip into textfiles.com
+service calendar@flanigan.us Today’s date, across the years
+service bot@happynetbox.com News headlines, with links for the curious
 service random@happynetbox.com Jump to a random happynetbox user
-service ansi@happynetbox.com ANSI art over finger
-service browserversion@happynetbox.com Current browser version numbers
+service browserversion@happynetbox.com The latest versions across the browser world
 service 1@happynetbox.com Interactive fiction, chained over finger
 service cyoa@typed-hole.org Choose your own adventure
 service smog@typed-hole.org Saturday Morning Gemzine — back issues
-service originsfinger@happynetbox.com Les Earnest on the origins of finger
+service originsfinger@happynetbox.com Les Earnest tells how finger began
 ```
 
 - [ ] **Step 4: Write the loader**
@@ -699,7 +717,7 @@ func loadCatalog() []startEntry {
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `go test ./tui/ -run TestCatalog -count=1 -v`
-Expected: PASS — 28 entries parsed, all with notes, no people
+Expected: PASS — 26 entries parsed, all with notes, no people
 
 - [ ] **Step 6: Run the full gate and commit**
 
@@ -713,7 +731,7 @@ git commit -m "feat(tui): embed the curated startpage catalog"
 
 ### Task 4: Section assembly
 
-Merging the two sources: bookmarks first, catalog grouped and deduped, notes borrowed by target match.
+Merging the two sources: target-only bookmarks first, catalog grouped and deduped, metadata borrowed only by exact target match.
 
 **Files:**
 - Create: `tui/sections.go`
@@ -737,8 +755,8 @@ import "testing"
 
 func catalogFixture() []startEntry {
 	return []startEntry{
-		{target: "@tilde.team", kind: kindCommunity, note: "Big, friendly pubnix", source: sourceCatalog},
-		{target: "@plan.cat", kind: kindCommunity, note: "Finger-first microblogging", source: sourceCatalog},
+		{target: "@tilde.team", kind: kindCommunity, note: "Small public access unix", source: sourceCatalog},
+		{target: "@plan.cat", kind: kindCommunity, note: "Classic finger, polished for the present", source: sourceCatalog},
 		{target: "quake@bbs.airandwave.net", kind: kindService, note: "Latest earthquakes", source: sourceCatalog},
 	}
 }
@@ -757,9 +775,7 @@ func TestBuildSectionsCatalogOnly(t *testing.T) {
 }
 
 func TestBuildSectionsBookmarksComeFirstAndDedup(t *testing.T) {
-	bm := bookmarkFile{entries: []startEntry{
-		{target: "@tilde.team", kind: kindCommunity, source: sourceBookmark},
-	}}
+	bm := bookmarkFile{targets: []string{"@tilde.team"}}
 	got := buildSections(catalogFixture(), bm)
 	if got[0].title != "BOOKMARKS" {
 		t.Fatalf("section 0 title = %q, want BOOKMARKS", got[0].title)
@@ -768,7 +784,7 @@ func TestBuildSectionsBookmarksComeFirstAndDedup(t *testing.T) {
 		t.Fatalf("bookmarks section = %+v", got[0].entries)
 	}
 	// The note travels with the target even though the file stores none.
-	if got[0].entries[0].note != "Big, friendly pubnix" {
+	if got[0].entries[0].note != "Small public access unix" {
 		t.Errorf("note = %q, want the catalog's note", got[0].entries[0].note)
 	}
 	// And it is suppressed from COMMUNITIES rather than appearing twice.
@@ -779,27 +795,29 @@ func TestBuildSectionsBookmarksComeFirstAndDedup(t *testing.T) {
 	}
 }
 
-func TestBuildSectionsBookmarkWithoutCatalogMatchShowsKind(t *testing.T) {
-	bm := bookmarkFile{entries: []startEntry{
-		{target: "jonathan@tilde.team", kind: kindPerson, source: sourceBookmark},
-	}}
+func TestBuildSectionsBookmarkWithoutCatalogMatchHasNoDescription(t *testing.T) {
+	bm := bookmarkFile{targets: []string{"weather:99501@bbs.airandwave.net"}}
 	got := buildSections(catalogFixture(), bm)
-	if got[0].entries[0].note != "person" {
-		t.Fatalf("note = %q, want the kind as a fallback", got[0].entries[0].note)
+	entry := got[0].entries[0]
+	if entry.note != "" {
+		t.Fatalf("note = %q, want blank for an unclassified bookmark", entry.note)
+	}
+	if entry.kind != kindUnknown {
+		t.Fatalf("kind = %v, want no inferred classification", entry.kind)
 	}
 }
 
 func TestBuildSectionsCatalogOff(t *testing.T) {
 	bm := bookmarkFile{
 		catalogHidden: true,
-		entries:       []startEntry{{target: "@plan.cat", kind: kindCommunity, source: sourceBookmark}},
+		targets:       []string{"@plan.cat"},
 	}
 	got := buildSections(catalogFixture(), bm)
 	if len(got) != 1 || got[0].title != "BOOKMARKS" {
 		t.Fatalf("sections = %+v, want BOOKMARKS only", got)
 	}
 	// A hidden catalog still supplies notes for matching bookmarks.
-	if got[0].entries[0].note != "Finger-first microblogging" {
+	if got[0].entries[0].note != "Classic finger, polished for the present" {
 		t.Errorf("note = %q, want the catalog's note", got[0].entries[0].note)
 	}
 }
@@ -835,23 +853,23 @@ type startSection struct {
 //     appearing twice, and
 //   - it keeps the catalog's note, so pinning never costs the description.
 //
-// That is what lets the bookmarks file store no notes at all — which in turn is
-// what keeps free text out of the terminal (see the spec's trust section).
+// The bookmark file stores targets only. A catalog match supplies its authored
+// metadata; an unmatched target stays unclassified with a blank description.
 func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
-	notes := make(map[string]string, len(catalog))
+	byTarget := make(map[string]startEntry, len(catalog))
 	for _, e := range catalog {
-		notes[e.target] = e.note
+		byTarget[e.target] = e
 	}
 
 	var sections []startSection
 
-	if len(bm.entries) > 0 {
-		bookmarked := make([]startEntry, 0, len(bm.entries))
-		for _, e := range bm.entries {
-			if note, ok := notes[e.target]; ok && note != "" {
-				e.note = note
-			} else {
-				e.note = e.kind.String()
+	if len(bm.targets) > 0 {
+		bookmarked := make([]startEntry, 0, len(bm.targets))
+		for _, target := range bm.targets {
+			e := startEntry{target: target, source: sourceBookmark}
+			if catalogEntry, ok := byTarget[target]; ok {
+				e = catalogEntry
+				e.source = sourceBookmark
 			}
 			bookmarked = append(bookmarked, e)
 		}
@@ -862,9 +880,9 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 		return sections
 	}
 
-	pinned := make(map[string]bool, len(bm.entries))
-	for _, e := range bm.entries {
-		pinned[e.target] = true
+	pinned := make(map[string]bool, len(bm.targets))
+	for _, target := range bm.targets {
+		pinned[target] = true
 	}
 	for _, group := range []struct {
 		title string
@@ -903,9 +921,12 @@ git commit -m "feat(tui): assemble startpage sections from catalog and bookmarks
 
 ---
 
-### Task 5: `startModel` — the list with skipped headers
+### Task 5: `startModel` — the list with skipped non-entry rows
 
 `bubbles/v2/list` has no section support and its pagination assumes a uniform `delegate.Height()`. Headers are therefore items rendered at the same two-row cell height as an entry, and the cursor steps over them. This is the fiddliest part of the feature; the edge tests are the point.
+
+The catalog credit uses the same mechanism: a final two-row, non-selectable item
+that carries an OSC-8-linked URL and drops out during filtering.
 
 **Files:**
 - Create: `tui/start.go`
@@ -913,7 +934,7 @@ git commit -m "feat(tui): assemble startpage sections from catalog and bookmarks
 
 **Interfaces:**
 - Consumes: `startSection`, `startEntry` from Task 4; `commonModel`, `styles`, `userDelegate`, `applyListStyles` (`tui/list.go:88-146`)
-- Produces: `startItem`, `startModel`, `newStart(common *commonModel, sections []startSection, notice, empty string) startModel`, and methods `update`, `View`, `setSize`, `selected() (startEntry, bool)`, `filtering() bool`, `applyStyles(styles)`
+- Produces: `catalogCreditURL`, `startItem`, `startModel`, `newStart(common *commonModel, sections []startSection, notice, empty string) startModel`, and methods `update`, `View`, `setSize`, `selected() (startEntry, bool)`, `selectTarget(string) bool`, `filtering() bool`, `filterApplied() bool`, `applyStyles(styles)`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -923,22 +944,21 @@ package tui
 import (
 	"testing"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/colorprofile"
+	"charm.land/lipgloss/v2"
 )
 
-func testCommon() *commonModel {
-	return &commonModel{width: 80, height: 24, profile: colorprofile.NoTTY, darkBackground: true, styles: newStyles(true)}
-}
+// testCommon is shared with list_test.go; do not redeclare it here.
 
 func twoSections() []startSection {
 	return []startSection{
 		{title: "BOOKMARKS", entries: []startEntry{
-			{target: "@tilde.team", kind: kindCommunity, note: "Big, friendly pubnix", source: sourceBookmark},
+			{target: "@tilde.team", kind: kindCommunity, note: "Small public access unix", source: sourceBookmark},
 		}},
 		{title: "COMMUNITIES", entries: []startEntry{
-			{target: "@plan.cat", kind: kindCommunity, note: "Finger-first microblogging", source: sourceCatalog},
-			{target: "@happynetbox.com", kind: kindCommunity, note: "Hosted .plan pages", source: sourceCatalog},
+			{target: "@plan.cat", kind: kindCommunity, note: "Classic finger, polished for the present", source: sourceCatalog},
+			{target: "@happynetbox.com", kind: kindCommunity, note: "Finger server of user profiles, run by Ben Brown", source: sourceCatalog},
 		}},
 	}
 }
@@ -952,6 +972,17 @@ func TestStartSelectionSkipsLeadingHeader(t *testing.T) {
 	}
 	if got.target != "@tilde.team" {
 		t.Fatalf("selected = %q, want @tilde.team", got.target)
+	}
+}
+
+func TestStartSelectTargetPreservesIdentity(t *testing.T) {
+	m := newStart(testCommon(), twoSections(), "", "")
+	if !m.selectTarget("@happynetbox.com") {
+		t.Fatal("selectTarget returned false for an existing row")
+	}
+	got, ok := m.selected()
+	if !ok || got.target != "@happynetbox.com" {
+		t.Fatalf("selected = %+v, %v; want @happynetbox.com", got, ok)
 	}
 }
 
@@ -980,9 +1011,20 @@ func TestStartCursorStepsOverHeaderUpward(t *testing.T) {
 	}
 }
 
-// At the last entry, down must not strand the cursor on a trailing header or
-// move past the end.
-func TestStartCursorStopsAtLastEntry(t *testing.T) {
+func TestStartCursorSkipsHeaderAtPageBoundary(t *testing.T) {
+	common := testCommon()
+	common.height = 8 // force pagination with the two-row delegate
+	m := newStart(common, twoSections(), "", "")
+	m.list.Select(2) // the COMMUNITIES header, on a later page
+	m.skipNonEntry(1)
+	got, ok := m.selected()
+	if !ok || got.target != "@plan.cat" {
+		t.Fatalf("selected = %+v, %v; want @plan.cat after boundary header", got, ok)
+	}
+}
+
+// At the last entry, down must not strand the cursor on the trailing credit.
+func TestStartCursorStopsBeforeCredit(t *testing.T) {
 	m := newStart(testCommon(), twoSections(), "", "")
 	for range 6 {
 		m, _ = m.update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -994,6 +1036,82 @@ func TestStartCursorStopsAtLastEntry(t *testing.T) {
 	if got.target != "@happynetbox.com" {
 		t.Fatalf("selected = %q, want @happynetbox.com", got.target)
 	}
+}
+
+func TestStartCatalogCreditIsLinkedAndNonSelectable(t *testing.T) {
+	m := newStart(testCommon(), twoSections(), "", "")
+	items := m.list.Items()
+	credit, ok := items[len(items)-1].(startItem)
+	if !ok || !credit.credit {
+		t.Fatalf("last item = %#v, want catalog credit", items[len(items)-1])
+	}
+	m.list.Select(len(items) - 1)
+	m.skipNonEntry(1)
+	got, ok := m.selected()
+	if !ok || got.target != "@happynetbox.com" {
+		t.Fatalf("selected = %+v, %v; want last catalog entry", got, ok)
+	}
+
+	view := m.View()
+	for _, want := range []string{
+		"Catalog inspired by",
+		lipgloss.NewStyle().Hyperlink(catalogCreditURL).Render(catalogCreditURL),
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("View() missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestStartCatalogCreditRequiresCatalogRow(t *testing.T) {
+	sections := []startSection{{title: "BOOKMARKS", entries: []startEntry{
+		{target: "@tilde.team", source: sourceBookmark},
+	}}}
+	m := newStart(testCommon(), sections, "", "")
+	if strings.Contains(m.View(), "Catalog inspired by") {
+		t.Fatalf("View() contains catalog credit without a catalog row:\n%s", m.View())
+	}
+}
+
+func TestStartFilterSelectsFirstMatchAfterHeadersDisappear(t *testing.T) {
+	m := newStart(testCommon(), twoSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	var cmd tea.Cmd
+	for _, r := range "plan" {
+		m, cmd = m.update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	msg, ok := findFilterMatches(cmd)
+	if !ok {
+		t.Fatal("filter command produced no list.FilterMatchesMsg")
+	}
+	m, _ = m.update(msg)
+	for _, item := range m.list.VisibleItems() {
+		if si, ok := item.(startItem); ok && si.credit {
+			t.Fatal("catalog credit survived filtering")
+		}
+	}
+	got, ok := m.selected()
+	if !ok || got.target != "@plan.cat" {
+		t.Fatalf("selected = %+v, %v; want first filtered row @plan.cat", got, ok)
+	}
+}
+
+func findFilterMatches(cmd tea.Cmd) (tea.Msg, bool) {
+	if cmd == nil {
+		return nil, false
+	}
+	msg := cmd()
+	if _, ok := msg.(list.FilterMatchesMsg); ok {
+		return msg, true
+	}
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, child := range batch {
+			if msg, ok := findFilterMatches(child); ok {
+				return msg, true
+			}
+		}
+	}
+	return nil, false
 }
 
 func TestStartEmptyStateHasNoSelection(t *testing.T) {
@@ -1038,23 +1156,32 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // startChromeRows matches listChromeRows: space the bubbles list reserves once
 // its own title and help are hidden.
-const startChromeRows = 1
+const (
+	startChromeRows = 1
+	catalogCreditURL = "https://640kb.neocities.org/fingerverse/"
+)
 
-// startItem is one row. A row is either a section header or an entry; headers
-// occupy a normal item slot so the list's uniform-height pagination still holds.
+// startItem is one row: an entry, section header, or catalog credit. Non-entry
+// rows occupy normal item slots so the list's uniform-height pagination holds.
 type startItem struct {
 	entry  startEntry
 	header string // non-empty => this row is a section heading
+	credit bool
 }
 
-// FilterValue drives "/". Headers return "" so they drop out while filtering,
-// which flattens the view to matches — the behaviour we want.
+func (i startItem) selectable() bool {
+	return i.header == "" && !i.credit && i.entry.target != ""
+}
+
+// FilterValue drives "/". Non-entry rows return "" so they drop out while
+// filtering, which flattens the view to matches — the behaviour we want.
 func (i startItem) FilterValue() string {
-	if i.header != "" {
+	if !i.selectable() {
 		return ""
 	}
 	return i.entry.target + " " + i.entry.note
@@ -1064,12 +1191,18 @@ func (i startItem) Title() string {
 	if i.header != "" {
 		return i.header
 	}
+	if i.credit {
+		return "Catalog inspired by"
+	}
 	return i.entry.target
 }
 
 func (i startItem) Description() string {
 	if i.header != "" {
 		return ""
+	}
+	if i.credit {
+		return catalogCreditURL
 	}
 	return i.entry.note
 }
@@ -1085,11 +1218,18 @@ type startModel struct {
 
 func newStart(common *commonModel, sections []startSection, notice, empty string) startModel {
 	var items []list.Item
+	hasCatalogRow := false
 	for _, s := range sections {
 		items = append(items, startItem{header: s.title})
 		for _, e := range s.entries {
 			items = append(items, startItem{entry: e})
+			if e.source == sourceCatalog {
+				hasCatalogRow = true
+			}
 		}
+	}
+	if hasCatalogRow {
+		items = append(items, startItem{credit: true})
 	}
 
 	st := common.ensureStyles()
@@ -1105,7 +1245,7 @@ func newStart(common *commonModel, sections []startSection, notice, empty string
 	l.SetShowHelp(false)
 
 	m := startModel{common: common, list: l, notice: notice, empty: empty}
-	m.skipHeader(1) // never rest on the leading header
+	m.skipNonEntry(1) // never rest on the leading header
 	m.setSize(common.width, common.bodyHeight())
 	return m
 }
@@ -1123,6 +1263,12 @@ func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		fmt.Fprintf(w, "\n%s", d.st.barFlag.Render(it.header)) //nolint:errcheck
 		return
 	}
+	if it, ok := item.(startItem); ok && it.credit {
+		dim := lipgloss.NewStyle().Foreground(d.st.palette.Dim)
+		url := lipgloss.NewStyle().Hyperlink(catalogCreditURL).Render(catalogCreditURL)
+		fmt.Fprintf(w, "%s\n%s", dim.Render("Catalog inspired by"), dim.Render(url)) //nolint:errcheck
+		return
+	}
 	d.userDelegate.Render(w, m, index, item)
 }
 
@@ -1130,19 +1276,26 @@ func (m startModel) update(msg tea.Msg) (startModel, tea.Cmd) {
 	before := m.list.Index()
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
+	if _, ok := msg.(list.FilterMatchesMsg); ok {
+		// Filtering removes headers and the credit. The unfiltered cursor starts
+		// at 1 to skip the leading header, so reset it to the first filtered row.
+		m.list.Select(0)
+		m.skipNonEntry(1)
+		return m, cmd
+	}
 	if after := m.list.Index(); after != before {
 		dir := 1
 		if after < before {
 			dir = -1
 		}
-		m.skipHeader(dir)
+		m.skipNonEntry(dir)
 	}
 	return m, cmd
 }
 
-// skipHeader advances past a header in the direction of travel, reversing at
-// the ends so the cursor can never come to rest on a heading.
-func (m *startModel) skipHeader(dir int) {
+// skipNonEntry advances past a header or credit in the direction of travel,
+// reversing at the ends so the cursor can never rest on a non-entry row.
+func (m *startModel) skipNonEntry(dir int) {
 	items := m.list.VisibleItems()
 	if len(items) == 0 {
 		return
@@ -1150,7 +1303,7 @@ func (m *startModel) skipHeader(dir int) {
 	idx := m.list.Index()
 	for range len(items) {
 		it, ok := items[idx].(startItem)
-		if !ok || it.header == "" {
+		if !ok || it.selectable() {
 			m.list.Select(idx)
 			return
 		}
@@ -1193,17 +1346,33 @@ func (m startModel) noticeHeight() int {
 	return len(strings.Split(m.notice, "\n")) + 1
 }
 
-// selected returns the highlighted entry. A header or an empty list yields false.
+// selected returns the highlighted entry. A non-entry row or empty list yields false.
 func (m startModel) selected() (startEntry, bool) {
 	it, ok := m.list.SelectedItem().(startItem)
-	if !ok || it.header != "" {
+	if !ok || !it.selectable() {
 		return startEntry{}, false
 	}
 	return it.entry, true
 }
 
+// selectTarget restores selection by stable identity after a startpage reload.
+func (m *startModel) selectTarget(target string) bool {
+	for i, item := range m.list.VisibleItems() {
+		entry, ok := item.(startItem)
+		if ok && entry.selectable() && entry.entry.target == target {
+			m.list.Select(i)
+			return true
+		}
+	}
+	return false
+}
+
 func (m startModel) filtering() bool {
 	return m.list.FilterState() == list.Filtering
+}
+
+func (m startModel) filterApplied() bool {
+	return m.list.FilterState() == list.FilterApplied
 }
 
 func (m *startModel) applyStyles(st styles) {
@@ -1215,14 +1384,14 @@ func (m *startModel) applyStyles(st styles) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./tui/ -run TestStart -count=1 -v`
-Expected: PASS — all cursor-skip edges
+Expected: PASS — all cursor-skip edges and catalog-credit cases
 
 - [ ] **Step 5: Run the full gate and commit**
 
 ```bash
 make check
 git add tui/start.go tui/start_test.go
-git commit -m "feat(tui): add the startpage list model with section headers"
+git commit -m "feat(tui): add the catalog startpage list"
 ```
 
 ---
@@ -1260,8 +1429,31 @@ func TestAppOpensOnStartpage(t *testing.T) {
 	}
 }
 
+func TestStartEnterRequestsSelectedTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bookmarks")
+	bookmarksPathFn = func() (string, error) { return path, nil }
+	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+
+	fetch, seen := fetchRecorder("Plan: hello\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.blurInput()
+	selected, ok := m.start.selected()
+	if !ok {
+		t.Fatal("startpage has no selected target")
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter produced no request command")
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != selected.target {
+		t.Fatalf("requested = %v, want [%s]", *seen, selected.target)
+	}
+}
+
 func TestStartNoticeNamesResolvedPath(t *testing.T) {
-	file := bookmarkFile{problems: []parseProblem{{line: 3, reason: "unknown kind \"wombat\""}}}
+	file := bookmarkFile{problems: []parseProblem{{line: 3, reason: "expected one target"}}}
 	got := startNotice(file, "/tmp/xdg/lookit/bookmarks")
 	if !strings.Contains(got, "/tmp/xdg/lookit/bookmarks") {
 		t.Fatalf("notice = %q, want the resolved path", got)
@@ -1282,9 +1474,11 @@ func TestStartEmptyMessageNamesResolvedPath(t *testing.T) {
 }
 ```
 
+Add `"path/filepath"` to `tui/app_test.go`'s imports.
+
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./tui/ -run 'TestAppOpensOnStartpage|TestStartNotice|TestStartEmptyMessage' -count=1`
+Run: `go test ./tui/ -run 'TestAppOpensOnStartpage|TestStartEnter|TestStartNotice|TestStartEmptyMessage' -count=1`
 Expected: FAIL — `undefined: stateStart`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1391,6 +1585,34 @@ In `Update`'s delegation switch, add a case before `default`:
 		m.start, cmd = m.start.update(msg)
 ```
 
+In `handleKey`'s content switch, route Enter on a startpage row through the
+normal request lifecycle:
+
+```go
+	case key.Matches(msg, m.keys.Open) && m.state == stateStart:
+		entry, ok := m.start.selected()
+		if !ok {
+			return true, m, nil
+		}
+		target, err := finger.ParseTarget(entry.target)
+		if err != nil {
+			return true, m, m.setFlash("error: " + err.Error())
+		}
+		return true, m, m.startRequest(target, requestNavigate, false)
+```
+
+In `updateKeymap`, define startpage content alongside `inList`, then include it
+in the Open and Filter bindings:
+
+```go
+	inStart := content && m.state == stateStart
+	_, startHasSelection := m.start.selected()
+	startHasSelection = inStart && startHasSelection
+
+	m.keys.Open.SetEnabled(m.inputFocused || inList || startHasSelection)
+	m.keys.Filter.SetEnabled(inList || startHasSelection)
+```
+
 In `View`'s content switch, add:
 
 ```go
@@ -1419,7 +1641,7 @@ func (m appModel) startBar(width int, st styles) statusBar {
 	}
 	n := 0
 	for _, it := range m.start.list.VisibleItems() {
-		if si, ok := it.(startItem); ok && si.header == "" {
+		if si, ok := it.(startItem); ok && si.selectable() {
 			n++
 		}
 	}
@@ -1431,19 +1653,76 @@ func (m appModel) startBar(width int, st styles) statusBar {
 }
 ```
 
-Delete `landingBar` from `tui/statusbar.go:64-67`. It has one other caller —
-`tui/statusbar_test.go:39` — so replace that test with one that exercises
-`startBar` instead of deleting the coverage.
+Delete `landingBar` from `tui/statusbar.go:64-67`. Replace
+`TestStatusBarLandingShowsHint` in `tui/statusbar_test.go` with:
+
+```go
+func TestStatusBarStartShowsFocusedInputHint(t *testing.T) {
+	m := appModel{inputFocused: true}
+	out := m.startBar(80, newStyles(true)).render()
+	if !strings.Contains(out, "type a target") {
+		t.Fatalf("start bar %q missing focused-input hint", out)
+	}
+}
+
+func TestStatusBarStartDoesNotCountCatalogCredit(t *testing.T) {
+	m := appModel{start: newStart(testCommon(), twoSections(), "", "")}
+	out := m.startBar(80, newStyles(true)).render()
+	if !strings.Contains(out, "3 entries") {
+		t.Fatalf("start bar %q should count only selectable entries", out)
+	}
+}
+```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go test ./tui/ -run 'TestAppOpensOnStartpage|TestStartNotice|TestStartEmptyMessage' -count=1 -v`
+Run: `go test ./tui/ -run 'TestAppOpensOnStartpage|TestStartEnter|TestStartNotice|TestStartEmptyMessage|TestStatusBarStart' -count=1 -v`
 Expected: PASS
 
-- [ ] **Step 5: Run the full suite — existing tests will need updating**
+- [ ] **Step 5: Update the existing landing assertions**
 
-Run: `go test ./tui/ -count=1`
-Expected: some existing landing tests fail, because the launch screen is no longer `stateReader` with `"No response yet."`. Update each to expect `stateStart`. Do not weaken an assertion to make it pass — if a test checked that the landing was empty, it should now check the startpage renders.
+Make these exact expectation changes in `tui/app_test.go`.
+
+Rename `TestEscInListReturnsToReaderHome` to `TestEscInListReturnsToStart` and
+replace its final state assertion with:
+
+```go
+	if got.state != stateStart || got.pos != -1 {
+		t.Fatalf("state=%d pos=%d, want start/-1 after Esc", got.state, got.pos)
+	}
+```
+
+Rename `TestLandingViewShowsLandingBar` to `TestLandingViewShowsStartpage` and
+replace its assertions with:
+
+```go
+	view := m.View().Content
+	for _, want := range []string{"type a target", "@plan.cat"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("startpage missing %q:\n%s", want, view)
+		}
+	}
+```
+
+In `TestBackToLandingShowsBareTargetRow`, replace the post-back assertions with:
+
+```go
+	if m.pos != -1 || m.state != stateStart {
+		t.Fatalf("back-to-start state=%d pos=%d, want start/-1", m.state, m.pos)
+	}
+	view := stripANSIForLandingTest(m.View().Content)
+	for _, want := range []string{"target:", "@plan.cat"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("back-to-start view missing %q:\n%s", want, view)
+		}
+	}
+```
+
+Update landing comments that say `stateReader` to say `stateStart`; do not
+change tests whose setup explicitly installs a fetched `stateReader` node.
+
+Then run: `go test ./tui/ -count=1`
+Expected: PASS
 
 - [ ] **Step 6: Run the full gate and commit**
 
@@ -1465,7 +1744,7 @@ git commit -m "feat(tui): render the startpage as the launch screen"
 
 **Interfaces:**
 - Consumes: everything from Tasks 1-6
-- Produces: `keyMap.Bookmark`, `keyMap.Home`, `(*appModel).toggleBookmark() tea.Cmd`, `(appModel).bookmarkTarget() (startEntry, bool)`, `(*appModel).goHome()`
+- Produces: `keyMap.Bookmark`, `keyMap.Home`, `(*appModel).toggleBookmark() tea.Cmd`, `(appModel).bookmarkTarget() (string, bool)`, `(*appModel).goHome()`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1491,31 +1770,43 @@ func TestBookmarkOnStartpageTogglesFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bookmarks")
 	bookmarksPathFn = func() (string, error) { return path, nil }
 	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+	if err := os.WriteFile(path, []byte("@tilde.team\n"), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
+	if !m.start.selectTarget("@plan.cat") {
+		t.Fatal("catalog row @plan.cat not found")
+	}
 	first, ok := m.start.selected()
 	if !ok {
 		t.Fatal("no selection to bookmark")
 	}
 
-	_, m, _ = m.handleKey(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read after bookmark: %v", err)
 	}
-	if !strings.Contains(string(data), first.target) {
-		t.Fatalf("file = %q, want it to contain %q", data, first.target)
+	if want := "@tilde.team\n@plan.cat\n"; string(data) != want {
+		t.Fatalf("file = %q, want %q", data, want)
+	}
+	selected, ok := m.start.selected()
+	if !ok || selected.target != first.target {
+		t.Fatalf("selection after reload = %+v, %v; want %q", selected, ok, first.target)
 	}
 
-	// The pinned entry now heads BOOKMARKS, so pressing b again removes it.
-	_, m, _ = m.handleKey(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	// Selection follows the moved row, so pressing b again removes the same target.
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
 	data, err = os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read after unbookmark: %v", err)
 	}
-	if strings.Contains(string(data), first.target) {
-		t.Fatalf("file = %q, want %q removed", data, first.target)
+	if want := "@tilde.team\n"; string(data) != want {
+		t.Fatalf("file = %q, want %q (existing bookmark preserved)", data, want)
 	}
 }
 
@@ -1533,10 +1824,8 @@ func TestHomeTruncatesHistory(t *testing.T) {
 	m.state = stateReader
 	m.blurInput()
 
-	handled, m, _ := m.handleKey(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	if !handled {
-		t.Fatal("h not handled")
-	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	m = next.(appModel)
 	if m.state != stateStart {
 		t.Fatalf("state = %v, want stateStart", m.state)
 	}
@@ -1557,6 +1846,9 @@ func mustTarget(t *testing.T, raw string) finger.Target {
 	return target
 }
 ```
+
+Add `"os"` and `"path/filepath"` to `tui/app_test.go`'s imports if Task 6 has
+not already added the latter.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1597,27 +1889,22 @@ In `tui/app.go`, add the handlers:
 // bookmarkTarget reports what 'b' acts on for the current screen. On a list it
 // is the host, not the highlighted user: 'b' on @tilde.team means "come back to
 // this directory". To bookmark a person, drill in and press b there.
-func (m appModel) bookmarkTarget() (startEntry, bool) {
+func (m appModel) bookmarkTarget() (string, bool) {
 	if m.state == stateStart {
-		return m.start.selected()
+		entry, ok := m.start.selected()
+		return entry.target, ok
 	}
 	if m.pos < 0 || m.pos >= len(m.history) {
-		return startEntry{}, false
+		return "", false
 	}
-	target := m.history[m.pos].entry.Target
-	kind := kindPerson
-	if target.HostQuery() {
-		kind = kindCommunity
-	}
-	return startEntry{target: target.Raw, kind: kind, source: sourceBookmark}, true
+	return m.history[m.pos].entry.Target.Raw, true
 }
 
 // toggleBookmark adds or removes the current target, then reloads the startpage
-// so it reflects the file. Kind inference is a guess — 'service' is not
-// inferable, since weather:99501@host is user@host-shaped — but kind only
-// affects display, and one word in the file corrects it.
+// so it reflects the file. Bookmark records contain only the target: the
+// protocol cannot establish a kind, and routing remains response-derived.
 func (m *appModel) toggleBookmark() tea.Cmd {
-	entry, ok := m.bookmarkTarget()
+	target, ok := m.bookmarkTarget()
 	if !ok {
 		return nil
 	}
@@ -1632,8 +1919,8 @@ func (m *appModel) toggleBookmark() tea.Cmd {
 
 	file := parseBookmarks(data)
 	already := false
-	for _, e := range file.entries {
-		if e.target == entry.target {
+	for _, saved := range file.targets {
+		if saved == target {
 			already = true
 			break
 		}
@@ -1642,17 +1929,18 @@ func (m *appModel) toggleBookmark() tea.Cmd {
 	var updated []byte
 	var msg string
 	if already {
-		updated = deleteBookmarkLine(data, entry.target)
-		msg = "✓ removed " + entry.target
+		updated = deleteBookmarkLine(data, target)
+		msg = "✓ removed " + target
 	} else {
-		updated = appendBookmarkLine(data, entry)
-		msg = "✓ bookmarked " + entry.target
+		updated = appendBookmarkLine(data, target)
+		msg = "✓ bookmarked " + target
 	}
 	if err := saveBookmarkData(path, updated); err != nil {
 		return m.setFlash("error: " + err.Error())
 	}
 	if m.state == stateStart {
 		m.reloadStart()
+		m.start.selectTarget(target)
 		m.resize()
 	}
 	return m.setFlash(msg)
@@ -1779,11 +2067,51 @@ func TestBookmarkKeyTypesIntoFocusedInput(t *testing.T) {
 		t.Fatal("b must type into a focused input, not bookmark")
 	}
 }
+
+func TestStartpageFilterOwnsCommandLetters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bookmarks")
+	bookmarksPathFn = func() (string, error) { return path, nil }
+	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = next.(appModel)
+	if !m.start.filtering() {
+		t.Fatal("/ did not enter startpage filtering")
+	}
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	if got := m.start.list.FilterInput.Value(); got != "b" {
+		t.Fatalf("filter = %q, want b", got)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("typing b in the filter changed bookmarks: stat error = %v", err)
+	}
+}
+
+func TestStartpageEscClearsAppliedFilterBeforeChangingFocus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bookmarks")
+	bookmarksPathFn = func() (string, error) { return path, nil }
+	t.Cleanup(func() { bookmarksPathFn = resolveBookmarksPath })
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("plan")
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = next.(appModel)
+	if m.start.list.FilterState() != list.Unfiltered {
+		t.Fatalf("filter state = %v, want unfiltered", m.start.list.FilterState())
+	}
+	if m.inputFocused {
+		t.Fatal("first Esc should clear the applied filter, not focus the input")
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./tui/ -run 'TestStartpageArrowDown|TestStartpageEsc|TestBookmarkKeyTypes' -count=1`
+Run: `go test ./tui/ -run 'TestStartpageArrowDown|TestStartpageEsc|TestBookmarkKeyTypes|TestStartpageFilter' -count=1`
 Expected: FAIL — esc quits instead of blurring
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1806,7 +2134,20 @@ In `handleKey`'s input-focused branch, before the existing Enter/Esc handling:
 	}
 ```
 
-And in the content-focused branch, before the generic `Back` handling:
+At the top of the content-focused branch, extend the existing list-filter guard
+so the startpage list owns every key while editing a filter, and so Esc clears an
+applied filter before changing focus:
+
+```go
+	if m.state == stateStart && m.start.filtering() {
+		return false, m, nil
+	}
+	if m.state == stateStart && m.start.filterApplied() && key.Matches(msg, m.keys.Back) {
+		return false, m, nil
+	}
+```
+
+Then, before the generic `Back` handling:
 
 ```go
 	if m.state == stateStart && key.Matches(msg, m.keys.Back) {
@@ -1822,7 +2163,7 @@ In `updateKeymap`, keep `Back` live on the startpage in both focus modes:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go test ./tui/ -run 'TestStartpageArrowDown|TestStartpageEsc|TestBookmarkKeyTypes' -count=1 -v`
+Run: `go test ./tui/ -run 'TestStartpageArrowDown|TestStartpageEsc|TestBookmarkKeyTypes|TestStartpageFilter' -count=1 -v`
 Expected: PASS
 
 - [ ] **Step 5: Run the full gate and commit**
@@ -1853,12 +2194,13 @@ In the `finger/` bullet, after the sentence ending "...for every current and fut
 
 ```
   **A second ingress exists as of the startpage:** the bookmarks file
-  (`tui/bookmarks.go`). It does not weaken the claim above, because it admits no
-  free text — the kind is a closed keyword set, the target must survive
-  `ParseTarget` *and* a Unicode-format-control screen, and notes are accepted
-  only from the embedded catalog we author. Nothing from that file needs
-  `sanitize`, because nothing unvalidated is ever displayed. If a future ingress
-  does admit free text, it must call `sanitize` itself and this note must change.
+  (`tui/bookmarks.go`). It admits target-only records: each target must be valid
+  UTF-8, must survive `ParseTarget`, and must contain no C1, Cf, Zl or Zp control.
+  Descriptions and classifications come only from matching entries in the
+  embedded catalog we author; comments and malformed trailing text are never
+  displayed. Nothing from that file needs `sanitize`, because nothing
+  unvalidated is ever displayed. If a future ingress does admit free text, it
+  must call `sanitize` itself and this note must change.
 ```
 
 In the `tui/` bullet, add to the state enum description that `stateStart` is the launch screen at `pos == -1` and is never a history node.
@@ -1874,7 +2216,7 @@ Replace the first "Coming soon" bullet about discovery:
 And in the Usage section, after the paragraph beginning "Type a target and press Enter", add:
 
 ```markdown
-lookit opens on a startpage: a built-in catalog of finger communities and services, with your own bookmarks pinned above it. Press `↓` to browse it, `↵` to go, and `b` to bookmark whatever you're looking at. Bookmarks live in `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), one `<kind> <target>` per line, so you can edit them by hand; add `catalog off` there to hide the built-in list entirely. Press `h` to return to the startpage from anywhere.
+lookit opens on a startpage: a built-in catalog of finger communities and services, with your own bookmarks pinned above it. Press `↓` to browse it, `↵` to go, and `b` to bookmark whatever you're looking at. Bookmarks live in `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), one `<target>` per line, so you can edit them by hand; add `catalog off` there to hide the built-in list entirely. Press `h` to return to the startpage from anywhere.
 ```
 
 - [ ] **Step 3: Verify the docs match the code**

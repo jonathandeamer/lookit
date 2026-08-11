@@ -37,34 +37,49 @@ keeps defaults updatable and keeps the user's file purely theirs.
 
 ## Data model
 
-Both sources parse into one type:
+The two sources have different schemas and meet only during section assembly:
 
 ```go
+type bookmarkFile struct {
+    targets       []string
+    catalogHidden bool
+    problems      []parseProblem
+}
+
 type startEntry struct {
     target string // raw, parsed with finger.ParseTarget
-    kind   kind   // community | service | person
+    kind   kind   // unknown | community | service | person
     note   string // catalog only
     source source // catalogSource | bookmarkSource
 }
 ```
 
-`kind` drives **display grouping only** — never routing. See
-[Divergences](#divergences-from-issue-43), item 1.
+Catalog records parse directly into `startEntry`. Bookmark records carry only a
+target; section assembly creates a bookmark-sourced `startEntry`, borrowing the
+catalog entry's kind and note only when the target matches. An uncatalogued
+bookmark uses `unknown` and has no description. Catalog `kind` drives **display
+grouping only** — never routing. See [Divergences](#divergences-from-issue-43),
+item 1.
 
 ## File format
 
-One grammar, shared by both files: `<kind> <target> [note]`, where the note is
-the trimmed remainder of the line. Blank lines and `#` comments are preserved.
+The user file has one bookmark target per line. Blank lines and `#` comments are
+preserved.
 
 ```
 # ~/.config/lookit/bookmarks
 
 catalog off                                    # optional directive
 
-community  @tilde.team
-service    weather@bbs.airandwave.net
-person     jonathan@tilde.team
+@tilde.team
+weather@bbs.airandwave.net
+jonathan@tilde.team
 ```
+
+The embedded catalog has its own maintainer-authored grammar:
+`<kind> <target> <note>`. Keeping the grammars separate prevents catalog display
+metadata from becoming a claim users must make about a protocol that does not
+carry it.
 
 **Location:** `$XDG_CONFIG_HOME/lookit/bookmarks`, falling back to
 `~/.config/lookit/bookmarks`. Deliberately *not* `os.UserConfigDir()`, which on
@@ -72,8 +87,9 @@ macOS resolves to `~/Library/Application Support` and would bury a file meant to
 be hand-edited. Crush routes around it the same way.
 
 **The `catalog off` directive** hides the catalog entirely, for users whose own
-bookmarks have outgrown it. Absent means on. There is no grammar collision: a
-line's first token is either a kind or a directive, and those sets are disjoint.
+bookmarks have outgrown it. Absent means on. There is no grammar collision:
+`catalog off` and `catalog on` are the only two-token records; a bookmark is
+exactly one target token after comments are stripped.
 
 **Why plain text rather than TOML or JSON.** TOML is the more idiomatic format
 for a modern Go CLI, and if this file were read-only that is what we would use.
@@ -82,26 +98,27 @@ write to a file the user has hand-edited. Loading into a struct and
 re-marshalling destroys every comment, blank line and grouping they wrote.
 Line-oriented text makes adding an append and removing a line deletion, both
 preserving the rest of the file byte-for-byte. It also avoids a new dependency
-in `THIRD_PARTY_NOTICES.md` for a format modelling `<kind> <target>` pairs, and
+in `THIRD_PARTY_NOTICES.md` for a format modelling a flat target list, and
 suits a finger client: greppable, `known_hosts`-shaped, no tooling needed.
 
 The cost is a bespoke format — no editor highlighting, and real structure later
 (tags, per-entry ordering) would need a migration. Acceptable: bookmarks are
 deliberately a flat list of pointers, and migrating a 20-line text file is cheap.
 
-**Bookmark lines take exactly two fields.** The parser is shared but mode-gated
-(`parseLine(line string, allowNote bool)`): the catalog permits a trailing note,
-the bookmarks file does not. Trailing text in a bookmarks line makes the line
-malformed — skipped, with the usual line-numbered notice.
+**Bookmark lines take exactly one field.** After stripping a trailing comment,
+the whole line is the target. Any other trailing text makes the line malformed —
+skipped, with the usual line-numbered notice. The catalog parser is separate and
+requires all three fields.
 
 This is stricter than it first appears it needs to be, and deliberately so. An
 earlier draft honored hand-written notes as "incidental generosity", which
 silently broke the ingress guarantee below: a note is free text, and displaying
 it sends whatever bytes it holds through the list delegate. Free text in the
 bookmarks file is therefore not accepted at all, rather than accepted and
-sanitized. The user loses nothing they were promised — notes were always a
-catalog feature — and the invariant holds by construction rather than by a
-sanitizer we would have to remember to call.
+sanitized. Comments may contain arbitrary text because they are discarded before
+parsing and never displayed. The user loses nothing they were promised —
+descriptions were always a catalog feature — and the invariant holds by
+construction rather than by a sanitizer we would have to remember to call.
 
 ## The screen
 
@@ -110,42 +127,58 @@ target: @plan.cat                                    ← input row, unchanged
 
   BOOKMARKS
   @tilde.team
-  Big, friendly pubnix                               ← note borrowed from catalog
+  Small public access unix, for teaching…            ← note borrowed from catalog
 
 › jonathan@tilde.team
-  person                                             ← no catalog match: kind fills the line
+                                                     ← no catalog match: blank description
 
   COMMUNITIES
   @plan.cat
-  Finger-first microblogging
+  Classic finger, polished for the present
 
   SERVICES
   weather@bbs.airandwave.net
-  Weather and 7-day forecast — weather:city@…
+  Current weather and a 7-day forecast — weather:city@…
 
 ──────────────────────────────────────────────────
-  28 entries    ↵ go · b bookmark · / filter · ? help
+  26 entries    ↵ go · b bookmark · / filter · ? help
 ```
 
 Every row is the same two-row cell `userDelegate` already renders: **target** on
 the title line, **note** on the description line.
 
-**Notes travel with the target, not the file.** When a bookmark's target matches
+**Descriptions travel with the target, not the file.** When a bookmark's target matches
 a catalog entry, the startpage shows the catalog's note. Bookmarking
 `@tilde.team` pins it to the top *and keeps its description*, though the
-bookmarks file stores only `community @tilde.team`. A bookmark with no catalog
-match shows its kind instead, which is honest and fills the cell. This is what
-earns the catalog-only-notes decision: annotation without the user writing one.
+bookmarks file stores only `@tilde.team`. A bookmark with no catalog match leaves
+the description line blank: neither its shape nor the finger protocol establishes
+whether it is a person or service. This is annotation without asking the user to
+invent metadata.
 
 **Bookmarking dedups.** A bookmarked catalog entry is suppressed from its
 catalog section rather than appearing twice, so `b` reads as "pin to the top".
 
-**Sections.** `BOOKMARKS` first, in file order, kinds mixed — then the catalog
+**Sections.** `BOOKMARKS` first, in file order — then the catalog
 grouped `COMMUNITIES` / `SERVICES`. A `PEOPLE` heading renders only if a future
 catalog gains `person` entries; today it never appears, since the catalog ships
-none and bookmarks all sit in `BOOKMARKS` regardless of kind. Filtering with `/`
+none and bookmarks all sit in `BOOKMARKS`. Filtering with `/`
 flattens:
 headers drop out, matches are against target and note.
+
+**Credit.** After the final built-in catalog entry, a dim two-row endnote reads:
+
+```
+Catalog inspired by
+https://640kb.neocities.org/fingerverse/
+```
+
+Only the URL receives the same OSC-8 hyperlink treatment as HTTP(S) links in
+the reader, so supporting terminals can open it directly. The endnote is not a
+finger target: selection skips it, it is excluded from the entry count, and it
+drops out while filtering just like a section header. It appears only while at
+least one built-in catalog row remains after section assembly, before filtering;
+`catalog off` therefore removes the credit along with the catalog, while an
+active filter always removes it even when catalog rows match.
 
 ## Architecture
 
@@ -155,7 +188,8 @@ uniform `delegate.Height()`. So sections must be constructed.
 **Chosen: a `startModel` wrapping a real `list.Model`.** Section headers are
 items in the slice, rendered by the delegate at the same cell height as an entry
 (blank line + heading), with `CursorUp`/`CursorDown` wrapped to step over them.
-Headers drop out naturally while filtering, since their `FilterValue` is empty.
+The catalog credit is another two-row non-selectable item. Headers and the
+credit drop out naturally while filtering, since their `FilterValue` is empty.
 
 This inherits `/` filtering, pagination, paginator dots and the existing
 `applyListStyles`/`defaultUserDelegate` treatment, so the startpage moves exactly
@@ -201,12 +235,11 @@ Bookmarking a list screen deliberately captures the host rather than the
 highlighted user: `b` on `@tilde.team` means "I want to come back to this
 directory". To bookmark a person, drill into them and press `b` there.
 
-**Kind inference.** A bookmark added with `b` records `community` when
-`Target.HostQuery()` is true and `person` otherwise. This is a guess and can be
-wrong — `service` in particular is not inferable, since
-`weather:99501@bbs.airandwave.net` is `user@host`-shaped. That is acceptable
-because `kind` only affects display, and the user can correct it by editing one
-word in the file.
+**No kind inference.** A bookmark added with `b` writes only `Target.Raw`.
+`Target.HostQuery()` still helps route fetched responses, but it cannot establish
+whether an address is a community, service or person and is never persisted as
+if it could. A matching catalog entry may supply display metadata; an unmatched
+bookmark remains deliberately unclassified.
 
 `h` displaces its current page-left alias in `keyMap.Page` (`tui/keys.go`);
 `←/→` and `pgup`/`pgdn` keep paging, which is what the status bar advertises.
@@ -276,24 +309,24 @@ Writes are atomic (temp file + rename) at `0600`, with the directory created
 CLAUDE.md claims `finger.Query` is the single untrusted-input chokepoint. A
 config file is a new ingress, so this needs an explicit answer.
 
-The answer is that **the bookmarks file carries no free text at all**:
+The answer is that **the bookmarks file carries no displayed free text at all**:
 
-- **Kind** is validated against a closed set of three keywords.
-- **Target** must survive `finger.ParseTarget`, which rejects C0/DEL via
-  `hasControl`, **plus** an additional check described below.
-- **Notes** are rejected outright in bookmark lines (see
-  [File format](#file-format)); the only notes displayed are the catalog's,
-  which we author and compile in.
+- **Target** is the only bookmark field. It must survive `finger.ParseTarget`,
+  which rejects C0/DEL via `hasControl`, **plus** the additional checks below.
+- **Descriptions and kinds** do not exist in bookmark records. The only displayed
+  descriptions and classifications come from matching catalog entries, which we
+  author and compile in.
+- **Comments** are discarded and never reach a display path.
 
 Every displayed byte is therefore validated or ours, by construction.
 
 **`hasControl` is not sufficient on its own.** It rejects ASCII C0 and DEL
-(`finger/query.go`), but not the non-printing Unicode format controls — Cf/Zl/Zp,
-notably U+202E RIGHT-TO-LEFT OVERRIDE — that `sanitize` visualizes in response
-bodies. A target is displayed, so a bookmarks line could otherwise smuggle a bidi
-override onto the screen and spoof what host you are about to finger. The
-bookmarks loader therefore rejects any target containing a Unicode format
-control, as a malformed line.
+(`finger/query.go`), but not invalid UTF-8, UTF-8-encoded C1 controls
+(U+0080–U+009F), or the non-printing Unicode controls Cf/Zl/Zp — notably U+202E
+RIGHT-TO-LEFT OVERRIDE — that `sanitize` visualizes in response bodies. A target
+is displayed, so a bookmarks line could otherwise smuggle control data onto the
+screen or spoof what host you are about to finger. The bookmarks loader rejects
+all of those cases as malformed lines.
 
 Rejecting matches the philosophy already applied to targets: `hasControl`
 rejects rather than strips, because a target is something we send, not something
@@ -307,7 +340,8 @@ fixing it means changing a security invariant that CLAUDE.md says needs a human
 merge. It should be its own issue rather than a rider on this one.
 
 CLAUDE.md should be updated to record the bookmarks file as a second ingress and
-to note that its guarantee comes from rejecting free text, not from `sanitize`.
+to note that its guarantee comes from accepting only a fully validated target,
+not from `sanitize`.
 
 Targets from both files parse with plain `ParseTarget`, **not**
 `ParseTargetPinned`. Both are authored at the same trust level as a typed target
@@ -333,9 +367,9 @@ work confined to `t.TempDir()`. No network.
   blank lines, odd spacing and a `catalog off` line; assert everything but the
   target line is untouched.
 - **Free text is refused** — a bookmarks line with trailing text is malformed and
-  skipped, and a target containing a Unicode format control (U+202E) is rejected.
-  These two guard the ingress invariant, so they are correctness tests, not
-  parser trivia.
+  skipped. Targets containing invalid UTF-8, a C1 control (U+009B), or a Unicode
+  format control (U+202E) are rejected. These guard the ingress invariant, so
+  they are correctness tests, not parser trivia.
 - **Messages name the resolved path** — with `$XDG_CONFIG_HOME` set to a temp
   dir, the empty state and both notices quote that path, not the `~/.config`
   fallback.
@@ -343,11 +377,18 @@ work confined to `t.TempDir()`. No network.
   kind, and has a non-empty note. Makes it impossible to ship a typo'd catalog,
   which matters because the catalog is hand-edited data.
 - **Cursor skip at the edges** — first row, last row, page boundaries,
-  `Select(0)` on a header. The fiddly part of the chosen architecture.
+  `Select(0)` on a header, the trailing credit, and selection resetting to the
+  first match when filtering removes non-entry rows. The fiddly part of the
+  chosen architecture.
+- **Catalog credit** — exact two-line copy after the final catalog row, an OSC-8
+  hyperlink around only the URL, no contribution to the entry count, and no
+  credit under filtering or `catalog off`.
 - **Section assembly** — dedup of a bookmarked catalog entry, note borrowing by
   target match, `catalog off`, the empty state.
-- **App level** — `h` from depth truncates history, `b` toggles both directions,
-  Enter routes through the existing `submit` path, focus transitions.
+- **App level** — `h` from depth truncates history; `b` toggles both directions
+  while preserving the selected target across section moves; Enter starts the
+  selected target through the existing request lifecycle; filter text owns
+  command letters; focus transitions.
 
 ## Initial catalog
 
@@ -358,51 +399,57 @@ Every address below was probed live on **2026-08-11** using lookit's own
 
 ### Communities (9)
 
-| Target | Note | Probe |
-|---|---|---|
-| `@plan.cat` | Finger-first microblogging | list, 1454 users |
-| `@tilde.team` | Big, friendly pubnix | list, 40 users |
-| `@happynetbox.com` | Hosted .plan pages, no shell account needed | list, 25 users |
-| `@telehack.com` | Retro-computing sandbox; .plan pages autogenerated | list, 47 users |
-| `ring@thebackupbox.net` | The Finger Ring — a webring for finger servers | list, 20 users |
-| `@cosmic.voyage` | Collaborative sci-fi fiction | list, 7 users; **slowest at 6.9s** |
-| `@athena.dialup.mit.edu` | MIT Athena, still answering | list, 8 users |
-| `@zaibatsu.circumlunar.space` | Circumlunar Space pubnix | list, 3 users |
-| `@chunboan.zone` | Small community server | banner, no list |
+Every note below is traceable to the server's own words, to the 640kb listing,
+or to a conclusion the response plainly supports. The **Basis** column records
+which, so a future refresh can re-check rather than re-guess.
 
-### Services (18)
+| Target | Note | Basis | Probe |
+|---|---|---|---|
+| `@plan.cat` | Classic finger, polished for the present | 640kb | list, 1454 users |
+| `@tilde.team` | Small public access unix, for teaching and learning | server: *"we're a small public access unix system with a goal of teaching and learning"* | list, 40 users |
+| `@happynetbox.com` | Finger server of user profiles, run by Ben Brown | server: *"Happy Net Box is a finger server run by Ben Brown"*, *"25 most recently updated profiles"* | list, 25 users |
+| `@telehack.com` | Live system status and users; .plan pages are autogenerated | server: `TELEHACK SYSTEM STATUS`; 640kb for the autogenerated half | list, 47 users |
+| `ring@thebackupbox.net` | The finger ring — join by linking it from your response | server: *"This is the finger ring! To join the finger ring: Have your finger response contain…"* | list, 20 users |
+| `@cosmic.voyage` | Collaborative science fiction; users crew ships | conclusion from *"Users currently online"* + *"Who control these ships"* | list, 7 users; **slowest at 6.9s** |
+| `@athena.dialup.mit.edu` | MIT Athena dialup, still answering | conclusion: hostname + a classic Unix finger table | list, 8 users |
+| `@zaibatsu.circumlunar.space` | Circumlunar Space pubnix | 640kb; server says *"Currently logged in sundogs"* | list, 3 users |
+| `@chunboan.zone` | A tiny shared community on one cheap server | server: *"We are a tiny shared community on a single cheap server"* | banner, no list |
 
-| Target | Note | Probe |
-|---|---|---|
-| `@bbs.airandwave.net` | Menu of a dozen-plus finger services | menu, 1976b |
-| `weather@bbs.airandwave.net` | Weather and 7-day forecast — `weather:city@…` | usage stub |
-| `@graph.no` | Weather worldwide by place name — `finger oslo@graph.no` | usage stub |
-| `quake@bbs.airandwave.net` | Latest earthquakes, M2.5+ past day | live data |
-| `dict@bbs.airandwave.net` | Dictionary — `dict:word@…` | usage stub |
-| `urban@bbs.airandwave.net` | Urban Dictionary — `urban:word@…` | usage stub |
-| `wordsearch:today@bbs.airandwave.net` | Daily word search puzzle | live |
-| `sudoku:easy@bbs.airandwave.net` | Sudoku, easy mode | live |
-| `textfile@typed-hole.org` | A random file from textfiles.com | live |
-| `calendar@flanigan.us` | Historical calendar: on this day | live |
-| `bot@happynetbox.com` | Auto news bot: article titles and URLs | live |
-| `random@happynetbox.com` | Jump to a random happynetbox user | live |
-| `ansi@happynetbox.com` | ANSI art over finger | 17.9 KiB |
-| `browserversion@happynetbox.com` | Current browser version numbers | live |
-| `1@happynetbox.com` | Interactive fiction, chained over finger | drillable |
-| `cyoa@typed-hole.org` | Choose your own adventure | drillable |
-| `smog@typed-hole.org` | Saturday Morning Gemzine — back issues | drillable |
-| `originsfinger@happynetbox.com` | Les Earnest on the origins of finger | live |
+### Services (17)
 
-The last four are the entries that best demonstrate lookit specifically: their
-bodies chain through `finger N@host` references, which lookit already detects and
-makes drillable.
+| Target | Note | Basis | Probe |
+|---|---|---|---|
+| `@bbs.airandwave.net` | Menu of a dozen-plus finger services | server: *"Below is a menu of options"* + 14 listed services | menu, 1976b |
+| `weather@bbs.airandwave.net` | Current weather and a 7-day forecast — `weather:city@…` | server: *"Check current weather and a 7-day forecast"* | usage stub |
+| `@graph.no` | Weather worldwide by place name — `finger oslo@graph.no` | server: usage block, incl. that exact example | usage stub |
+| `quake@bbs.airandwave.net` | Latest earthquakes, M2.5+ past day | server: `LATEST EARTHQUAKES - M2.5+ PAST DAY` | live data |
+| `dict@bbs.airandwave.net` | Dictionary lookup — `dict:word@…` | server: *"Dictionary Lookup / Use: finger dict:word@…"* | usage stub |
+| `urban@bbs.airandwave.net` | Slang, internet terms and memes — `urban:word@…` | server: *"Look up slang, internet terms, memes, and informal definitions"* | usage stub |
+| `wordsearch:today@bbs.airandwave.net` | Daily word search puzzle | server: `DAILY WORD SEARCH FINGER` | live |
+| `sudoku:easy@bbs.airandwave.net` | An easy sudoku, fresh each day | server: `DAILY SUDOKU FINGER / Easy` | live |
+| `textfile@typed-hole.org` | A lucky dip into textfiles.com | server: `Random Textfile: textfiles/…`; 640kb | live |
+| `calendar@flanigan.us` | Today’s date, across the years | server: dated historical entries; 640kb | live |
+| `bot@happynetbox.com` | News headlines, with links for the curious | server: `news:` block of titles + URLs; 640kb | live |
+| `random@happynetbox.com` | Jump to a random happynetbox user | server: *"find this person again: finger …@happynetbox.com"* | live |
+| `browserversion@happynetbox.com` | The latest versions across the browser world | server: a list of browsers and versions | live |
+| `1@happynetbox.com` | Interactive fiction, chained over finger | server: 3 `finger N@happynetbox.com` continuations | drillable |
+| `cyoa@typed-hole.org` | Choose your own adventure | server: `CHOOSE YOUR OWN ADVENTURE`; ends *"Go on to page 0 (finger 0@typed-hole.org)"* | drillable |
+| `smog@typed-hole.org` | Saturday Morning Gemzine — back issues | server: *"a weekly, independent gemzine"* + 8 issue links | drillable |
+| `originsfinger@happynetbox.com` | Les Earnest tells how finger began | server: `Origins of the Finger Command`, from Les Earnest, 1990 | live |
+
+**Three** entries — `smog`, `1@happynetbox` and `cyoa` — chain through
+`finger N@host` references that lookit already detects and makes drillable, so
+they demonstrate the tool specifically. (`originsfinger` does *not*: its single
+`finger jeffking@happynetbox.com` is an aside inside the article, not
+navigation.)
 
 ### People — none
 
 **The catalog ships no personal addresses.** People are what bookmarks are for:
 you meet someone while browsing, press `b`, and they are on your startpage. The
-catalog is where to start; bookmarks are who you found. The `person` kind still
-exists, because bookmarks use it.
+catalog is where to start; bookmarks are who you found. The `person` catalog
+kind remains available for a future curated entry, even though this release
+ships none.
 
 This was reconsidered once. An earlier draft included six entries under a
 "finger-infrastructure authors" criterion — people who publicly build finger
@@ -437,12 +484,34 @@ which a catalog entry would amplify beyond the webpage it already sits on.
 | `weather:{99501,10005,96813,85019}@bbs.airandwave.net` | Four US ZIP codes for one service. Covered by `weather@…` and `@graph.no` |
 | `mlb_standings@bbs.airandwave.net` | Parochial for a global audience |
 | `david@netbros.com` | Byte-identical to `david@collantes.us` (2968b) — same person, two domains |
+| `ansi@happynetbox.com` | Alive, but see below — it does not render as art |
 | All 20 surviving personal domains | The catalog ships no people — see [People — none](#people--none) |
+
+**Why `ansi@happynetbox.com` was dropped.** 640kb lists it as "ANSI over
+Finger", and it was in an earlier draft as "ANSI art over finger". The response
+contains **no escape bytes at all**: it carries 1,365 occurrences of the literal
+two-character sequence `\e`, so a client sees `\e[0;44;37m` as visible text
+interleaved with block-drawing characters, not colour. lookit renders it
+faithfully and therefore unattractively. Nothing here is a lookit bug — the
+bytes really are printable — but a catalog entry promising art would be
+inaccurate, and the entry is a poor advertisement either way.
+
+This was caught only because probe bodies are stored **post-`sanitize`**: a real
+escape byte would have appeared as `^[` (caret notation), so literal `\e` proves
+what the server actually sends. Keep that in mind when refreshing.
 
 **Note on probing.** An initial sweep at concurrency 6 reported eight failures,
 six of them on `bbs.airandwave.net`. Re-probing serially with 6s pauses showed
 all six were alive — the host rate-limits. Only two addresses are genuinely down.
 Any future catalog refresh must probe serially.
+
+**Note on verifying notes.** Every note was checked against the full response
+body on 2026-08-11, and four did not survive: `@tilde.team` was described as a
+"big, friendly pubnix" when its own banner says *small*; `@plan.cat` as
+"microblogging" and `@telehack.com` as a "retro-computing sandbox" on
+recollection rather than evidence; and `@happynetbox.com` claimed "no shell
+account needed", which no source states. The **Basis** column exists so a
+refresh re-checks rather than re-guesses.
 
 ## Divergences from issue #43
 

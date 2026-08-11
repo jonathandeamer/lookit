@@ -740,6 +740,12 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help): // ?
 			m.openHelp()
 			return true, m, nil
+		case key.Matches(msg, m.keys.Browse) && m.state == stateStart:
+			if _, ok := m.start.selected(); ok {
+				m.blurInput()
+				return true, m, nil
+			}
+			return false, m, nil // nothing to browse: let ↓ fall through to the input
 		case key.Matches(msg, m.keys.Open): // Enter
 			cmd := m.submit()
 			return true, m, cmd
@@ -756,6 +762,12 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	// Content focused.
 	if m.state == stateList && m.list.filtering() {
 		return false, m, nil // list owns its filter keys
+	}
+	if m.state == stateStart && m.start.filtering() {
+		return false, m, nil
+	}
+	if m.state == stateStart && m.start.filterApplied() && key.Matches(msg, m.keys.Back) {
+		return false, m, nil
 	}
 	if m.showingLinks && m.linksPanel.filtering() {
 		var cmd tea.Cmd
@@ -842,6 +854,11 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.FocusInput):
 		cmd := m.focusInput()
 		return true, m, cmd
+	// Ahead of the generic Back below, which calls m.back() — that quits at
+	// pos < 0, which is exactly the startpage. Here Esc backs out one level,
+	// into the target input.
+	case key.Matches(msg, m.keys.Back) && m.state == stateStart:
+		return true, m, m.focusInput()
 	case key.Matches(msg, m.keys.Back):
 		if m.state == stateList && m.list.list.FilterState() != list.Unfiltered {
 			return false, m, nil // clear an applied filter first
@@ -1210,7 +1227,9 @@ func (m *appModel) updateKeymap() {
 	startHasSelection = inStart && startHasSelection
 
 	m.keys.Open.SetEnabled(m.inputFocused || inList || startHasSelection)
-	m.keys.Back.SetEnabled(m.inputFocused || (content && hasResult))
+	m.keys.Back.SetEnabled(m.inputFocused || (content && hasResult) || m.state == stateStart)
+	_, browsable := m.start.selected()
+	m.keys.Browse.SetEnabled(m.inputFocused && m.state == stateStart && browsable)
 
 	// Content-only keys — inert while the input is focused (they type literally).
 	m.keys.FocusInput.SetEnabled(content)

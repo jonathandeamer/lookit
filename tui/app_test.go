@@ -1223,7 +1223,9 @@ func TestQuestionMarkOpensHelpWhileInputFocused(t *testing.T) {
 
 func TestEscFromRawViewClearsRawState(t *testing.T) {
 	// Esc from raw view returns to the list (clears showingRaw, does not pop history).
-	// A second Esc backs to landing (pops the history node).
+	// A second Esc backs to the startpage (pops the history node), a third moves
+	// focus to the target input, and only then does Esc quit.
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@unknown.host")
 	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
@@ -1248,17 +1250,27 @@ func TestEscFromRawViewClearsRawState(t *testing.T) {
 		t.Fatalf("pos = %d, want 0 (still at the list node, Esc from raw view does not pop)", m.pos)
 	}
 
-	// Second Esc backs to landing.
+	// Second Esc backs to the startpage, content-focused.
 	back2, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = back2.(appModel)
-	if m.pos != -1 {
-		t.Fatalf("pos = %d, want -1 (landing) after second Esc", m.pos)
+	if m.pos != -1 || m.state != stateStart {
+		t.Fatalf("state=%d pos=%d, want start/-1 after second Esc", m.state, m.pos)
 	}
 
-	// At the landing (input focused), Esc quits.
-	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	// Third Esc backs out of the startpage list into the target input.
+	back3, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = back3.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("Esc from the startpage list must not quit")
+	}
+	if !m.inputFocused {
+		t.Fatal("third Esc should return focus to the input")
+	}
+
+	// At the startpage with the input focused, Esc quits.
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if cmd == nil || !isQuit(cmd) {
-		t.Fatal("Esc at landing should quit")
+		t.Fatal("Esc at the startpage input should quit")
 	}
 }
 
@@ -2972,4 +2984,128 @@ func mustTarget(t *testing.T, raw string) finger.Target {
 		t.Fatalf("ParseTarget(%q) = %v", raw, err)
 	}
 	return target
+}
+
+func TestStartpageArrowDownEntersList(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if !m.inputFocused {
+		t.Fatal("launch should focus the input")
+	}
+	handled, m, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if !handled {
+		t.Fatal("down not handled while the input is focused")
+	}
+	if m.inputFocused {
+		t.Fatal("down should move focus into the startpage list")
+	}
+}
+
+func TestStartpageEscBacksOutThenQuits(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+
+	// From the list, esc returns to the input rather than quitting.
+	handled, m, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if !handled {
+		t.Fatal("esc not handled from the list")
+	}
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("esc from the startpage list must not quit")
+	}
+	if !m.inputFocused {
+		t.Fatal("esc should return focus to the input")
+	}
+
+	// From the input, esc quits.
+	_, _, cmd = m.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("esc from the input at the startpage should quit")
+	}
+}
+
+func TestBookmarkKeyTypesIntoFocusedInput(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	handled, _, _ := m.handleKey(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	if handled {
+		t.Fatal("b must type into a focused input, not bookmark")
+	}
+}
+
+func TestStartpageFilterOwnsCommandLetters(t *testing.T) {
+	path := useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = next.(appModel)
+	if !m.start.filtering() {
+		t.Fatal("/ did not enter startpage filtering")
+	}
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	if got := m.start.list.FilterInput.Value(); got != "b" {
+		t.Fatalf("filter = %q, want b", got)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("typing b in the filter changed bookmarks: stat error = %v", err)
+	}
+}
+
+func TestStartpageEscClearsAppliedFilterBeforeChangingFocus(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("plan")
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = next.(appModel)
+	if m.start.list.FilterState() != list.Unfiltered {
+		t.Fatalf("filter state = %v, want unfiltered", m.start.list.FilterState())
+	}
+	if m.inputFocused {
+		t.Fatal("first Esc should clear the applied filter, not focus the input")
+	}
+}
+
+// The full ladder from depth: content -> startpage list -> input -> quit. Three
+// Esc presses, one per layer, with focus preserved until the last content layer.
+func TestEscLadderFromResultToQuit(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
+	}})
+	m = step.(appModel)
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // reader -> startpage
+	m = next.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("first Esc must not quit")
+	}
+	if m.state != stateStart || m.inputFocused {
+		t.Fatalf("state=%d inputFocused=%v, want the startpage, content-focused", m.state, m.inputFocused)
+	}
+
+	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // list -> input
+	m = next.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("second Esc must not quit")
+	}
+	if !m.inputFocused {
+		t.Fatal("second Esc should return focus to the input")
+	}
+
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // input -> quit
+	if cmd == nil || !isQuit(cmd) {
+		t.Fatal("third Esc should quit")
+	}
 }

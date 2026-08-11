@@ -47,6 +47,7 @@ const (
 	stateReader appState = iota
 	stateList
 	stateAbout
+	stateStart // the launch screen; used only at pos == -1, never in a histNode
 )
 
 // commonModel is state shared across sub-models.
@@ -106,6 +107,7 @@ type appModel struct {
 	reader readerModel
 	list   listModel
 	about  aboutModel
+	start  startModel
 
 	aboutFromState appState // state to restore when the about screen closes
 
@@ -180,6 +182,8 @@ func newAppWithContext(ctx context.Context, fetch FetchFunc, profile colorprofil
 	app.reader.setBackground(common.darkBackground)
 	app.reader.styles = st
 	app.about.setBackground(common.darkBackground)
+	app.state = stateStart
+	app.reloadStart()
 	app.helpModel.Styles = st.help
 	app.updateKeymap() // first frame reflects the landing's enabled set
 	return app
@@ -198,6 +202,7 @@ func (m *appModel) applyStyles() {
 	m.spin.Style = st.spinner
 	m.reader.styles = st
 	m.about.setBackground(m.common.darkBackground)
+	m.start.applyStyles(st)
 	if m.showingRaw {
 		m.reader.darkBackground = m.common.darkBackground
 	} else {
@@ -305,32 +310,86 @@ func (m *appModel) restore(n histNode) {
 	m.reader.setEntryWithLinks(n.entry, n.links)
 }
 
-// gotoLanding returns the reader to its empty pre-fetch state.
-func (m *appModel) gotoLanding() {
-	m.state = stateReader
+// gotoStart returns to the launch screen, reloading it so a bookmark added while
+// browsing is present when you walk back.
+//
+// It deliberately does NOT touch focus. Both callers — stepBack's root
+// fall-through and goHome — arrive with content focused (Esc in the input branch
+// at pos >= 0 blurs rather than stepping back), and focus should follow how you
+// arrived: only launch focuses the input, the way a new browser tab focuses the
+// address bar while navigating Home focuses the document. newAppWithContext
+// already focuses the input at launch, so nothing is lost by dropping it here.
+//
+// The exception is an unusable startpage: with `catalog off` and no bookmarks
+// there is nothing selectable, so content focus is a dead end. The caller
+// returns the Focus cmd in that case.
+func (m *appModel) gotoStart() tea.Cmd {
+	m.state = stateStart
 	m.reader.current = nil
-	m.reader.viewport.SetContent("No response yet.")
-	m.inputFocused = true
-	m.input.SetValue("")
-	m.input.Focus() // discard the blink cmd; the cursor still shows
+	m.reloadStart()
+	m.input.SetValue("") // drop the stale target; 'i' should open on an empty row
 	m.resize()
+	if _, ok := m.start.selected(); !ok {
+		m.inputFocused = true
+		return m.input.Focus()
+	}
+	return nil
 }
 
-// stepBack moves one step toward history root, or to the landing from pos 0.
-func (m *appModel) stepBack() {
+// reloadStart rebuilds the startpage from disk. Called at construction and
+// after every bookmark write, so the screen always reflects the file.
+func (m *appModel) reloadStart() {
+	file, path := loadBookmarks()
+	sections := buildSections(loadCatalog(), file)
+	m.start = newStart(m.common, sections, startNotice(file, path), startEmptyMessage(file, path))
+}
+
+// startNotice surfaces parse problems rather than swallowing them, naming the
+// file actually in use so the user edits the one that has an effect.
+func startNotice(file bookmarkFile, path string) string {
+	if len(file.problems) == 0 {
+		return ""
+	}
+	shown := shortenHome(path)
+	if len(file.problems) == 1 {
+		p := file.problems[0]
+		if p.line == 0 {
+			return fmt.Sprintf("%s: %s", shown, p.reason)
+		}
+		return fmt.Sprintf("%s line %d: %s", shown, p.line, p.reason)
+	}
+	lines := make([]string, 0, len(file.problems))
+	for _, p := range file.problems {
+		lines = append(lines, fmt.Sprintf("line %d", p.line))
+	}
+	return fmt.Sprintf("%d unreadable lines in %s (%s)", len(file.problems), shown, strings.Join(lines, ", "))
+}
+
+// startEmptyMessage explains a blank startpage instead of letting it look
+// broken. It quotes the resolved path: with $XDG_CONFIG_HOME set, the
+// ~/.config fallback would send the user to edit a file with no effect.
+func startEmptyMessage(file bookmarkFile, path string) string {
+	if file.catalogHidden {
+		return fmt.Sprintf("No bookmarks yet. The catalog is off — remove `catalog off` from %s to see it.", shortenHome(path))
+	}
+	return "No bookmarks yet."
+}
+
+// stepBack moves one step toward history root, or to the startpage from pos 0.
+func (m *appModel) stepBack() tea.Cmd {
 	m.clearRequestFailure()
 	m.showingRaw = false
 	m.showingLinks = false
 	if m.pos < 0 {
-		return
+		return nil
 	}
 	m.snapshot()
 	m.pos--
 	if m.pos < 0 {
-		m.gotoLanding()
-		return
+		return m.gotoStart()
 	}
 	m.restore(m.history[m.pos])
+	return nil
 }
 
 // back is Esc semantics: step back, or quit when already at the landing.
@@ -339,8 +398,7 @@ func (m *appModel) back() tea.Cmd {
 	if m.pos < 0 {
 		return tea.Quit
 	}
-	m.stepBack()
-	return nil
+	return m.stepBack()
 }
 
 // focusInput gives the keyboard to the target input, pre-filled with the
@@ -538,6 +596,8 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case stateList:
 		m.list, cmd = m.list.update(msg)
+	case stateStart:
+		m.start, cmd = m.start.update(msg)
 	default:
 		m.reader, cmd = m.reader.update(msg)
 	}
@@ -724,6 +784,16 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.Refresh):
 		cmd := m.refreshCurrent()
 		return true, m, cmd
+	case key.Matches(msg, m.keys.Open) && m.state == stateStart:
+		entry, ok := m.start.selected()
+		if !ok {
+			return true, m, nil
+		}
+		target, err := finger.ParseTarget(entry.target)
+		if err != nil {
+			return true, m, m.setFlash("error: " + err.Error())
+		}
+		return true, m, m.startRequest(target, requestNavigate, false)
 	case key.Matches(msg, m.keys.Open) && m.state == stateList:
 		return m.drill()
 	case key.Matches(msg, m.keys.Open) && m.state == stateReader && m.pos >= 0:
@@ -1056,7 +1126,11 @@ func (m *appModel) updateKeymap() {
 	// quit at the bare landing), Help='?'.
 	m.keys.Help.SetEnabled(true)
 	m.keys.About.SetEnabled(true)
-	m.keys.Open.SetEnabled(m.inputFocused || inList)
+	inStart := content && m.state == stateStart
+	_, startHasSelection := m.start.selected()
+	startHasSelection = inStart && startHasSelection
+
+	m.keys.Open.SetEnabled(m.inputFocused || inList || startHasSelection)
 	m.keys.Back.SetEnabled(m.inputFocused || (content && hasResult))
 
 	// Content-only keys — inert while the input is focused (they type literally).
@@ -1064,7 +1138,7 @@ func (m *appModel) updateKeymap() {
 	m.keys.Quit.SetEnabled(content)
 	m.keys.Copy.SetEnabled(content && hasResult)
 	m.keys.Raw.SetEnabled(content && hasResult)
-	m.keys.Filter.SetEnabled(inList)
+	m.keys.Filter.SetEnabled(inList || startHasSelection)
 	m.keys.Move.SetEnabled(content)
 	m.keys.Page.SetEnabled(content)
 	m.keys.Jump.SetEnabled(content)
@@ -1163,7 +1237,7 @@ func (m appModel) buildStatusBar() statusBar {
 		return bar
 	}
 	if m.pos < 0 {
-		return landingBar(w, st)
+		return m.startBar(w, st)
 	}
 	node := m.history[m.pos]
 	bar := statusBar{width: w, styles: st}
@@ -1274,6 +1348,7 @@ func (m *appModel) resize() {
 	if m.listReady {
 		m.list.setSize(m.common.width, h)
 	}
+	m.start.setSize(m.common.width, h)
 	if m.showingLinks {
 		m.linksPanel.setSize(m.common.width, m.common.bodyHeight())
 	}
@@ -1282,6 +1357,27 @@ func (m *appModel) resize() {
 		ah = 1
 	}
 	m.about.setSize(m.common.width, ah)
+}
+
+// startBar is the launch screen's bottom bar. It replaces landingBar, which
+// had nothing to advertise but typing.
+func (m appModel) startBar(width int, st styles) statusBar {
+	bar := statusBar{width: width, styles: st}
+	if m.inputFocused {
+		bar.hints = "type a target and press ↵ · ↓ browse · ? help"
+		return bar
+	}
+	n := 0
+	for _, it := range m.start.list.VisibleItems() {
+		if si, ok := it.(startItem); ok && si.selectable() {
+			n++
+		}
+	}
+	if n > 0 {
+		bar.meta = fmt.Sprintf("%d entries", n)
+	}
+	bar.hints = "↵ go · b bookmark · / filter · i target · ? help"
+	return bar
 }
 
 func (m appModel) helpView() string {
@@ -1433,6 +1529,8 @@ func (m appModel) View() tea.View {
 		switch m.state {
 		case stateList:
 			content = m.list.View()
+		case stateStart:
+			content = m.start.View()
 		default:
 			content = m.reader.View()
 		}

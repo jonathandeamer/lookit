@@ -375,7 +375,8 @@ func TestEscInDrilledReaderRestoresList(t *testing.T) {
 	}
 }
 
-func TestEscInListReturnsToReaderHome(t *testing.T) {
+func TestEscInListReturnsToStart(t *testing.T) {
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
 	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
@@ -388,8 +389,16 @@ func TestEscInListReturnsToReaderHome(t *testing.T) {
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	got := next.(appModel)
 
-	if got.state != stateReader || got.pos != -1 {
-		t.Fatalf("state=%d pos=%d, want reader/-1 (landing)", got.state, got.pos)
+	if got.state != stateStart || got.pos != -1 {
+		t.Fatalf("state=%d pos=%d, want start/-1 after Esc", got.state, got.pos)
+	}
+	// Focus follows how you arrived: Esc from content lands on the startpage
+	// with a row selected, not in the input.
+	if got.inputFocused {
+		t.Fatal("Esc from the list should land content-focused on the startpage")
+	}
+	if _, ok := got.start.selected(); !ok {
+		t.Fatal("startpage should have a selected row after Esc")
 	}
 	if cmd != nil && isQuit(cmd) {
 		t.Fatal("Esc in list must not quit while history is non-empty")
@@ -919,11 +928,17 @@ func TestViewIncludesBreadcrumbBar(t *testing.T) {
 	}
 }
 
-func TestLandingViewShowsLandingBar(t *testing.T) {
+func TestLandingViewShowsStartpage(t *testing.T) {
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	m.common.width, m.common.height = 80, 24
-	if !strings.Contains(m.View().Content, "type a target") {
-		t.Fatalf("landing view missing landing hint:\n%s", m.View().Content)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	view := stripANSIForLandingTest(m.View().Content)
+	for _, want := range []string{"type a target", "COMMUNITIES", "@plan.cat"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("startpage missing %q:\n%s", want, view)
+		}
 	}
 }
 
@@ -2413,6 +2428,7 @@ func TestBlurredResultChromeDoesNotSpendHeaderRow(t *testing.T) {
 }
 
 func TestBackToLandingShowsBareTargetRow(t *testing.T) {
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
@@ -2423,15 +2439,20 @@ func TestBackToLandingShowsBareTargetRow(t *testing.T) {
 	}})
 	m = step.(appModel)
 	(&m).back()
-	if m.pos != -1 {
-		t.Fatalf("want pos -1 after back-to-landing, got %d", m.pos)
+	if m.pos != -1 || m.state != stateStart {
+		t.Fatalf("back-to-start state=%d pos=%d, want start/-1", m.state, m.pos)
+	}
+	if m.inputFocused {
+		t.Fatal("back-to-start should land content-focused, not in the input")
 	}
 	view := stripANSIForLandingTest(m.View().Content)
 	if strings.Contains(view, heroManicule+" "+heroWordmark) {
-		t.Fatalf("back-to-landing should not show the wordmark:\n%s", view)
+		t.Fatalf("back-to-start should not show the wordmark:\n%s", view)
 	}
-	if !strings.Contains(view, "target:") {
-		t.Fatalf("back-to-landing missing target row:\n%s", view)
+	for _, want := range []string{"target:", "@plan.cat", "b bookmark"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("back-to-start view missing %q:\n%s", want, view)
+		}
 	}
 }
 
@@ -2515,7 +2536,7 @@ func TestAboutEscReturnsToOrigin(t *testing.T) {
 }
 
 func TestCopyAddressNothingToCopy(t *testing.T) {
-	m := newApp(stubFetch(t), colorprofile.NoTTY) // landing: pos == -1, stateReader, no address
+	m := newApp(stubFetch(t), colorprofile.NoTTY) // startpage: pos == -1, stateStart, no address
 	cmd := (&m).copyAddress()
 	if m.flash != "nothing to copy" {
 		t.Fatalf("flash = %q, want %q", m.flash, "nothing to copy")
@@ -2781,5 +2802,62 @@ func TestAboutStatusBarFromLandingAndResult(t *testing.T) {
 		if !strings.Contains(bar2.hints, want) {
 			t.Fatalf("result-origin about hints = %q, missing %q", bar2.hints, want)
 		}
+	}
+}
+
+func TestAppOpensOnStartpage(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if m.state != stateStart {
+		t.Fatalf("state = %v, want stateStart", m.state)
+	}
+	if m.pos != -1 {
+		t.Fatalf("pos = %d, want -1", m.pos)
+	}
+	if _, ok := m.start.selected(); !ok {
+		t.Fatal("startpage has no selection; the catalog should populate it")
+	}
+}
+
+func TestStartEnterRequestsSelectedTarget(t *testing.T) {
+	useTempBookmarks(t)
+
+	fetch, seen := fetchRecorder("Plan: hello\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.blurInput()
+	selected, ok := m.start.selected()
+	if !ok {
+		t.Fatal("startpage has no selected target")
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter produced no request command")
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != selected.target {
+		t.Fatalf("requested = %v, want [%s]", *seen, selected.target)
+	}
+}
+
+func TestStartNoticeNamesResolvedPath(t *testing.T) {
+	file := bookmarkFile{problems: []parseProblem{{line: 3, reason: "expected one target"}}}
+	got := startNotice(file, "/tmp/xdg/lookit/bookmarks")
+	if !strings.Contains(got, "/tmp/xdg/lookit/bookmarks") {
+		t.Fatalf("notice = %q, want the resolved path", got)
+	}
+	if !strings.Contains(got, "line 3") {
+		t.Fatalf("notice = %q, want the line number", got)
+	}
+}
+
+func TestStartEmptyMessageNamesResolvedPath(t *testing.T) {
+	got := startEmptyMessage(bookmarkFile{catalogHidden: true}, "/tmp/xdg/lookit/bookmarks")
+	if !strings.Contains(got, "/tmp/xdg/lookit/bookmarks") {
+		t.Fatalf("empty message = %q, want the resolved path, not the ~/.config fallback", got)
+	}
+	if !strings.Contains(got, "catalog off") {
+		t.Fatalf("empty message = %q, want it to name the directive to remove", got)
 	}
 }

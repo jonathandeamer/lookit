@@ -35,10 +35,19 @@ func TestStatusBarDirectoryHasNoUserHalf(t *testing.T) {
 	}
 }
 
-func TestStatusBarLandingShowsHint(t *testing.T) {
-	out := landingBar(80, newStyles(true)).render()
+func TestStatusBarStartShowsFocusedInputHint(t *testing.T) {
+	m := appModel{inputFocused: true}
+	out := m.startBar(80, newStyles(true)).render()
 	if !strings.Contains(out, "type a target") {
-		t.Fatalf("landing bar %q missing hint", out)
+		t.Fatalf("start bar %q missing focused-input hint", out)
+	}
+}
+
+func TestStatusBarStartDoesNotCountCatalogCredit(t *testing.T) {
+	m := appModel{start: newStart(testCommon(), twoSections(), "", "")}
+	out := m.startBar(80, newStyles(true)).render()
+	if !strings.Contains(out, "3 entries") {
+		t.Fatalf("start bar %q should count only selectable entries", out)
 	}
 }
 

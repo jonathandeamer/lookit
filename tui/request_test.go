@@ -660,7 +660,7 @@ func TestWarningSurvivesScrollAndHelpCycle(t *testing.T) {
 
 func TestWarningClearsOnExplicitTransitions(t *testing.T) {
 	tests := map[string]func(appModel) appModel{
-		"back":   func(m appModel) appModel { m.stepBack(); return m },
+		"back":   func(m appModel) appModel { _ = m.stepBack(); return m },
 		"input":  func(m appModel) appModel { _ = m.focusInput(); return m },
 		"about":  func(m appModel) appModel { m.openAbout(); return m },
 		"source": func(m appModel) appModel { m.enterRaw(); return m },

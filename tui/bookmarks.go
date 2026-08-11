@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -189,4 +191,100 @@ func hasNonPrintingControl(s string) bool {
 		}
 	}
 	return false
+}
+
+// bookmarksPathFn resolves the active bookmarks path. It is a package var so
+// tests can stub it, the same pattern main.go uses for startTUI.
+var bookmarksPathFn = resolveBookmarksPath
+
+// resolveBookmarksPath honours $XDG_CONFIG_HOME, falling back to ~/.config.
+// Deliberately NOT os.UserConfigDir(), which on macOS resolves to
+// ~/Library/Application Support and would bury a file meant to be hand-edited.
+func resolveBookmarksPath() (string, error) {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "lookit", "bookmarks"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "lookit", "bookmarks"), nil
+}
+
+// loadBookmarks reads and parses the user's file. It never creates anything: a
+// missing file is the normal first run and yields an empty result. An unreadable
+// file yields a problem the startpage surfaces. The resolved path is returned so
+// every message can name the file actually in use.
+func loadBookmarks() (bookmarkFile, string) {
+	path, err := bookmarksPathFn()
+	if err != nil {
+		return bookmarkFile{problems: []parseProblem{{reason: "cannot locate a config directory: " + err.Error()}}}, ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return bookmarkFile{}, path
+		}
+		return bookmarkFile{problems: []parseProblem{{reason: "cannot read: " + err.Error()}}}, path
+	}
+	return parseBookmarks(data), path
+}
+
+// appendBookmarkLine adds one record, leaving every existing byte untouched.
+func appendBookmarkLine(data []byte, target string) []byte {
+	out := string(data)
+	if out != "" && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return []byte(out + target + "\n")
+}
+
+// deleteBookmarkLine drops every valid bookmark record for target, leaving
+// comments, malformed records, blank lines, directives and ordering untouched.
+func deleteBookmarkLine(data []byte, target string) []byte {
+	lines := strings.Split(string(data), "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		parsed, err := parseBookmarkTarget(strings.TrimSpace(stripComment(line)))
+		if err == nil && parsed == target {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return []byte(strings.Join(kept, "\n"))
+}
+
+// saveBookmarkData writes atomically (temp file + rename) at 0600, creating the
+// directory 0700 if needed. Reading never creates anything; only writing does.
+func saveBookmarkData(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".bookmarks-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) //nolint:errcheck // best-effort cleanup if rename succeeded
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close() //nolint:errcheck
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// shortenHome renders a path with ~ for display without making it wrong.
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || !strings.HasPrefix(path, home) {
+		return path
+	}
+	return "~" + strings.TrimPrefix(path, home)
 }

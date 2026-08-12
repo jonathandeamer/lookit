@@ -92,3 +92,11 @@ build/CI/hygiene) with instructions to verify the documented invariants
 against the code rather than take them on faith, plus a `govulncheck` run.
 Findings were required to name file:line, attacker, payload, and impact;
 speculative findings were excluded.
+
+## Follow-up
+
+Later on 2026-08-12, [PR #58](https://github.com/jonathandeamer/lookit/pull/58)
+addressed the Cf/Zl/Zp portion of the `hasControl` observation and closed
+[issue #49](https://github.com/jonathandeamer/lookit/issues/49). Parsed targets
+and directly constructed outbound query tokens now reject those controls.
+UTF-8-encoded C1 target handling remains unchanged.

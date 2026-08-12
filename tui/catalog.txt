@@ -33,14 +33,14 @@ service wordsearch:today@bbs.airandwave.net Daily word search puzzle
 service sudoku:easy@bbs.airandwave.net An easy sudoku, fresh each day
 service @graph.no Weather worldwide by place name — finger oslo@graph.no
 service @typed-hole.org A small menu of fingers, from lobste.rs to smog
-service textfile@typed-hole.org A lucky dip into textfiles.com
-service cyoa@typed-hole.org Choose your own adventure
-service smog@typed-hole.org Saturday Morning Gemzine — back issues
+service textfile@typed-hole.org A lucky dip into textfiles.com | random textfiles.com
+service cyoa@typed-hole.org Choose your own adventure | pick-a-path stories
+service smog@typed-hole.org Saturday Morning Gemzine — back issues | gemzine back issues
 service @flanigan.us Four fingers: bonsai, ping, wisdom, calendar
 service bonsai@flanigan.us A fresh ASCII bonsai, with an aphorism
 service calendar@flanigan.us Today’s date, across the years
-service bot@happynetbox.com Tech news headlines with links, plus a fun fact
-service random@happynetbox.com Jump to a random happynetbox user
+service bot@happynetbox.com Tech news headlines with links, plus a fun fact | tech news headlines
+service random@happynetbox.com Jump to a random happynetbox user | a random profile
 service browserversion@happynetbox.com Current version numbers for major browsers
-service 1@happynetbox.com Interactive fiction, one page per finger query
-service originsfinger@happynetbox.com Les Earnest tells how finger began
+service 1@happynetbox.com Interactive fiction, one page per finger query | interactive fiction
+service originsfinger@happynetbox.com Les Earnest tells how finger began | how finger began

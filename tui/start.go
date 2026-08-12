@@ -535,26 +535,28 @@ func (m startModel) captureTogglePosition() (startTogglePosition, bool) {
 	position := startTogglePosition{
 		full: startSectionPosition{section: selected.section},
 	}
-	for _, item := range m.list.Items() {
+	globalIndex := m.list.GlobalIndex()
+	for index, item := range m.list.Items() {
+		if index >= globalIndex {
+			break
+		}
 		candidate, ok := item.(startItem)
 		if !ok || !candidate.selectable() || candidate.section != selected.section {
 			continue
-		}
-		if candidate.entry.target == selected.entry.target {
-			break
 		}
 		position.full.ordinal++
 	}
 
 	if m.list.FilterState() == list.FilterApplied {
 		filtered := startSectionPosition{section: selected.section}
-		for _, item := range m.list.VisibleItems() {
+		visibleIndex := m.list.Index()
+		for index, item := range m.list.VisibleItems() {
+			if index >= visibleIndex {
+				break
+			}
 			candidate, ok := item.(startItem)
 			if !ok || !candidate.selectable() || candidate.section != selected.section {
 				continue
-			}
-			if candidate.entry.target == selected.entry.target {
-				break
 			}
 			filtered.ordinal++
 		}

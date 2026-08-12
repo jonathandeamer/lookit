@@ -3026,6 +3026,36 @@ func TestRemovingBookmarksStaysAtSectionOrdinal(t *testing.T) {
 	}
 }
 
+func TestRemovingLaterDuplicateBookmarkUsesActualOrdinal(t *testing.T) {
+	seedBookmarks(t, "catalog off\n@tilde.team\n@plan.cat\n@tilde.team\n@happynetbox.com\n@telehack.com\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	seen := 0
+	selected := false
+	for i, item := range m.start.list.VisibleItems() {
+		entry, ok := item.(startItem)
+		if !ok || !entry.selectable() || entry.entry.target != "@tilde.team" {
+			continue
+		}
+		seen++
+		if seen == 2 {
+			m.start.list.Select(i)
+			selected = true
+			break
+		}
+	}
+	if !selected {
+		t.Fatal("second @tilde.team bookmark not found")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	got, ok := m.start.selected()
+	if !ok || got.target != "@telehack.com" {
+		t.Fatalf("selected = %+v, %v; want ordinal of the acted-on duplicate", got, ok)
+	}
+}
+
 func TestBookmarkingOnlyFinalCatalogSectionRowFallsBackward(t *testing.T) {
 	var seed strings.Builder
 	for _, entry := range loadCatalog() {

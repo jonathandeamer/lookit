@@ -171,6 +171,7 @@ func TestServicesGroupUnderHostRoots(t *testing.T) {
 		"weather@bbs.airandwave.net",
 		"wordsearch:today@bbs.airandwave.net",
 		"@flanigan.us",
+		"bonsai@flanigan.us",
 		"calendar@flanigan.us",
 		"@graph.no",
 		"@happynetbox.com",
@@ -223,17 +224,33 @@ func TestDualRoleHostAppearsInBothSections(t *testing.T) {
 			continue
 		}
 		foundServices = true
-		if s.entries[10].target != "@happynetbox.com" || !s.entries[10].structural {
-			t.Fatalf("services[10] = %+v, want a structural @happynetbox.com", s.entries[10])
+		// Located by target, not by index: this test is about the dual role,
+		// and adding an unrelated catalog entry earlier in the ordering must
+		// not be able to break it.
+		parent := -1
+		for i, e := range s.entries {
+			if e.target == "@happynetbox.com" {
+				parent = i
+				break
+			}
+		}
+		if parent < 0 {
+			t.Fatalf("services = %v, want a @happynetbox.com parent row", sectionTargets(t, sections, sectionServices))
+		}
+		if !s.entries[parent].structural {
+			t.Fatalf("parent = %+v, want the services copy to be structural", s.entries[parent])
 		}
 		// @happynetbox.com is unpinned here, so its structural copy must not
 		// claim to be bookmarked — the b hint would read "remove" while
 		// pressing b would add it.
-		if s.entries[10].bookmarked {
-			t.Fatalf("services[10] = %+v, want an unpinned structural parent", s.entries[10])
+		if s.entries[parent].bookmarked {
+			t.Fatalf("parent = %+v, want an unpinned structural parent", s.entries[parent])
 		}
-		if s.entries[11].target != "1@happynetbox.com" || !s.entries[11].child {
-			t.Fatalf("services[11] = %+v, want a child row", s.entries[11])
+		if parent+1 >= len(s.entries) {
+			t.Fatalf("parent is the last row; want its children to follow")
+		}
+		if got := s.entries[parent+1]; got.target != "1@happynetbox.com" || !got.child {
+			t.Fatalf("row after the parent = %+v, want 1@happynetbox.com as a child", got)
 		}
 	}
 	if !foundServices {

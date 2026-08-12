@@ -82,7 +82,7 @@ func (m *appModel) cancelRequest() tea.Cmd {
 	if !pending.returnToInput {
 		return nil
 	}
-	m.inputFocused = true
+	m.setInputFocused(true)
 	m.input.CursorEnd()
 	m.resize()
 	return m.input.Focus()

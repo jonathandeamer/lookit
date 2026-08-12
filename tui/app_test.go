@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -375,7 +377,8 @@ func TestEscInDrilledReaderRestoresList(t *testing.T) {
 	}
 }
 
-func TestEscInListReturnsToReaderHome(t *testing.T) {
+func TestEscInListReturnsToStart(t *testing.T) {
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")
 	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
@@ -388,8 +391,16 @@ func TestEscInListReturnsToReaderHome(t *testing.T) {
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	got := next.(appModel)
 
-	if got.state != stateReader || got.pos != -1 {
-		t.Fatalf("state=%d pos=%d, want reader/-1 (landing)", got.state, got.pos)
+	if got.state != stateStart || got.pos != -1 {
+		t.Fatalf("state=%d pos=%d, want start/-1 after Esc", got.state, got.pos)
+	}
+	// Focus follows how you arrived: Esc from content lands on the startpage
+	// with a row selected, not in the input.
+	if got.inputFocused {
+		t.Fatal("Esc from the list should land content-focused on the startpage")
+	}
+	if _, ok := got.start.selected(); !ok {
+		t.Fatal("startpage should have a selected row after Esc")
 	}
 	if cmd != nil && isQuit(cmd) {
 		t.Fatal("Esc in list must not quit while history is non-empty")
@@ -816,6 +827,35 @@ func TestVTogglesRawBodyOnProfile(t *testing.T) {
 	}
 }
 
+func TestBookmarkKeyTogglesCurrentTargetInRawReader(t *testing.T) {
+	path := useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "alice@plan.cat")
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
+		Target: target,
+		Body:   []byte("Login: alice\nPlan:\nhello\n"),
+	}})
+	m = opened.(appModel)
+	raw, _ := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	m = raw.(appModel)
+	if !m.showingRaw {
+		t.Fatal("precondition: v did not enter raw reader mode")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bookmark written from raw reader: %v", err)
+	}
+	if got, want := string(data), "alice@plan.cat\n"; got != want {
+		t.Fatalf("bookmarks = %q, want %q", got, want)
+	}
+	if !strings.Contains(m.flash, "bookmarked alice@plan.cat") {
+		t.Fatalf("flash = %q, want bookmark confirmation", m.flash)
+	}
+}
+
 func TestEscBackDoesNotRefetch(t *testing.T) {
 	// Esc navigates back through history without re-fetching.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
@@ -919,11 +959,17 @@ func TestViewIncludesBreadcrumbBar(t *testing.T) {
 	}
 }
 
-func TestLandingViewShowsLandingBar(t *testing.T) {
+func TestLandingViewShowsStartpage(t *testing.T) {
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	m.common.width, m.common.height = 80, 24
-	if !strings.Contains(m.View().Content, "type a target") {
-		t.Fatalf("landing view missing landing hint:\n%s", m.View().Content)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	view := stripANSIForLandingTest(m.View().Content)
+	for _, want := range []string{"type a target", "COMMUNITIES", "@plan.cat"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("startpage missing %q:\n%s", want, view)
+		}
 	}
 }
 
@@ -1206,7 +1252,9 @@ func TestQuestionMarkOpensHelpWhileInputFocused(t *testing.T) {
 
 func TestEscFromRawViewClearsRawState(t *testing.T) {
 	// Esc from raw view returns to the list (clears showingRaw, does not pop history).
-	// A second Esc backs to landing (pops the history node).
+	// A second Esc backs to the startpage (pops the history node), a third moves
+	// focus to the target input, and only then does Esc quit.
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "@unknown.host")
 	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(genericListBody()), Meta: finger.Meta{Addr: target.HostPort}}})
@@ -1231,17 +1279,27 @@ func TestEscFromRawViewClearsRawState(t *testing.T) {
 		t.Fatalf("pos = %d, want 0 (still at the list node, Esc from raw view does not pop)", m.pos)
 	}
 
-	// Second Esc backs to landing.
+	// Second Esc backs to the startpage, content-focused.
 	back2, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m = back2.(appModel)
-	if m.pos != -1 {
-		t.Fatalf("pos = %d, want -1 (landing) after second Esc", m.pos)
+	if m.pos != -1 || m.state != stateStart {
+		t.Fatalf("state=%d pos=%d, want start/-1 after second Esc", m.state, m.pos)
 	}
 
-	// At the landing (input focused), Esc quits.
-	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	// Third Esc backs out of the startpage list into the target input.
+	back3, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = back3.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("Esc from the startpage list must not quit")
+	}
+	if !m.inputFocused {
+		t.Fatal("third Esc should return focus to the input")
+	}
+
+	// At the startpage with the input focused, Esc quits.
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if cmd == nil || !isQuit(cmd) {
-		t.Fatal("Esc at landing should quit")
+		t.Fatal("Esc at the startpage input should quit")
 	}
 }
 
@@ -1445,8 +1503,12 @@ func TestLoadingShowsSpinnerTarget(t *testing.T) {
 }
 
 func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
 	oldBg := m.common.styles.palette.BaseBg
+	assertFullWidthStyledLine(t, "inactive start selection before restyle", lineContaining(t, m.start.View(), "@plan.cat"), m.start.list.Width(), m.common.styles.palette.SubtleBg)
 
 	next, _ := m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
 	got := next.(appModel)
@@ -1466,6 +1528,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	if !sameColor(got.input.Styles().Focused.Prompt.GetForeground(), got.common.styles.input.Focused.Prompt.GetForeground()) {
 		t.Fatal("input styles were not reapplied")
 	}
+	assertFullWidthStyledLine(t, "inactive start selection after restyle", lineContaining(t, got.start.View(), "@plan.cat"), got.start.list.Width(), got.common.styles.palette.SubtleBg)
 }
 
 func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {
@@ -2251,19 +2314,25 @@ func TestStaleFetchResultDropped(t *testing.T) {
 	}
 }
 
-func TestPickSampleIsMember(t *testing.T) {
-	for i := 0; i < 50; i++ {
-		got := pickSample()
-		found := false
-		for _, s := range sampleTargets {
-			if got == s {
-				found = true
-				break
-			}
+// TestTargetPlaceholderSuggestsNoDestination pins the division of labour the
+// placeholder was rewritten for: the input teaches the two target shapes, and
+// the startpage (catalog + bookmarks, rendered directly below it) is the only
+// thing that names somewhere to go. A placeholder that drifted back into
+// naming a host would duplicate a row sitting inches beneath it.
+func TestTargetPlaceholderSuggestsNoDestination(t *testing.T) {
+	for _, entry := range loadCatalog() {
+		if targetPlaceholder == entry.target {
+			t.Fatalf("targetPlaceholder = %q, which is a catalog destination; the input hints syntax, the startpage suggests places", targetPlaceholder)
 		}
-		if !found {
-			t.Fatalf("pickSample() = %q, not in sampleTargets", got)
-		}
+	}
+	// The hint has to survive the input it lives in: newApp sets the width to
+	// 40 columns, less the "target: " prompt.
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if avail := m.input.Width() - lipgloss.Width(m.input.Prompt); lipgloss.Width(targetPlaceholder) > avail {
+		t.Fatalf("targetPlaceholder is %d cols, wider than the %d available in the input", lipgloss.Width(targetPlaceholder), avail)
+	}
+	if m.input.Placeholder != targetPlaceholder {
+		t.Fatalf("input placeholder = %q, want %q", m.input.Placeholder, targetPlaceholder)
 	}
 }
 
@@ -2413,6 +2482,7 @@ func TestBlurredResultChromeDoesNotSpendHeaderRow(t *testing.T) {
 }
 
 func TestBackToLandingShowsBareTargetRow(t *testing.T) {
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
@@ -2423,15 +2493,20 @@ func TestBackToLandingShowsBareTargetRow(t *testing.T) {
 	}})
 	m = step.(appModel)
 	(&m).back()
-	if m.pos != -1 {
-		t.Fatalf("want pos -1 after back-to-landing, got %d", m.pos)
+	if m.pos != -1 || m.state != stateStart {
+		t.Fatalf("back-to-start state=%d pos=%d, want start/-1", m.state, m.pos)
+	}
+	if m.inputFocused {
+		t.Fatal("back-to-start should land content-focused, not in the input")
 	}
 	view := stripANSIForLandingTest(m.View().Content)
 	if strings.Contains(view, heroManicule+" "+heroWordmark) {
-		t.Fatalf("back-to-landing should not show the wordmark:\n%s", view)
+		t.Fatalf("back-to-start should not show the wordmark:\n%s", view)
 	}
-	if !strings.Contains(view, "target:") {
-		t.Fatalf("back-to-landing missing target row:\n%s", view)
+	for _, want := range []string{"target:", "@plan.cat", "b bookmark"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("back-to-start view missing %q:\n%s", want, view)
+		}
 	}
 }
 
@@ -2515,7 +2590,7 @@ func TestAboutEscReturnsToOrigin(t *testing.T) {
 }
 
 func TestCopyAddressNothingToCopy(t *testing.T) {
-	m := newApp(stubFetch(t), colorprofile.NoTTY) // landing: pos == -1, stateReader, no address
+	m := newApp(stubFetch(t), colorprofile.NoTTY) // startpage: pos == -1, stateStart, no address
 	cmd := (&m).copyAddress()
 	if m.flash != "nothing to copy" {
 		t.Fatalf("flash = %q, want %q", m.flash, "nothing to copy")
@@ -2781,5 +2856,665 @@ func TestAboutStatusBarFromLandingAndResult(t *testing.T) {
 		if !strings.Contains(bar2.hints, want) {
 			t.Fatalf("result-origin about hints = %q, missing %q", bar2.hints, want)
 		}
+	}
+}
+
+func TestAppOpensOnStartpage(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if m.state != stateStart {
+		t.Fatalf("state = %v, want stateStart", m.state)
+	}
+	if m.pos != -1 {
+		t.Fatalf("pos = %d, want -1", m.pos)
+	}
+	if _, ok := m.start.selected(); !ok {
+		t.Fatal("startpage has no selection; the catalog should populate it")
+	}
+}
+
+func TestStartEnterRequestsSelectedTarget(t *testing.T) {
+	useTempBookmarks(t)
+
+	fetch, seen := fetchRecorder("Plan: hello\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.blurInput()
+	selected, ok := m.start.selected()
+	if !ok {
+		t.Fatal("startpage has no selected target")
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter produced no request command")
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != selected.target {
+		t.Fatalf("requested = %v, want [%s]", *seen, selected.target)
+	}
+}
+
+func TestStartNoticeNamesResolvedPath(t *testing.T) {
+	file := bookmarkFile{problems: []parseProblem{{line: 3, reason: "expected one target"}}}
+	got := startNotice(file, "/tmp/xdg/lookit/bookmarks")
+	if !strings.Contains(got, "/tmp/xdg/lookit/bookmarks") {
+		t.Fatalf("notice = %q, want the resolved path", got)
+	}
+	if !strings.Contains(got, "line 3") {
+		t.Fatalf("notice = %q, want the line number", got)
+	}
+}
+
+func TestStartEmptyMessageNamesResolvedPath(t *testing.T) {
+	got := startEmptyMessage(bookmarkFile{catalogHidden: true}, "/tmp/xdg/lookit/bookmarks")
+	if !strings.Contains(got, "/tmp/xdg/lookit/bookmarks") {
+		t.Fatalf("empty message = %q, want the resolved path, not the ~/.config fallback", got)
+	}
+	if !strings.Contains(got, "catalog off") {
+		t.Fatalf("empty message = %q, want it to name the directive to remove", got)
+	}
+}
+
+func TestEmptyStartpageKeepsStatusOnLastTerminalRow(t *testing.T) {
+	seedBookmarks(t, "catalog off\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+
+	view := m.View().Content
+	if got := lipgloss.Height(view); got != 24 {
+		t.Fatalf("view height = %d, want terminal height 24:\n%s", got, view)
+	}
+	lines := strings.Split(view, "\n")
+	if got, want := lines[len(lines)-1], m.statusBarModel().render(); got != want {
+		t.Fatalf("last row = %q, want status bar %q", got, want)
+	}
+}
+
+func TestEmptyStartpageExpandedHelpIsNotTruncated(t *testing.T) {
+	seedBookmarks(t, "catalog off\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+	m.blurInput()
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = step.(appModel)
+	if !m.help {
+		t.Fatal("precondition: help should be expanded")
+	}
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	body := strings.Join(lines[:len(lines)-1], "\n")
+	for _, want := range []string{"↑/↓", "move", "esc", "back"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expanded help missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func seedBookmarks(t *testing.T, data string) string {
+	t.Helper()
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
+	return path
+}
+
+// visibleTargets returns the selectable startpage targets in list order,
+// which under an applied filter is bubbles' fuzzy rank order.
+func visibleTargets(m startModel) []string {
+	var out []string
+	for _, it := range m.list.VisibleItems() {
+		if si, ok := it.(startItem); ok && si.selectable() {
+			out = append(out, si.entry.target)
+		}
+	}
+	return out
+}
+
+func TestBookmarkingCatalogRowStaysAtSectionOrdinal(t *testing.T) {
+	path := seedBookmarks(t, "@tilde.team\n")
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	if !m.start.selectTarget("@plan.cat") {
+		t.Fatal("@plan.cat not found")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if !ok || selected.target != "@happynetbox.com" {
+		t.Fatalf("selected = %+v, %v; want next community at the same ordinal", selected, ok)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "@plan.cat\n") {
+		t.Fatalf("bookmark file = %q, err=%v", data, err)
+	}
+}
+
+func TestBookmarkingCatalogRowsStayAtSectionOrdinal(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "middle", target: "@tilde.team", want: "@happynetbox.com"},
+		{name: "final", target: "@chunboan.zone", want: "@zaibatsu.circumlunar.space"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			useTempBookmarks(t)
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			if !m.start.selectTarget(tt.target) {
+				t.Fatalf("%s not found", tt.target)
+			}
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			selected, ok := m.start.selected()
+			if !ok || selected.target != tt.want {
+				t.Fatalf("selected = %+v, %v; want %q at the catalog ordinal", selected, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemovingMiddleBookmarkStaysAtBookmarkOrdinal(t *testing.T) {
+	seedBookmarks(t, "@plan.cat\n@tilde.team\n@happynetbox.com\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	if !m.start.selectTarget("@tilde.team") {
+		t.Fatal("@tilde.team not found")
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if !ok || selected.target != "@happynetbox.com" {
+		t.Fatalf("selected = %+v, %v; want bookmark moved into the removed row's slot", selected, ok)
+	}
+}
+
+func TestRemovingBookmarksStaysAtSectionOrdinal(t *testing.T) {
+	tests := []struct {
+		name string
+		seed string
+		pick string
+		want string
+	}{
+		{name: "first", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@plan.cat", want: "@tilde.team"},
+		{name: "final", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@happynetbox.com", want: "@tilde.team"},
+		{name: "only", seed: "@tilde.team\n", pick: "@tilde.team", want: "@plan.cat"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seedBookmarks(t, tt.seed)
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			if !m.start.selectTarget(tt.pick) {
+				t.Fatalf("%s not found", tt.pick)
+			}
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			selected, ok := m.start.selected()
+			if !ok || selected.target != tt.want {
+				t.Fatalf("selected = %+v, %v; want %q at the section ordinal", selected, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemovingLaterDuplicateBookmarkUsesActualOrdinal(t *testing.T) {
+	seedBookmarks(t, "catalog off\n@tilde.team\n@plan.cat\n@tilde.team\n@happynetbox.com\n@telehack.com\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	seen := 0
+	selected := false
+	for i, item := range m.start.list.VisibleItems() {
+		entry, ok := item.(startItem)
+		if !ok || !entry.selectable() || entry.entry.target != "@tilde.team" {
+			continue
+		}
+		seen++
+		if seen == 2 {
+			m.start.list.Select(i)
+			selected = true
+			break
+		}
+	}
+	if !selected {
+		t.Fatal("second @tilde.team bookmark not found")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	got, ok := m.start.selected()
+	if !ok || got.target != "@telehack.com" {
+		t.Fatalf("selected = %+v, %v; want ordinal of the acted-on duplicate", got, ok)
+	}
+}
+
+func TestBookmarkingOnlyFinalCatalogSectionRowFallsBackward(t *testing.T) {
+	var seed strings.Builder
+	for _, entry := range loadCatalog() {
+		if entry.kind == kindService && entry.target != "quake@bbs.airandwave.net" {
+			seed.WriteString(entry.target)
+			seed.WriteByte('\n')
+		}
+	}
+	seedBookmarks(t, seed.String())
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	if !m.start.selectTarget("quake@bbs.airandwave.net") {
+		t.Fatal("sole remaining service not found")
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if !ok || selected.target != "@plan.cat" {
+		t.Fatalf("selected = %+v, %v; want nearest earlier catalog section", selected, ok)
+	}
+}
+
+func TestFilteredBookmarkTogglePreservesFilterAndOrdinal(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("typed-hole")
+	matches := visibleTargets(m.start)
+	if len(matches) < 3 {
+		t.Fatalf("precondition: filter matched %v, want at least 3 services", matches)
+	}
+	before, ok := m.start.selected()
+	if !ok || before.target != matches[0] {
+		t.Fatalf("precondition selected = %+v, %v; want first match %q", before, ok, matches[0])
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if m.start.list.FilterState() != list.FilterApplied || m.start.list.FilterValue() != "typed-hole" {
+		t.Fatalf("filter state=%v value=%q", m.start.list.FilterState(), m.start.list.FilterValue())
+	}
+	// The pinned row leaves SERVICES for BOOKMARKS; ordinal 0 of the remaining
+	// filtered services is what was matches[1].
+	if !ok || selected.target != matches[1] {
+		t.Fatalf("selected = %+v, %v; want next filtered service %q", selected, ok, matches[1])
+	}
+	if selected.source == sourceBookmark {
+		t.Fatalf("selection followed the pinned target into BOOKMARKS: %+v", selected)
+	}
+}
+
+func TestFilteredToggleClearsFilterWhenFinalMatchDisappears(t *testing.T) {
+	seedBookmarks(t, "alice@plan.cat\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("alice@plan.cat")
+	if got := visibleTargets(m.start); len(got) != 1 || got[0] != "alice@plan.cat" {
+		t.Fatalf("precondition: matches = %v, want only alice@plan.cat", got)
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	if m.start.list.FilterState() != list.Unfiltered || m.start.list.FilterValue() != "" {
+		t.Fatalf("filter state=%v value=%q, want cleared", m.start.list.FilterState(), m.start.list.FilterValue())
+	}
+	selected, ok := m.start.selected()
+	if !ok || selected.kind != kindCommunity {
+		t.Fatalf("selected = %+v, %v; want first unfiltered catalog section", selected, ok)
+	}
+}
+
+func TestFilteredRemovalFallsToNextMatchingSection(t *testing.T) {
+	seedBookmarks(t, "alice@plan.cat\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("plan")
+	if !m.start.selectTarget("alice@plan.cat") {
+		t.Fatalf("precondition: filtered matches = %v, missing bookmark", visibleTargets(m.start))
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if m.start.list.FilterState() != list.FilterApplied || m.start.list.FilterValue() != "plan" {
+		t.Fatalf("filter state=%v value=%q, want applied plan", m.start.list.FilterState(), m.start.list.FilterValue())
+	}
+	if !ok || selected.target != "@plan.cat" || selected.source != sourceCatalog {
+		t.Fatalf("selected = %+v, %v; want next matching catalog section", selected, ok)
+	}
+}
+
+func TestFilteredPinFallsToPreviousMatchingSection(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("quake@")
+	if got := visibleTargets(m.start); len(got) != 1 || got[0] != "quake@bbs.airandwave.net" {
+		t.Fatalf("precondition: matches = %v, want only quake service", got)
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if m.start.list.FilterState() != list.FilterApplied || m.start.list.FilterValue() != "quake@" {
+		t.Fatalf("filter state=%v value=%q, want applied quake@", m.start.list.FilterState(), m.start.list.FilterValue())
+	}
+	if !ok || selected.target != "quake@bbs.airandwave.net" || selected.source != sourceBookmark {
+		t.Fatalf("selected = %+v, %v; want previous matching bookmark section", selected, ok)
+	}
+}
+
+func TestBookmarkRejectsTargetThatCannotRoundTripThroughFile(t *testing.T) {
+	path := useTempBookmarks(t)
+	for _, raw := range []string{"weather:#oslo@bbs.airandwave.net", "alice smith@host"} {
+		t.Run(raw, func(t *testing.T) {
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.history = []histNode{{entry: Entry{Target: finger.Target{Raw: raw}}, state: stateReader, linkIdx: -1}}
+			m.pos = 0
+			m.state = stateReader
+			m.blurInput()
+
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			if !strings.Contains(m.flash, "cannot bookmark") {
+				t.Fatalf("flash = %q, want a bookmark validation error", m.flash)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("invalid bookmark changed the file: stat error = %v", err)
+			}
+		})
+	}
+}
+
+func TestFilteredRemovingOnlyCatalogOffBookmarkFocusesInput(t *testing.T) {
+	seedBookmarks(t, "catalog off\n@plan.cat\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("plan")
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+
+	if !m.inputFocused {
+		t.Fatal("removing the only filtered startpage row should focus the input")
+	}
+	if m.start.list.FilterState() != list.Unfiltered || m.start.list.FilterValue() != "" {
+		t.Fatalf("empty startpage filter state=%v value=%q, want cleared", m.start.list.FilterState(), m.start.list.FilterValue())
+	}
+	if _, ok := m.start.selected(); ok {
+		t.Fatal("empty startpage unexpectedly has a selection")
+	}
+}
+
+func TestStartpageBookmarkHelpIsContextualAndResetsOutsideStart(t *testing.T) {
+	seedBookmarks(t, "@tilde.team\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.updateKeymap()
+	if got := m.keys.Bookmark.Help().Desc; got != "remove" {
+		t.Fatalf("bookmark help = %q, want remove for a selected bookmark", got)
+	}
+
+	m.state = stateReader
+	m.history = []histNode{{entry: Entry{Target: mustTarget(t, "alice@plan.cat")}, state: stateReader, linkIdx: -1}}
+	m.pos = 0
+	m.updateKeymap()
+	if got := m.keys.Bookmark.Help().Desc; got != "bookmark" {
+		t.Fatalf("reader bookmark help = %q, want bookmark after leaving startpage", got)
+	}
+}
+
+func TestHomeTruncatesHistory(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history = []histNode{
+		{entry: Entry{Target: mustTarget(t, "@plan.cat")}, state: stateReader, linkIdx: -1},
+		{entry: Entry{Target: mustTarget(t, "@tilde.team")}, state: stateReader, linkIdx: -1},
+	}
+	m.pos = 1
+	m.state = stateReader
+	m.blurInput()
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	m = next.(appModel)
+	if m.state != stateStart {
+		t.Fatalf("state = %v, want stateStart", m.state)
+	}
+	if m.pos != -1 {
+		t.Fatalf("pos = %d, want -1", m.pos)
+	}
+	if len(m.history) != 0 {
+		t.Fatalf("history = %+v, want truncated", m.history)
+	}
+	// Focus follows how you arrived: h is pressed from content, so it lands on
+	// content with a row selected rather than costing an extra ↓.
+	if m.inputFocused {
+		t.Fatal("h should land content-focused on the startpage")
+	}
+	if _, ok := m.start.selected(); !ok {
+		t.Fatal("h should land on a selected row")
+	}
+}
+
+// The exception: nothing to select is a dead end, so fall back to the input.
+func TestHomeOnEmptyStartpageFocusesInput(t *testing.T) {
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("catalog off\n"), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history = []histNode{{entry: Entry{Target: mustTarget(t, "@plan.cat")}, state: stateReader, linkIdx: -1}}
+	m.pos = 0
+	m.state = stateReader
+	m.blurInput()
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	m = next.(appModel)
+	if !m.inputFocused {
+		t.Fatal("h onto an empty startpage should focus the input, not strand the cursor")
+	}
+}
+
+func mustTarget(t *testing.T, raw string) finger.Target {
+	t.Helper()
+	target, err := finger.ParseTarget(raw)
+	if err != nil {
+		t.Fatalf("ParseTarget(%q) = %v", raw, err)
+	}
+	return target
+}
+
+func TestStartpageArrowDownEntersList(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if !m.inputFocused {
+		t.Fatal("launch should focus the input")
+	}
+	handled, m, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if !handled {
+		t.Fatal("down not handled while the input is focused")
+	}
+	if m.inputFocused {
+		t.Fatal("down should move focus into the startpage list")
+	}
+}
+
+func TestStartpageArrowDownAndEscSynchronizeSharedFocus(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	assertSharedFocusInverse(t, m)
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = next.(appModel)
+	if m.inputFocused || !m.common.contentFocused {
+		t.Fatalf("after down: inputFocused=%v contentFocused=%v", m.inputFocused, m.common.contentFocused)
+	}
+	assertSharedFocusInverse(t, m)
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = next.(appModel)
+	if !m.inputFocused || m.common.contentFocused {
+		t.Fatalf("after Esc: inputFocused=%v contentFocused=%v", m.inputFocused, m.common.contentFocused)
+	}
+	assertSharedFocusInverse(t, m)
+}
+
+func assertSharedFocusInverse(t *testing.T, m appModel) {
+	t.Helper()
+	if m.inputFocused == m.common.contentFocused {
+		t.Fatalf("focus truths are not inverse: inputFocused=%v contentFocused=%v", m.inputFocused, m.common.contentFocused)
+	}
+}
+
+func TestStartpageEscBacksOutThenQuits(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+
+	// From the list, esc returns to the input rather than quitting.
+	handled, m, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if !handled {
+		t.Fatal("esc not handled from the list")
+	}
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("esc from the startpage list must not quit")
+	}
+	if !m.inputFocused {
+		t.Fatal("esc should return focus to the input")
+	}
+
+	// From the input, esc quits.
+	_, _, cmd = m.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("esc from the input at the startpage should quit")
+	}
+}
+
+func TestBookmarkKeyTypesIntoFocusedInput(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	handled, _, _ := m.handleKey(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	if handled {
+		t.Fatal("b must type into a focused input, not bookmark")
+	}
+}
+
+func TestStartpageFilterOwnsCommandLetters(t *testing.T) {
+	path := useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = next.(appModel)
+	if !m.start.filtering() {
+		t.Fatal("/ did not enter startpage filtering")
+	}
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	if got := m.start.list.FilterInput.Value(); got != "b" {
+		t.Fatalf("filter = %q, want b", got)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("typing b in the filter changed bookmarks: stat error = %v", err)
+	}
+}
+
+func TestStartpageEscClearsAppliedFilterBeforeChangingFocus(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("plan")
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = next.(appModel)
+	if m.start.list.FilterState() != list.Unfiltered {
+		t.Fatalf("filter state = %v, want unfiltered", m.start.list.FilterState())
+	}
+	if m.inputFocused {
+		t.Fatal("first Esc should clear the applied filter, not focus the input")
+	}
+}
+
+// The full ladder from depth: content -> startpage list -> input -> quit. Three
+// Esc presses, one per layer, with focus preserved until the last content layer.
+func TestEscLadderFromResultToQuit(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n"),
+	}})
+	m = step.(appModel)
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // reader -> startpage
+	m = next.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("first Esc must not quit")
+	}
+	if m.state != stateStart || m.inputFocused {
+		t.Fatalf("state=%d inputFocused=%v, want the startpage, content-focused", m.state, m.inputFocused)
+	}
+
+	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // list -> input
+	m = next.(appModel)
+	if cmd != nil && isQuit(cmd) {
+		t.Fatal("second Esc must not quit")
+	}
+	if !m.inputFocused {
+		t.Fatal("second Esc should return focus to the input")
+	}
+
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // input -> quit
+	if cmd == nil || !isQuit(cmd) {
+		t.Fatal("third Esc should quit")
+	}
+}
+
+// The bookmarks file is hand-editable, so a write from inside the app must be
+// line surgery: comments, blank lines, ordering and the catalog directive all
+// survive verbatim.
+func TestBookmarkWriteThroughAppPreservesHandEdits(t *testing.T) {
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
+	seed := "# my careful notes\n\ncatalog off\n\n@plan.cat\n\n# trailing thought\n"
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	if _, ok := m.start.selected(); !ok {
+		t.Fatal("seeded bookmark is not selectable")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"}) // removes @plan.cat
+	m = next.(appModel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after unbookmark: %v", err)
+	}
+	want := "# my careful notes\n\ncatalog off\n\n\n# trailing thought\n"
+	if string(data) != want {
+		t.Fatalf("file =\n%q\nwant\n%q", data, want)
+	}
+
+	// And the startpage now explains itself rather than looking broken.
+	if got := m.start.View(); !strings.Contains(got, "catalog off") {
+		t.Errorf("empty startpage does not name the directive to remove:\n%s", got)
 	}
 }

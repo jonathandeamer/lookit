@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand"
+	"os"
 	"strings"
 	"time"
 
@@ -24,21 +24,12 @@ import (
 // setClipboard is a seam for testing: it defaults to tea.SetClipboard.
 var setClipboard = tea.SetClipboard
 
-// sampleTargets are the rotating greyed-out hints shown in the empty target
-// input. The mix of "@host" directory shapes and "user@host" profile shapes
-// teaches both input forms. They are hint text only, never auto-submitted.
-var sampleTargets = []string{
-	"ring@thebackupbox.net",
-	"@happynetbox.com",
-	"@plan.cat",
-	"@tilde.team",
-	"jonathan@tilde.team",
-}
-
-// pickSample returns a uniformly random sample target for the placeholder.
-func pickSample() string {
-	return sampleTargets[rand.Intn(len(sampleTargets))]
-}
+// targetPlaceholder is the greyed-out hint in the empty target input. It
+// teaches the two input shapes and deliberately names no destination:
+// suggesting somewhere to go is the startpage's job, and its catalog and
+// bookmark rows render directly below this one. It also promises nothing about
+// what a bare "@host" returns, because the protocol doesn't.
+const targetPlaceholder = "user@host or @host"
 
 // appState selects which sub-model is active.
 type appState int
@@ -47,6 +38,7 @@ const (
 	stateReader appState = iota
 	stateList
 	stateAbout
+	stateStart // the launch screen; used only at pos == -1, never in a histNode
 )
 
 // commonModel is state shared across sub-models.
@@ -56,6 +48,7 @@ type commonModel struct {
 	height         int
 	profile        colorprofile.Profile
 	darkBackground bool
+	contentFocused bool
 	styles         styles
 	fetch          FetchFunc
 }
@@ -106,6 +99,7 @@ type appModel struct {
 	reader readerModel
 	list   listModel
 	about  aboutModel
+	start  startModel
 
 	aboutFromState appState // state to restore when the about screen closes
 
@@ -151,11 +145,12 @@ func newAppWithContext(ctx context.Context, fetch FetchFunc, profile colorprofil
 		ctx:            ctx,
 		profile:        profile,
 		darkBackground: true,
+		contentFocused: false,
 		styles:         st,
 		fetch:          fetch,
 	}
 	in := textinput.New()
-	in.Placeholder = pickSample()
+	in.Placeholder = targetPlaceholder
 	in.Prompt = "target: "
 	in.CharLimit = 256
 	in.SetWidth(40)
@@ -180,6 +175,8 @@ func newAppWithContext(ctx context.Context, fetch FetchFunc, profile colorprofil
 	app.reader.setBackground(common.darkBackground)
 	app.reader.styles = st
 	app.about.setBackground(common.darkBackground)
+	app.state = stateStart
+	app.reloadStart()
 	app.helpModel.Styles = st.help
 	app.updateKeymap() // first frame reflects the landing's enabled set
 	return app
@@ -198,6 +195,7 @@ func (m *appModel) applyStyles() {
 	m.spin.Style = st.spinner
 	m.reader.styles = st
 	m.about.setBackground(m.common.darkBackground)
+	m.start.applyStyles(st)
 	if m.showingRaw {
 		m.reader.darkBackground = m.common.darkBackground
 	} else {
@@ -305,32 +303,182 @@ func (m *appModel) restore(n histNode) {
 	m.reader.setEntryWithLinks(n.entry, n.links)
 }
 
-// gotoLanding returns the reader to its empty pre-fetch state.
-func (m *appModel) gotoLanding() {
-	m.state = stateReader
+// gotoStart returns to the launch screen, reloading it so a bookmark added while
+// browsing is present when you walk back.
+//
+// It deliberately does NOT touch focus. Both callers — stepBack's root
+// fall-through and goHome — arrive with content focused (Esc in the input branch
+// at pos >= 0 blurs rather than stepping back), and focus should follow how you
+// arrived: only launch focuses the input, the way a new browser tab focuses the
+// address bar while navigating Home focuses the document. newAppWithContext
+// already focuses the input at launch, so nothing is lost by dropping it here.
+//
+// The exception is an unusable startpage: with `catalog off` and no bookmarks
+// there is nothing selectable, so content focus is a dead end. The caller
+// returns the Focus cmd in that case.
+func (m *appModel) gotoStart() tea.Cmd {
+	m.state = stateStart
 	m.reader.current = nil
-	m.reader.viewport.SetContent("No response yet.")
-	m.inputFocused = true
-	m.input.SetValue("")
-	m.input.Focus() // discard the blink cmd; the cursor still shows
+	m.reloadStart()
+	m.input.SetValue("") // drop the stale target; 'i' should open on an empty row
 	m.resize()
+	if _, ok := m.start.selected(); !ok {
+		m.setInputFocused(true)
+		return m.input.Focus()
+	}
+	return nil
 }
 
-// stepBack moves one step toward history root, or to the landing from pos 0.
-func (m *appModel) stepBack() {
+// bookmarkTarget reports what 'b' acts on for the current screen. On a list it
+// is the host, not the highlighted user: 'b' on @tilde.team means "come back to
+// this directory". To bookmark a person, drill in and press b there.
+func (m appModel) bookmarkTarget() (string, bool) {
+	if m.state == stateStart {
+		entry, ok := m.start.selected()
+		return entry.target, ok
+	}
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return "", false
+	}
+	return m.history[m.pos].entry.Target.Raw, true
+}
+
+// toggleBookmark adds or removes the current target, then reloads the startpage
+// so it reflects the file. Bookmark records contain only the target: the
+// protocol cannot establish a kind, and routing remains response-derived.
+func (m *appModel) toggleBookmark() tea.Cmd {
+	var position startTogglePosition
+	hasPosition := false
+	if m.state == stateStart {
+		position, hasPosition = m.start.captureTogglePosition()
+	}
+
+	target, ok := m.bookmarkTarget()
+	if !ok {
+		return nil
+	}
+	if err := validateBookmarkRecordTarget(target); err != nil {
+		return m.setFlash("error: cannot bookmark: " + err.Error())
+	}
+	path, err := bookmarksPathFn()
+	if err != nil {
+		return m.setFlash("error: " + err.Error())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return m.setFlash("error: " + err.Error())
+	}
+
+	file := parseBookmarks(data)
+	already := false
+	for _, saved := range file.targets {
+		if saved == target {
+			already = true
+			break
+		}
+	}
+
+	var updated []byte
+	var msg string
+	if already {
+		updated = deleteBookmarkLine(data, target)
+		msg = "✓ removed " + target
+	} else {
+		updated = appendBookmarkLine(data, target)
+		msg = "✓ bookmarked " + target
+	}
+	if err := saveBookmarkData(path, updated); err != nil {
+		return m.setFlash("error: " + err.Error())
+	}
+	if m.state == stateStart {
+		m.reloadStart()
+		restored := false
+		if hasPosition && position.filtered != nil {
+			m.start.list.SetFilterText(position.filter)
+			if len(m.start.list.VisibleItems()) > 0 {
+				restored = m.start.selectSectionPosition(*position.filtered)
+			} else {
+				m.start.list.ResetFilter()
+				restored = m.start.selectSectionPosition(position.full)
+			}
+		} else if hasPosition {
+			restored = m.start.selectSectionPosition(position.full)
+		}
+		m.resize()
+		if !restored {
+			return tea.Batch(m.focusInput(), m.setFlash(msg))
+		}
+	}
+	return m.setFlash(msg)
+}
+
+// goHome is exactly equivalent to holding Esc — focus included: return to the
+// startpage, drop the trail, and stay on the content with a row selected. The
+// startpage is not a history node, so there is nothing to push.
+func (m *appModel) goHome() tea.Cmd {
+	m.clearRequestFailure()
+	m.showingRaw = false
+	m.showingLinks = false
+	m.flash = ""
+	m.history = nil
+	m.pos = -1
+	return m.gotoStart() // nil unless the startpage is empty, which focuses the input
+}
+
+// reloadStart rebuilds the startpage from disk. Called at construction and
+// after every bookmark write, so the screen always reflects the file.
+func (m *appModel) reloadStart() {
+	file, path := loadBookmarks()
+	sections := buildSections(loadCatalog(), file)
+	m.start = newStart(m.common, sections, startNotice(file, path), startEmptyMessage(file, path))
+}
+
+// startNotice surfaces parse problems rather than swallowing them, naming the
+// file actually in use so the user edits the one that has an effect.
+func startNotice(file bookmarkFile, path string) string {
+	if len(file.problems) == 0 {
+		return ""
+	}
+	shown := shortenHome(path)
+	if len(file.problems) == 1 {
+		p := file.problems[0]
+		if p.line == 0 {
+			return fmt.Sprintf("%s: %s", shown, p.reason)
+		}
+		return fmt.Sprintf("%s line %d: %s", shown, p.line, p.reason)
+	}
+	lines := make([]string, 0, len(file.problems))
+	for _, p := range file.problems {
+		lines = append(lines, fmt.Sprintf("line %d", p.line))
+	}
+	return fmt.Sprintf("%d unreadable lines in %s (%s)", len(file.problems), shown, strings.Join(lines, ", "))
+}
+
+// startEmptyMessage explains a blank startpage instead of letting it look
+// broken. It quotes the resolved path: with $XDG_CONFIG_HOME set, the
+// ~/.config fallback would send the user to edit a file with no effect.
+func startEmptyMessage(file bookmarkFile, path string) string {
+	if file.catalogHidden {
+		return fmt.Sprintf("No bookmarks yet. The catalog is off — remove `catalog off` from %s to see it.", shortenHome(path))
+	}
+	return "No bookmarks yet."
+}
+
+// stepBack moves one step toward history root, or to the startpage from pos 0.
+func (m *appModel) stepBack() tea.Cmd {
 	m.clearRequestFailure()
 	m.showingRaw = false
 	m.showingLinks = false
 	if m.pos < 0 {
-		return
+		return nil
 	}
 	m.snapshot()
 	m.pos--
 	if m.pos < 0 {
-		m.gotoLanding()
-		return
+		return m.gotoStart()
 	}
 	m.restore(m.history[m.pos])
+	return nil
 }
 
 // back is Esc semantics: step back, or quit when already at the landing.
@@ -339,18 +487,22 @@ func (m *appModel) back() tea.Cmd {
 	if m.pos < 0 {
 		return tea.Quit
 	}
-	m.stepBack()
-	return nil
+	return m.stepBack()
 }
 
 // focusInput gives the keyboard to the target input, pre-filled with the
 // current target for browser-style editing.
+func (m *appModel) setInputFocused(focused bool) {
+	m.inputFocused = focused
+	m.common.contentFocused = !focused
+}
+
 func (m *appModel) focusInput() tea.Cmd {
 	m.clearRequestFailure()
 	if m.pos >= 0 {
 		m.input.SetValue(m.history[m.pos].entry.Target.Raw)
 	}
-	m.inputFocused = true
+	m.setInputFocused(true)
 	m.input.CursorEnd()
 	m.resize()
 	return m.input.Focus()
@@ -358,7 +510,7 @@ func (m *appModel) focusInput() tea.Cmd {
 
 // blurInput returns the keyboard to the content.
 func (m *appModel) blurInput() {
-	m.inputFocused = false
+	m.setInputFocused(false)
 	m.input.Blur()
 	m.resize()
 }
@@ -538,6 +690,8 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case stateList:
 		m.list, cmd = m.list.update(msg)
+	case stateStart:
+		m.start, cmd = m.start.update(msg)
 	default:
 		m.reader, cmd = m.reader.update(msg)
 	}
@@ -606,6 +760,12 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help): // ?
 			m.openHelp()
 			return true, m, nil
+		case key.Matches(msg, m.keys.Browse) && m.state == stateStart:
+			if _, ok := m.start.selected(); ok {
+				m.blurInput()
+				return true, m, nil
+			}
+			return false, m, nil // nothing to browse: let ↓ fall through to the input
 		case key.Matches(msg, m.keys.Open): // Enter
 			cmd := m.submit()
 			return true, m, cmd
@@ -622,6 +782,12 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	// Content focused.
 	if m.state == stateList && m.list.filtering() {
 		return false, m, nil // list owns its filter keys
+	}
+	if m.state == stateStart && m.start.filtering() {
+		return false, m, nil
+	}
+	if m.state == stateStart && m.start.filterApplied() && key.Matches(msg, m.keys.Back) {
+		return false, m, nil
 	}
 	if m.showingLinks && m.linksPanel.filtering() {
 		var cmd tea.Cmd
@@ -708,6 +874,11 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.FocusInput):
 		cmd := m.focusInput()
 		return true, m, cmd
+	// Ahead of the generic Back below, which calls m.back() — that quits at
+	// pos < 0, which is exactly the startpage. Here Esc backs out one level,
+	// into the target input.
+	case key.Matches(msg, m.keys.Back) && m.state == stateStart:
+		return true, m, m.focusInput()
 	case key.Matches(msg, m.keys.Back):
 		if m.state == stateList && m.list.list.FilterState() != list.Unfiltered {
 			return false, m, nil // clear an applied filter first
@@ -724,6 +895,20 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.Refresh):
 		cmd := m.refreshCurrent()
 		return true, m, cmd
+	case key.Matches(msg, m.keys.Bookmark):
+		return true, m, m.toggleBookmark()
+	case key.Matches(msg, m.keys.Home):
+		return true, m, m.goHome()
+	case key.Matches(msg, m.keys.Open) && m.state == stateStart:
+		entry, ok := m.start.selected()
+		if !ok {
+			return true, m, nil
+		}
+		target, err := finger.ParseTarget(entry.target)
+		if err != nil {
+			return true, m, m.setFlash("error: " + err.Error())
+		}
+		return true, m, m.startRequest(target, requestNavigate, false)
 	case key.Matches(msg, m.keys.Open) && m.state == stateList:
 		return m.drill()
 	case key.Matches(msg, m.keys.Open) && m.state == stateReader && m.pos >= 0:
@@ -830,7 +1015,7 @@ func routeEntry(entry Entry) routedEntry {
 }
 
 func (m *appModel) showRouted(routed routedEntry) {
-	m.inputFocused = false
+	m.setInputFocused(false)
 	m.input.Blur()
 	m.showingRaw = false
 	m.showingLinks = false
@@ -1028,12 +1213,18 @@ func (m *appModel) copyAddress() tea.Cmd {
 func (m *appModel) updateKeymap() {
 	refreshHelp := m.refreshHelp()
 	m.keys.Refresh.SetHelp(refreshHelp.Key, refreshHelp.Desc)
+	if m.state == stateStart {
+		m.keys.Bookmark.SetHelp("b", m.startBookmarkAction())
+	} else {
+		m.keys.Bookmark.SetHelp("b", "bookmark")
+	}
 	if m.pending != nil {
 		for _, binding := range []*key.Binding{
 			&m.keys.Open, &m.keys.FocusInput, &m.keys.Filter, &m.keys.Raw,
 			&m.keys.Copy, &m.keys.Help, &m.keys.About, &m.keys.Move,
 			&m.keys.Page, &m.keys.Jump, &m.keys.LinkNext, &m.keys.LinkPrev,
 			&m.keys.LinkFinger, &m.keys.LinkPanel, &m.keys.Refresh,
+			&m.keys.Bookmark, &m.keys.Home,
 		} {
 			binding.SetEnabled(false)
 		}
@@ -1056,19 +1247,28 @@ func (m *appModel) updateKeymap() {
 	// quit at the bare landing), Help='?'.
 	m.keys.Help.SetEnabled(true)
 	m.keys.About.SetEnabled(true)
-	m.keys.Open.SetEnabled(m.inputFocused || inList)
-	m.keys.Back.SetEnabled(m.inputFocused || (content && hasResult))
+	inStart := content && m.state == stateStart
+	_, startHasSelection := m.start.selected()
+	startHasSelection = inStart && startHasSelection
+
+	m.keys.Open.SetEnabled(m.inputFocused || inList || startHasSelection)
+	m.keys.Back.SetEnabled(m.inputFocused || (content && hasResult) || m.state == stateStart)
+	_, browsable := m.start.selected()
+	m.keys.Browse.SetEnabled(m.inputFocused && m.state == stateStart && browsable)
 
 	// Content-only keys — inert while the input is focused (they type literally).
 	m.keys.FocusInput.SetEnabled(content)
 	m.keys.Quit.SetEnabled(content)
 	m.keys.Copy.SetEnabled(content && hasResult)
 	m.keys.Raw.SetEnabled(content && hasResult)
-	m.keys.Filter.SetEnabled(inList)
+	m.keys.Filter.SetEnabled(inList || startHasSelection)
 	m.keys.Move.SetEnabled(content)
 	m.keys.Page.SetEnabled(content)
 	m.keys.Jump.SetEnabled(content)
 	m.keys.Refresh.SetEnabled(canRefresh)
+	_, canBookmark := m.bookmarkTarget()
+	m.keys.Bookmark.SetEnabled(content && canBookmark && !m.showingLinks)
+	m.keys.Home.SetEnabled(content && (m.pos >= 0 || m.state != stateStart))
 
 	inReader := content && m.state == stateReader && !m.showingRaw
 	hasReaderLinks := false
@@ -1163,7 +1363,7 @@ func (m appModel) buildStatusBar() statusBar {
 		return bar
 	}
 	if m.pos < 0 {
-		return landingBar(w, st)
+		return m.startBar(w, st)
 	}
 	node := m.history[m.pos]
 	bar := statusBar{width: w, styles: st}
@@ -1274,6 +1474,7 @@ func (m *appModel) resize() {
 	if m.listReady {
 		m.list.setSize(m.common.width, h)
 	}
+	m.start.setSize(m.common.width, h)
 	if m.showingLinks {
 		m.linksPanel.setSize(m.common.width, m.common.bodyHeight())
 	}
@@ -1282,6 +1483,35 @@ func (m *appModel) resize() {
 		ah = 1
 	}
 	m.about.setSize(m.common.width, ah)
+}
+
+// startBar is the launch screen's bottom bar. It replaces landingBar, which
+// had nothing to advertise but typing.
+func (m appModel) startBar(width int, st styles) statusBar {
+	bar := statusBar{width: width, styles: st}
+	if m.inputFocused {
+		bar.hints = "type a target and press ↵ · ↓ browse · ? help"
+		return bar
+	}
+	n := 0
+	for _, it := range m.start.list.VisibleItems() {
+		if si, ok := it.(startItem); ok && si.selectable() {
+			n++
+		}
+	}
+	if n > 0 {
+		bar.meta = fmt.Sprintf("%d entries", n)
+	}
+	bar.hints = fmt.Sprintf("↵ go · b %s · / filter · i target · ? help", m.startBookmarkAction())
+	return bar
+}
+
+func (m appModel) startBookmarkAction() string {
+	entry, ok := m.start.selected()
+	if ok && entry.source == sourceBookmark {
+		return "remove"
+	}
+	return "bookmark"
 }
 
 func (m appModel) helpView() string {
@@ -1433,6 +1663,8 @@ func (m appModel) View() tea.View {
 		switch m.state {
 		case stateList:
 			content = m.list.View()
+		case stateStart:
+			content = m.start.View()
 		default:
 			content = m.reader.View()
 		}

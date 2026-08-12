@@ -22,7 +22,7 @@ community @tilde.team Small public access unix, for teaching and learning
 community @happynetbox.com .plan files updated via the web
 community ring@thebackupbox.net The finger ring — join by linking it from your response
 community @cosmic.voyage Collaborative science fiction; users crew ships
-community @zaibatsu.circumlunar.space A small pubnix; it calls its users sundogs
+community @zaibatsu.circumlunar.space Sundogs seeking asylum from the commercial 'net
 
 service @bbs.airandwave.net Over two dozen services, from news to sudoku
 service weather@bbs.airandwave.net Current weather and a 7-day forecast — weather:city@…

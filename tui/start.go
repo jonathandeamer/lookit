@@ -61,6 +61,7 @@ type startModel struct {
 	common          *commonModel
 	list            list.Model
 	assembledCounts startOverviewCounts
+	height          int
 	notice          string // parse problems, surfaced rather than swallowed
 	empty           string // shown instead of the list when there is nothing to show
 }
@@ -396,13 +397,20 @@ func (m startModel) View() string {
 		}
 	}
 	if m.notice != "" {
-		return m.notice + "\n\n" + body
+		body = m.notice + "\n\n" + body
+	}
+	if missing := m.height - lipgloss.Height(body); missing > 0 {
+		body += strings.Repeat("\n", missing)
 	}
 	return body
 }
 
 func (m *startModel) setSize(width, height int) {
 	m.common.width = width
+	if height < 1 {
+		height = 1
+	}
+	m.height = height
 	h := height - startChromeRows - m.noticeHeight() - m.overviewHeight()
 	if h < 1 {
 		h = 1

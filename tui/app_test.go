@@ -2910,6 +2910,43 @@ func TestStartEmptyMessageNamesResolvedPath(t *testing.T) {
 	}
 }
 
+func TestEmptyStartpageKeepsStatusOnLastTerminalRow(t *testing.T) {
+	seedBookmarks(t, "catalog off\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+
+	view := m.View().Content
+	if got := lipgloss.Height(view); got != 24 {
+		t.Fatalf("view height = %d, want terminal height 24:\n%s", got, view)
+	}
+	lines := strings.Split(view, "\n")
+	if got, want := lines[len(lines)-1], m.statusBarModel().render(); got != want {
+		t.Fatalf("last row = %q, want status bar %q", got, want)
+	}
+}
+
+func TestEmptyStartpageExpandedHelpIsNotTruncated(t *testing.T) {
+	seedBookmarks(t, "catalog off\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+	m.blurInput()
+
+	step, _ = m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = step.(appModel)
+	if !m.help {
+		t.Fatal("precondition: help should be expanded")
+	}
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	body := strings.Join(lines[:len(lines)-1], "\n")
+	for _, want := range []string{"↑/↓", "move", "esc", "back"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expanded help missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func seedBookmarks(t *testing.T, data string) string {
 	t.Helper()
 	path := useTempBookmarks(t)

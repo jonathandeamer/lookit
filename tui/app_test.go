@@ -2314,19 +2314,25 @@ func TestStaleFetchResultDropped(t *testing.T) {
 	}
 }
 
-func TestPickSampleIsMember(t *testing.T) {
-	for i := 0; i < 50; i++ {
-		got := pickSample()
-		found := false
-		for _, s := range sampleTargets {
-			if got == s {
-				found = true
-				break
-			}
+// TestTargetPlaceholderSuggestsNoDestination pins the division of labour the
+// placeholder was rewritten for: the input teaches the two target shapes, and
+// the startpage (catalog + bookmarks, rendered directly below it) is the only
+// thing that names somewhere to go. A placeholder that drifted back into
+// naming a host would duplicate a row sitting inches beneath it.
+func TestTargetPlaceholderSuggestsNoDestination(t *testing.T) {
+	for _, entry := range loadCatalog() {
+		if targetPlaceholder == entry.target {
+			t.Fatalf("targetPlaceholder = %q, which is a catalog destination; the input hints syntax, the startpage suggests places", targetPlaceholder)
 		}
-		if !found {
-			t.Fatalf("pickSample() = %q, not in sampleTargets", got)
-		}
+	}
+	// The hint has to survive the input it lives in: newApp sets the width to
+	// 40 columns, less the "target: " prompt.
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	if avail := m.input.Width() - lipgloss.Width(m.input.Prompt); lipgloss.Width(targetPlaceholder) > avail {
+		t.Fatalf("targetPlaceholder is %d cols, wider than the %d available in the input", lipgloss.Width(targetPlaceholder), avail)
+	}
+	if m.input.Placeholder != targetPlaceholder {
+		t.Fatalf("input placeholder = %q, want %q", m.input.Placeholder, targetPlaceholder)
 	}
 }
 

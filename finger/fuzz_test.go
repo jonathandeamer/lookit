@@ -50,6 +50,7 @@ func FuzzParseTarget(f *testing.F) {
 	f.Add("ring@thebackupbox.net")
 	f.Add("")
 	f.Add("bad\x00@host")
+	f.Add("alice@\u202eexample.org")
 
 	f.Fuzz(func(t *testing.T, arg string) {
 		target, err := ParseTarget(arg)
@@ -58,6 +59,13 @@ func FuzzParseTarget(f *testing.F) {
 		}
 		if hasControl(target.QueryLine()) || hasControl(target.HostPort) {
 			t.Fatalf("ParseTarget accepted %q but target carries control bytes: %+v", arg, target)
+		}
+		for _, token := range []string{target.QueryLine(), target.HostPort} {
+			for _, r := range token {
+				if unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
+					t.Fatalf("ParseTarget accepted %q but target carries Unicode control %U: %+v", arg, r, target)
+				}
+			}
 		}
 	})
 }

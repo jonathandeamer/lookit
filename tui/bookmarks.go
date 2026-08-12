@@ -184,12 +184,10 @@ func parseCatalogLine(line string) (startEntry, error) {
 }
 
 // validateTarget screens a target from a config file. finger.ParseTarget rejects
-// C0/DEL via hasControl, but not invalid UTF-8, UTF-8-encoded C1 controls, or
-// the non-printing Unicode controls that sanitize visualizes in response bodies.
-// A target is displayed in the list and breadcrumb, so all are refused here.
-// Rejecting matches the treatment targets already get: bodies are visualized
+// C0/DEL and Cf/Zl/Zp via hasControl, but not invalid UTF-8 or UTF-8-encoded C1
+// controls. A target is displayed in the list and breadcrumb, so all are refused
+// here. Rejecting matches the treatment targets already get: bodies are visualized
 // because they are content, a target is refused because it is something we send.
-// See issue #49 for the same gap on targets from every other source.
 func validateTarget(target string) error {
 	if !utf8.ValidString(target) {
 		return fmt.Errorf("target is not valid UTF-8")

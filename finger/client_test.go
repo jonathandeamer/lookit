@@ -441,6 +441,41 @@ func TestQueryRejectsControlCharsInQuery(t *testing.T) {
 	}
 }
 
+func TestQueryRejectsUnicodeFormatControlsInQuery(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	received := make(chan []byte, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			received <- nil
+			return
+		}
+		defer c.Close()
+		// Give the client a generous window to write anything it wants to.
+		_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		buf, _ := io.ReadAll(c)
+		received <- buf
+	}()
+
+	tgt := Target{Query: "a\u202eb", HostPort: ln.Addr().String()}
+	_, _, queryErr := Query(context.Background(), tgt)
+
+	if queryErr == nil {
+		t.Fatal("Query with Unicode format control in query = nil error, want error")
+	}
+	if got, want := queryErr.Error(), "query contains control characters"; got != want {
+		t.Fatalf("Query error = %q, want %q", got, want)
+	}
+	if got := <-received; len(got) != 0 {
+		t.Errorf("server received %d bytes %q; guard must fire before any write", len(got), got)
+	}
+}
+
 func TestQuery_DefangsControlBytes(t *testing.T) {
 	// Server sends a body containing an ESC sequence and a BEL, ending in CRLF.
 	fs := newFakeServer(t, func(line string) []byte {

@@ -1495,7 +1495,7 @@ func (m appModel) startBar(width int, st styles) statusBar {
 	}
 	n := 0
 	for _, it := range m.start.list.VisibleItems() {
-		if si, ok := it.(startItem); ok && si.selectable() {
+		if si, ok := it.(startItem); ok && si.countsAsListing() {
 			n++
 		}
 	}
@@ -1506,9 +1506,12 @@ func (m appModel) startBar(width int, st styles) statusBar {
 	return bar
 }
 
+// startBookmarkAction names what b will do. It reads bookmarked state, not the
+// section that rendered the row: a parent copy survives dedup and is still
+// sourceCatalog while pinned, so source would advertise the wrong verb.
 func (m appModel) startBookmarkAction() string {
 	entry, ok := m.start.selected()
-	if ok && entry.source == sourceBookmark {
+	if ok && entry.bookmarked {
 		return "remove"
 	}
 	return "bookmark"

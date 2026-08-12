@@ -66,3 +66,27 @@ func TestCatalogShipsNoPeople(t *testing.T) {
 		}
 	}
 }
+
+// TestCatalogHasRootForEveryGroupedHost guards the grouping invariant: the
+// startpage heads each host's services with that host's root row, so a child
+// whose host ships no root would render under a phantom parent. The catalog is
+// compiled in, so this must fail the build rather than ship.
+func TestCatalogHasRootForEveryGroupedHost(t *testing.T) {
+	entries, _ := parseCatalogData(catalogData)
+	roots := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if entryToken(e.target) == "" {
+			roots[entryHost(e.target)] = true
+		}
+	}
+	for _, e := range entries {
+		// Only services are grouped under parents. A queried community such as
+		// ring@thebackupbox.net sorts by host but remains a plain row.
+		if e.kind != kindService || entryToken(e.target) == "" {
+			continue
+		}
+		if !roots[entryHost(e.target)] {
+			t.Errorf("%s has no root entry for %s; every grouped child needs a parent row", e.target, entryHost(e.target))
+		}
+	}
+}

@@ -955,3 +955,159 @@ func TestStartApplyStylesKeepsSectionHeaders(t *testing.T) {
 		t.Fatalf("View() lost its section headers after applyStyles:\n%s", got)
 	}
 }
+
+func TestStartRowTargetShortensChildrenUnlessFiltered(t *testing.T) {
+	child := startEntry{target: "dict@bbs.airandwave.net", child: true}
+	if got, want := startRowTarget(child, false), "  dict"; got != want {
+		t.Errorf("unfiltered child = %q, want %q", got, want)
+	}
+	// Filtering removes the parent that supplies the host, so the row must
+	// carry its full address again.
+	if got, want := startRowTarget(child, true), "dict@bbs.airandwave.net"; got != want {
+		t.Errorf("filtered child = %q, want %q", got, want)
+	}
+	parent := startEntry{target: "@bbs.airandwave.net"}
+	if got, want := startRowTarget(parent, false), "@bbs.airandwave.net"; got != want {
+		t.Errorf("parent = %q, want %q", got, want)
+	}
+}
+
+// In the narrow two-line layout the note sits under the target, so an
+// unindented note would hang left of its own row.
+func TestNarrowChildRowIndentsBothLines(t *testing.T) {
+	common := testCommon()
+	common.width = 40
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	if d.Height() != 2 {
+		t.Fatalf("delegate height = %d at width 40, want the two-line layout", d.Height())
+	}
+	l := list.New([]list.Item{
+		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", child: true}, section: sectionServices},
+		startItem{entry: startEntry{target: "other@example.com", note: "Other row"}, section: sectionServices},
+		startItem{entry: startEntry{target: "third@example.com", note: "Third row"}, section: sectionServices},
+	}, d, 40, 4)
+	// Render both rows unselected so the selection shelf's border and padding do
+	// not get mistaken for the child's own two-space indent. The base list style
+	// already left-pads every row by two spaces (tui/styles.go NormalTitle/
+	// NormalDesc), so asserting a bare "starts with two spaces" would pass even
+	// if the child-specific indent were dropped entirely. Compare the child's
+	// leading-space count against its non-child sibling's instead, so only the
+	// feature under test — the extra indent — can satisfy the assertion.
+	l.Select(2) // a third row, so neither rendered row below carries the selection shelf
+	var childBuf, siblingBuf strings.Builder
+	d.Render(&childBuf, l, 0, l.Items()[0])
+	d.Render(&siblingBuf, l, 1, l.Items()[1])
+	childLines := strings.Split(ansi.Strip(childBuf.String()), "\n")
+	siblingLines := strings.Split(ansi.Strip(siblingBuf.String()), "\n")
+	if len(childLines) != len(siblingLines) {
+		t.Fatalf("child rendered %d lines, sibling %d; want equal", len(childLines), len(siblingLines))
+	}
+	for i := range childLines {
+		childIndent := len(childLines[i]) - len(strings.TrimLeft(childLines[i], " "))
+		siblingIndent := len(siblingLines[i]) - len(strings.TrimLeft(siblingLines[i], " "))
+		if got, want := childIndent, siblingIndent+2; got != want {
+			t.Errorf("line %d indent = %d, want %d (sibling %d + the child's own 2): child %q, sibling %q",
+				i, got, want, siblingIndent, childLines[i], siblingLines[i])
+		}
+	}
+}
+
+func TestFilteredChildRendersFullTargetWithMatchHighlight(t *testing.T) {
+	for _, query := range []string{"dict", "airandwave"} {
+		t.Run(query, func(t *testing.T) {
+			common := testCommon()
+			common.width = 80
+			sections := []startSection{{
+				id: sectionServices, title: "SERVICES",
+				entries: []startEntry{{
+					target: "dict@bbs.airandwave.net", note: "Dictionary lookup",
+					source: sourceCatalog, child: true,
+				}},
+			}}
+			m := newStart(common, sections, "", "")
+			m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+			m = typeStartFilter(t, m, query)
+			m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+			view := m.View()
+			plain := ansi.Strip(view)
+			lineIndex := lineIndexContaining(t, plain, "dict@bbs.airandwave.net")
+			line := strings.Split(view, "\n")[lineIndex]
+			if got := underlinedText(line); got != query {
+				t.Fatalf("underlined text = %q, want %q\n%q", got, query, line)
+			}
+		})
+	}
+}
+
+// Pressing "/" with nothing typed does not flatten anything: bubbles still
+// returns every item, headers included, so a child is still sitting under its
+// parent and must keep its token. Only a non-empty query collapses the view and
+// leaves a child needing its full address.
+func TestEmptyFilterKeepsChildTokensAndQueryExpandsThem(t *testing.T) {
+	newStartWithGroup := func(t *testing.T) startModel {
+		t.Helper()
+		common := testCommon()
+		common.width = 80
+		return newStart(common, []startSection{{
+			id: sectionServices, title: "SERVICES",
+			entries: []startEntry{
+				{target: "@bbs.airandwave.net", note: "Over two dozen services", source: sourceCatalog},
+				{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", source: sourceCatalog, child: true},
+			},
+		}}, "", "")
+	}
+
+	t.Run("empty query keeps the token", func(t *testing.T) {
+		m := newStartWithGroup(t)
+		m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+		if got := m.list.FilterState(); got != list.Filtering {
+			t.Fatalf("filter state = %v, want Filtering", got)
+		}
+		plain := ansi.Strip(m.View())
+		if strings.Contains(plain, "dict@bbs.airandwave.net") {
+			t.Errorf("child expanded to its full address while its group is still on screen:\n%s", plain)
+		}
+		if !strings.Contains(plain, "  dict") {
+			t.Errorf("child token missing:\n%s", plain)
+		}
+	})
+
+	t.Run("a typed query expands it", func(t *testing.T) {
+		m := newStartWithGroup(t)
+		m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+		m = typeStartFilter(t, m, "dict")
+		plain := ansi.Strip(m.View())
+		if !strings.Contains(plain, "dict@bbs.airandwave.net") {
+			t.Errorf("flattened child kept its bare token:\n%s", plain)
+		}
+	})
+}
+
+// A structural row duplicates a target listed elsewhere. Filtering drops the
+// headers that tell the two copies apart, so the duplicate must drop out too.
+func TestStructuralRowsDoNotMatchFilters(t *testing.T) {
+	structural := startItem{entry: startEntry{target: "@happynetbox.com", structural: true}}
+	if got := structural.FilterValue(); got != "" {
+		t.Fatalf("FilterValue() = %q, want empty so the copy is filtered out", got)
+	}
+	listing := startItem{entry: startEntry{target: "@happynetbox.com", note: "n"}}
+	if got, want := listing.FilterValue(), "@happynetbox.com n"; got != want {
+		t.Fatalf("FilterValue() = %q, want %q", got, want)
+	}
+}
+
+// Counts describe displayed listings after bookmark/catalog suppression. A
+// structural parent is navigation structure, not another listing, so it must
+// not raise either total.
+func TestCountsIgnoreStructuralRows(t *testing.T) {
+	items := []list.Item{
+		startItem{header: "SERVICES", section: sectionServices},
+		startItem{entry: startEntry{target: "@happynetbox.com", structural: true}, section: sectionServices},
+		startItem{entry: startEntry{target: "bot@happynetbox.com", child: true}, section: sectionServices},
+	}
+	if got := startCounts(items); got.services != 1 {
+		t.Fatalf("services = %d, want 1 — the structural copy is not a listing", got.services)
+	}
+}

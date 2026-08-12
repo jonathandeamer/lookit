@@ -7,27 +7,21 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // startChromeRows matches listChromeRows: space the bubbles list reserves once
 // its own title and help are hidden.
-const (
-	startChromeRows  = 1
-	catalogCreditURL = "https://640kb.neocities.org/fingerverse/"
-)
+const startChromeRows = 1
 
-// startItem is one row: an entry, section header, or catalog credit. Non-entry
-// rows occupy normal item slots so the list's uniform-height pagination holds.
+// startItem is one row: an entry or section header. Non-entry rows occupy
+// normal item slots so the list's uniform-height pagination holds.
 type startItem struct {
 	entry  startEntry
 	header string // non-empty => this row is a section heading
-	credit bool
 }
 
 func (i startItem) selectable() bool {
-	return i.header == "" && !i.credit && i.entry.target != ""
+	return i.header == "" && i.entry.target != ""
 }
 
 // FilterValue drives "/". Non-entry rows return "" so they drop out while
@@ -43,18 +37,12 @@ func (i startItem) Title() string {
 	if i.header != "" {
 		return i.header
 	}
-	if i.credit {
-		return "Catalog inspired by"
-	}
 	return i.entry.target
 }
 
 func (i startItem) Description() string {
 	if i.header != "" {
 		return ""
-	}
-	if i.credit {
-		return catalogCreditURL
 	}
 	return i.entry.note
 }
@@ -70,18 +58,11 @@ type startModel struct {
 
 func newStart(common *commonModel, sections []startSection, notice, empty string) startModel {
 	var items []list.Item
-	hasCatalogRow := false
 	for _, s := range sections {
 		items = append(items, startItem{header: s.title})
 		for _, e := range s.entries {
 			items = append(items, startItem{entry: e})
-			if e.source == sourceCatalog {
-				hasCatalogRow = true
-			}
 		}
-	}
-	if hasCatalogRow {
-		items = append(items, startItem{credit: true})
 	}
 
 	st := common.ensureStyles()
@@ -122,18 +103,6 @@ func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		fmt.Fprintf(w, "\n%s", d.st.barFlag.Render(it.header)) //nolint:errcheck
 		return
 	}
-	if it, ok := item.(startItem); ok && it.credit {
-		width := m.Width()
-		if width <= 0 {
-			return
-		}
-		dim := lipgloss.NewStyle().Foreground(d.st.palette.Dim)
-		label := ansi.Truncate("Catalog inspired by", width, "…")
-		visibleURL := ansi.Truncate(catalogCreditURL, width, "…")
-		url := lipgloss.NewStyle().Hyperlink(catalogCreditURL).Render(visibleURL)
-		fmt.Fprintf(w, "%s\n%s", dim.Render(label), dim.Render(url)) //nolint:errcheck
-		return
-	}
 	d.userDelegate.Render(w, m, index, item)
 }
 
@@ -142,7 +111,7 @@ func (m startModel) update(msg tea.Msg) (startModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	if _, ok := msg.(list.FilterMatchesMsg); ok {
-		// Filtering removes headers and the credit. The unfiltered cursor starts
+		// Filtering removes headers. The unfiltered cursor starts
 		// at 1 to skip the leading header, so reset it to the first filtered row.
 		m.list.Select(0)
 		m.skipNonEntry(1)
@@ -161,8 +130,8 @@ func (m startModel) update(msg tea.Msg) (startModel, tea.Cmd) {
 	return m, cmd
 }
 
-// skipNonEntry advances past a header or credit in the direction of travel,
-// reversing at the ends so the cursor can never rest on a non-entry row.
+// skipNonEntry advances past a header in the direction of travel, reversing at
+// the ends so the cursor can never rest on a non-entry row.
 func (m *startModel) skipNonEntry(dir int) {
 	items := m.list.VisibleItems()
 	if len(items) == 0 {

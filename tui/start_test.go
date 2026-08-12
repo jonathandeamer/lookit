@@ -6,8 +6,6 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // testCommon is shared with list_test.go; do not redeclare it here.
@@ -84,71 +82,47 @@ func TestStartCursorSkipsHeaderAtPageBoundary(t *testing.T) {
 	}
 }
 
-// At the last entry, down must not strand the cursor on the trailing credit.
-func TestStartCursorStopsBeforeCredit(t *testing.T) {
-	m := newStart(testCommon(), twoSections(), "", "")
-	for range 6 {
-		m, _ = m.update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	}
-	got, ok := m.selected()
-	if !ok {
-		t.Fatal("selected() ok = false at the end of the list")
-	}
-	if got.target != "@happynetbox.com" {
-		t.Fatalf("selected = %q, want @happynetbox.com", got.target)
-	}
-}
-
-func TestStartCatalogCreditIsLinkedAndNonSelectable(t *testing.T) {
-	m := newStart(testCommon(), twoSections(), "", "")
-	items := m.list.Items()
-	credit, ok := items[len(items)-1].(startItem)
-	if !ok || !credit.credit {
-		t.Fatalf("last item = %#v, want catalog credit", items[len(items)-1])
-	}
-	m.list.Select(len(items) - 1)
-	m.skipNonEntry(1)
-	got, ok := m.selected()
-	if !ok || got.target != "@happynetbox.com" {
-		t.Fatalf("selected = %+v, %v; want last catalog entry", got, ok)
+func TestStartHasNoCatalogCreditRow(t *testing.T) {
+	tests := []struct {
+		name     string
+		sections []startSection
+	}{
+		{name: "catalog on with bookmark", sections: twoSections()},
+		{name: "catalog on without bookmarks", sections: twoSections()[1:]},
+		{name: "catalog off with borrowed catalog note", sections: []startSection{{
+			title: "BOOKMARKS",
+			entries: []startEntry{{
+				target: "@tilde.team",
+				note:   twoSections()[1].entries[0].note,
+				source: sourceBookmark,
+			}},
+		}}},
 	}
 
-	view := m.View()
-	for _, want := range []string{
-		"Catalog inspired by",
-		lipgloss.NewStyle().Hyperlink(catalogCreditURL).Render(catalogCreditURL),
-	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("View() missing %q:\n%s", want, view)
-		}
-	}
-}
-
-func TestStartCatalogCreditFitsNarrowListWidth(t *testing.T) {
-	common := testCommon()
-	common.width = 18
-	m := newStart(common, twoSections(), "", "")
-	items := m.list.Items()
-	credit := items[len(items)-1]
-	st := common.ensureStyles()
-	delegate := startDelegate{userDelegate: defaultUserDelegate(st), st: st}
-
-	var rendered strings.Builder
-	delegate.Render(&rendered, m.list, len(items)-1, credit)
-	for _, line := range strings.Split(rendered.String(), "\n") {
-		if width := ansi.StringWidth(line); width > m.list.Width() {
-			t.Fatalf("credit line width = %d, list width = %d: %q", width, m.list.Width(), line)
-		}
-	}
-}
-
-func TestStartCatalogCreditRequiresCatalogRow(t *testing.T) {
-	sections := []startSection{{title: "BOOKMARKS", entries: []startEntry{
-		{target: "@tilde.team", source: sourceBookmark},
-	}}}
-	m := newStart(testCommon(), sections, "", "")
-	if strings.Contains(m.View(), "Catalog inspired by") {
-		t.Fatalf("View() contains catalog credit without a catalog row:\n%s", m.View())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newStart(testCommon(), tt.sections, "", "")
+			items := m.list.Items()
+			if len(items) == 0 {
+				t.Fatal("startpage has no items")
+			}
+			last, ok := items[len(items)-1].(startItem)
+			if !ok || !last.selectable() {
+				t.Fatalf("last item = %#v, want a selectable entry", items[len(items)-1])
+			}
+			for _, item := range items {
+				row, ok := item.(startItem)
+				if !ok {
+					t.Fatalf("item = %#v, want startItem", item)
+				}
+				if !row.selectable() && row.header == "" {
+					t.Fatalf("non-selectable item = %#v, want a header", row)
+				}
+			}
+			if strings.Contains(stripANSIForLandingTest(m.View()), "Catalog inspired by") {
+				t.Fatalf("startpage still renders catalog attribution:\n%s", m.View())
+			}
+		})
 	}
 }
 
@@ -164,11 +138,6 @@ func TestStartFilterSelectsFirstMatchAfterHeadersDisappear(t *testing.T) {
 		t.Fatal("filter command produced no list.FilterMatchesMsg")
 	}
 	m, _ = m.update(msg)
-	for _, item := range m.list.VisibleItems() {
-		if si, ok := item.(startItem); ok && si.credit {
-			t.Fatal("catalog credit survived filtering")
-		}
-	}
 	got, ok := m.selected()
 	if !ok || got.target != "@plan.cat" {
 		t.Fatalf("selected = %+v, %v; want first filtered row @plan.cat", got, ok)

@@ -183,10 +183,9 @@ func TestLoadBookmarksDoesNotRestoreDeletedAuthorBookmark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bookmarks after removal: %v", err)
 	}
-	// deleteBookmarkLine keeps the trailing empty split segment, so the file
-	// becomes a lone newline rather than zero bytes. That existing file is
-	// still authoritative.
-	if got, want := string(data), "\n"; got != want {
+	// Human ruling: deleting the sole seed leaves a zero-byte existing file.
+	// That existing file is still authoritative.
+	if got, want := string(data), ""; got != want {
 		t.Fatalf("bookmarks after removal = %q, want %q", got, want)
 	}
 }
@@ -410,4 +409,3 @@ Expected: feature changes are limited to listed files. Pre-existing modification
 - [ ] **Step 3: Report the edit-only handoff**
 
 Summarize the seed, authoritative-existing-file behavior, tests, and fresh make check result. State that no commit, push, or PR was created.
-

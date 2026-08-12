@@ -7,17 +7,24 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // startChromeRows matches listChromeRows: space the bubbles list reserves once
 // its own title and help are hidden.
-const startChromeRows = 1
+const (
+	startChromeRows      = 1
+	startWideMinWidth    = 72
+	startTargetColumnPct = 50
+)
 
 // startItem is one row: an entry or section header. Non-entry rows occupy
 // normal item slots so the list's uniform-height pagination holds.
 type startItem struct {
-	entry  startEntry
-	header string // non-empty => this row is a section heading
+	entry   startEntry
+	header  string // non-empty => this row is a section heading
+	section startSectionID
 }
 
 func (i startItem) selectable() bool {
@@ -59,9 +66,9 @@ type startModel struct {
 func newStart(common *commonModel, sections []startSection, notice, empty string) startModel {
 	var items []list.Item
 	for _, s := range sections {
-		items = append(items, startItem{header: s.title})
+		items = append(items, startItem{header: s.title, section: s.id})
 		for _, e := range s.entries {
-			items = append(items, startItem{entry: e})
+			items = append(items, startItem{entry: e, section: s.id})
 		}
 	}
 
@@ -70,13 +77,13 @@ func newStart(common *commonModel, sections []startSection, notice, empty string
 	if height < 1 {
 		height = 1
 	}
-	l := list.New(items, startDelegate{userDelegate: defaultUserDelegate(st), st: st}, common.width, height)
+	l := list.New(items, newStartDelegate(common, st), common.width, height)
 	applyListStyles(&l, st)
 	// NOT redundant with the delegate passed to list.New: applyListStyles ends
 	// with SetDelegate(defaultUserDelegate(st)) (tui/list.go:141), which clobbers
 	// it. The startpage delegate must be reinstated after every style pass — see
 	// applyStyles below, which orders it the same way for the same reason.
-	l.SetDelegate(startDelegate{userDelegate: defaultUserDelegate(st), st: st})
+	l.SetDelegate(newStartDelegate(common, st))
 	l.SetShowStatusBar(false)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
@@ -90,20 +97,152 @@ func newStart(common *commonModel, sections []startSection, notice, empty string
 	return m
 }
 
-// startDelegate renders headers itself and defers entries to the existing user
-// delegate, so startpage rows look exactly like user-list rows.
 type startDelegate struct {
-	userDelegate
-	st styles
+	common *commonModel
+	st     styles
 }
 
+func newStartDelegate(common *commonModel, st styles) startDelegate {
+	return startDelegate{common: common, st: st}
+}
+
+func (d startDelegate) Height() int {
+	if d.common.width >= startWideMinWidth {
+		return 1
+	}
+	return 2
+}
+
+func (d startDelegate) Spacing() int { return 0 }
+
+func (d startDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
+
 func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	if it, ok := item.(startItem); ok && it.header != "" {
-		// Two rows, matching the entry cell height that pagination assumes.
-		fmt.Fprintf(w, "\n%s", d.st.barFlag.Render(it.header)) //nolint:errcheck
+	it, ok := item.(startItem)
+	if !ok || m.Width() <= 0 {
 		return
 	}
-	d.userDelegate.Render(w, m, index, item)
+	if it.header != "" {
+		d.renderHeader(w, m.Width(), it.header)
+		return
+	}
+	if !it.selectable() {
+		return
+	}
+	d.renderEntry(w, m, index, it)
+}
+
+func (d startDelegate) renderHeader(w io.Writer, width int, header string) {
+	if d.Height() == 2 {
+		fmt.Fprint(w, "\n") //nolint:errcheck
+	}
+	label := ansi.Truncate(header+" ", width, "…")
+	ruleWidth := width - lipgloss.Width(label)
+	if ruleWidth < 0 {
+		ruleWidth = 0
+	}
+	fmt.Fprintf(w, "%s%s", d.st.barFlag.Bold(true).Render(label), lipgloss.NewStyle().Foreground(d.st.palette.Rule).Render(strings.Repeat("─", ruleWidth))) //nolint:errcheck
+}
+
+func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item startItem) {
+	isSelected := index == m.Index()
+	emptyFilter := m.FilterState() == list.Filtering && m.FilterValue() == ""
+	isFiltered := m.FilterState() == list.Filtering || m.FilterState() == list.FilterApplied
+
+	titleStyle, descStyle := d.st.listItem.NormalTitle, d.st.listItem.NormalDesc
+	if emptyFilter {
+		titleStyle, descStyle = d.st.listItem.DimmedTitle, d.st.listItem.DimmedDesc
+	} else if isSelected && m.FilterState() != list.Filtering {
+		titleStyle, descStyle = d.st.listItem.SelectedTitle, d.st.listItem.SelectedDesc
+	}
+
+	var targetMatches, noteMatches []int
+	if isFiltered && !emptyFilter {
+		targetMatches, noteMatches = splitStartMatches(m.MatchesForItem(index), item.entry.target)
+	}
+
+	if d.Height() == 1 {
+		frame := titleStyle.GetHorizontalFrameSize()
+		targetWidth, noteWidth := startColumnWidths(m.Width(), frame)
+		target := renderStartField(item.entry.target, targetWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
+		note := renderStartField(item.entry.note, noteWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
+		target = padStartField(target, targetWidth, startInlineStyle(titleStyle))
+		row := target + note
+		if isSelected && m.FilterState() != list.Filtering {
+			fmt.Fprint(w, renderSelectedShelfLine(row, titleStyle, m.Width())) //nolint:errcheck
+			return
+		}
+		fmt.Fprint(w, titleStyle.Render(row)) //nolint:errcheck
+		return
+	}
+
+	titleWidth := m.Width() - titleStyle.GetHorizontalFrameSize()
+	if titleWidth < 0 {
+		titleWidth = 0
+	}
+	descWidth := m.Width() - descStyle.GetHorizontalFrameSize()
+	if descWidth < 0 {
+		descWidth = 0
+	}
+	target := renderStartField(item.entry.target, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
+	note := renderStartField(item.entry.note, descWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
+	if isSelected && m.FilterState() != list.Filtering {
+		fmt.Fprintf(w, "%s\n%s", renderSelectedShelfLine(target, titleStyle, m.Width()), renderSelectedShelfLine(note, descStyle, m.Width())) //nolint:errcheck
+		return
+	}
+	fmt.Fprintf(w, "%s\n%s", titleStyle.Render(target), descStyle.Render(note)) //nolint:errcheck
+}
+
+func startColumnWidths(width, frame int) (int, int) {
+	available := width - frame
+	if available < 0 {
+		available = 0
+	}
+	target := available * startTargetColumnPct / 100
+	return target, available - target
+}
+
+func splitStartMatches(matches []int, target string) (targetMatches, noteMatches []int) {
+	noteOffset := len([]rune(target)) + 1
+	for _, match := range matches {
+		if match < noteOffset-1 {
+			targetMatches = append(targetMatches, match)
+		} else if match >= noteOffset {
+			noteMatches = append(noteMatches, match-noteOffset)
+		}
+	}
+	return targetMatches, noteMatches
+}
+
+func renderStartField(value string, width int, matches []int, base, match lipgloss.Style) string {
+	truncated := ansi.Truncate(value, width, "…")
+	if len(matches) == 0 {
+		return startInlineStyle(base).Render(truncated)
+	}
+	limit := len([]rune(truncated))
+	if lipgloss.Width(value) > width && limit > 0 {
+		limit-- // the ellipsis is not one of the original field's matched runes
+	}
+	kept := make([]int, 0, len(matches))
+	for _, index := range matches {
+		if index >= 0 && index < limit {
+			kept = append(kept, index)
+		}
+	}
+	unmatched := startInlineStyle(base).Inline(true)
+	matched := unmatched.Inherit(match)
+	return lipgloss.StyleRunes(truncated, kept, matched, unmatched)
+}
+
+func startInlineStyle(st lipgloss.Style) lipgloss.Style {
+	return st.UnsetPadding().UnsetBorderStyle()
+}
+
+func padStartField(field string, width int, fill lipgloss.Style) string {
+	if pad := width - lipgloss.Width(field); pad > 0 {
+		return field + fill.Render(strings.Repeat(" ", pad))
+	}
+	return field
 }
 
 func (m startModel) update(msg tea.Msg) (startModel, tea.Cmd) {
@@ -172,10 +311,12 @@ func (m startModel) View() string {
 }
 
 func (m *startModel) setSize(width, height int) {
+	m.common.width = width
 	h := height - startChromeRows - m.noticeHeight()
 	if h < 1 {
 		h = 1
 	}
+	m.list.SetDelegate(newStartDelegate(m.common, m.common.ensureStyles()))
 	m.list.SetSize(width, h)
 }
 
@@ -217,5 +358,5 @@ func (m startModel) filterApplied() bool {
 
 func (m *startModel) applyStyles(st styles) {
 	applyListStyles(&m.list, st)
-	m.list.SetDelegate(startDelegate{userDelegate: defaultUserDelegate(st), st: st})
+	m.list.SetDelegate(newStartDelegate(m.common, st))
 }

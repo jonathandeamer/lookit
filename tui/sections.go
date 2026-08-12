@@ -1,7 +1,17 @@
 package tui
 
+type startSectionID uint8
+
+const (
+	sectionUnknown startSectionID = iota
+	sectionBookmarks
+	sectionCommunities
+	sectionServices
+)
+
 // startSection is one titled group of startpage rows.
 type startSection struct {
+	id      startSectionID
 	title   string
 	entries []startEntry
 }
@@ -34,7 +44,7 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 			}
 			bookmarked = append(bookmarked, e)
 		}
-		sections = append(sections, startSection{title: "BOOKMARKS", entries: bookmarked})
+		sections = append(sections, startSection{id: sectionBookmarks, title: "BOOKMARKS", entries: bookmarked})
 	}
 
 	if bm.catalogHidden {
@@ -48,10 +58,11 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 	for _, group := range []struct {
 		title string
 		kind  entryKind
+		id    startSectionID
 	}{
-		{title: "COMMUNITIES", kind: kindCommunity},
-		{title: "SERVICES", kind: kindService},
-		{title: "PEOPLE", kind: kindPerson},
+		{title: "COMMUNITIES", kind: kindCommunity, id: sectionCommunities},
+		{title: "SERVICES", kind: kindService, id: sectionServices},
+		{title: "PEOPLE", kind: kindPerson, id: sectionUnknown},
 	} {
 		var entries []startEntry
 		for _, e := range catalog {
@@ -60,7 +71,7 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 			}
 		}
 		if len(entries) > 0 {
-			sections = append(sections, startSection{title: group.title, entries: entries})
+			sections = append(sections, startSection{id: group.id, title: group.title, entries: entries})
 		}
 	}
 	return sections

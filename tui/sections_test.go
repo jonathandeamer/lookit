@@ -23,6 +23,13 @@ func TestBuildSectionsCatalogOnly(t *testing.T) {
 	}
 }
 
+func TestBuildSectionsAssignsStableIDs(t *testing.T) {
+	got := buildSections(catalogFixture(), bookmarkFile{targets: []string{"@tilde.team"}})
+	if got[0].id != sectionBookmarks || got[1].id != sectionCommunities || got[2].id != sectionServices {
+		t.Fatalf("section IDs = [%v %v %v]", got[0].id, got[1].id, got[2].id)
+	}
+}
+
 func TestBuildSectionsBookmarksComeFirstAndDedup(t *testing.T) {
 	bm := bookmarkFile{targets: []string{"@tilde.team"}}
 	got := buildSections(catalogFixture(), bm)

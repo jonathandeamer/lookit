@@ -1,21 +1,23 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // testCommon is shared with list_test.go; do not redeclare it here.
 
 func twoSections() []startSection {
 	return []startSection{
-		{title: "BOOKMARKS", entries: []startEntry{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
 			{target: "@tilde.team", kind: kindCommunity, note: "Small public access unix", source: sourceBookmark},
 		}},
-		{title: "COMMUNITIES", entries: []startEntry{
+		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
 			{target: "@plan.cat", kind: kindCommunity, note: "Classic finger, polished for the present", source: sourceCatalog},
 			{target: "@happynetbox.com", kind: kindCommunity, note: "Finger server of user profiles, run by Ben Brown", source: sourceCatalog},
 		}},
@@ -72,13 +74,142 @@ func TestStartCursorStepsOverHeaderUpward(t *testing.T) {
 
 func TestStartCursorSkipsHeaderAtPageBoundary(t *testing.T) {
 	common := testCommon()
-	common.height = 8 // force pagination with the two-row delegate
+	common.width = 40
+	common.height = 8 // force pagination at a width that uses the two-row delegate
 	m := newStart(common, twoSections(), "", "")
 	m.list.Select(2) // the COMMUNITIES header, on a later page
 	m.skipNonEntry(1)
 	got, ok := m.selected()
 	if !ok || got.target != "@plan.cat" {
 		t.Fatalf("selected = %+v, %v; want @plan.cat after boundary header", got, ok)
+	}
+}
+
+func TestStartDelegateResponsiveHeight(t *testing.T) {
+	common := testCommon()
+	common.width = startWideMinWidth
+	wide := newStart(common, twoSections(), "", "")
+	if got := wide.list.Paginator.PerPage; got < 2 {
+		t.Fatalf("wide PerPage = %d, want multiple one-row items", got)
+	}
+	if got := newStartDelegate(common, common.ensureStyles()).Height(); got != 1 {
+		t.Fatalf("wide delegate height = %d, want 1", got)
+	}
+
+	common.width = startWideMinWidth - 1
+	narrow := newStart(common, twoSections(), "", "")
+	if got := newStartDelegate(common, common.ensureStyles()).Height(); got != 2 {
+		t.Fatalf("narrow delegate height = %d, want 2", got)
+	}
+	if narrow.list.Paginator.PerPage >= wide.list.Paginator.PerPage {
+		t.Fatalf("narrow PerPage = %d, wide = %d", narrow.list.Paginator.PerPage, wide.list.Paginator.PerPage)
+	}
+}
+
+func TestStartWideRowKeepsLongestCatalogTarget(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	sections := []startSection{{
+		id: sectionServices, title: "SERVICES",
+		entries: []startEntry{{
+			target: "wordsearch:today@bbs.airandwave.net",
+			note:   "Daily word search puzzle", source: sourceCatalog,
+		}},
+	}}
+	m := newStart(common, sections, "", "")
+	line := lineContaining(t, stripANSIForLandingTest(m.View()), "wordsearch:today@bbs.airandwave.net")
+	if !strings.Contains(line, "wordsearch:today@bbs.airandwave.net") {
+		t.Fatalf("target truncated at 80 columns: %q", line)
+	}
+}
+
+func TestStartDelegateWidthVariants(t *testing.T) {
+	tests := []struct {
+		width int
+		wide  bool
+	}{
+		{width: 80, wide: true},
+		{width: 72, wide: true},
+		{width: 71, wide: false},
+		{width: 24, wide: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("width_%d", tt.width), func(t *testing.T) {
+			common := testCommon()
+			common.width = tt.width
+			m := newStart(common, twoSections(), "", "")
+			view := m.View()
+			plain := stripANSIForLandingTest(view)
+
+			for i, line := range strings.Split(view, "\n") {
+				if got := lipgloss.Width(line); got > m.list.Width() {
+					t.Fatalf("line %d width = %d, list width = %d:\n%q", i, got, m.list.Width(), line)
+				}
+			}
+
+			targetLine := lineIndexContaining(t, plain, "@tilde.team")
+			noteLine := lineIndexContaining(t, plain, "Small public")
+			if tt.wide && targetLine != noteLine {
+				t.Fatalf("wide target line = %d, note line = %d; want one physical row:\n%s", targetLine, noteLine, plain)
+			}
+			if !tt.wide && noteLine != targetLine+1 {
+				t.Fatalf("narrow target line = %d, note line = %d; want stacked rows:\n%s", targetLine, noteLine, plain)
+			}
+
+			if tt.wide {
+				assertFullWidthStyledLine(t, "wide selected shelf", lineContaining(t, view, "@tilde.team"), m.list.Width(), common.styles.palette.SelectionBg)
+			}
+
+			d := newStartDelegate(common, common.ensureStyles())
+			var header strings.Builder
+			d.Render(&header, m.list, 0, m.list.Items()[0])
+			if got := len(strings.Split(header.String(), "\n")); got != d.Height() {
+				t.Fatalf("header rows = %d, delegate height = %d: %q", got, d.Height(), header.String())
+			}
+		})
+	}
+}
+
+func TestStartDelegatePreservesFilterMatches(t *testing.T) {
+	for _, query := range []string{"tilde", "public"} {
+		t.Run(query, func(t *testing.T) {
+			common := testCommon()
+			common.width = 80
+			m := newStart(common, twoSections(), "", "")
+			m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+			var cmd tea.Cmd
+			for _, r := range query {
+				m, cmd = m.update(tea.KeyPressMsg{Code: r, Text: string(r)})
+			}
+			msg, ok := findFilterMatches(cmd)
+			if !ok {
+				t.Fatal("filter command produced no list.FilterMatchesMsg")
+			}
+			m, _ = m.update(msg)
+
+			view := m.View()
+			plain := stripANSIForLandingTest(view)
+			lineIndex := lineIndexContaining(t, plain, "@tilde.team")
+			line := strings.Split(view, "\n")[lineIndex]
+			if !strings.Contains(line, "\x1b[4") {
+				t.Fatalf("matched %q runes are not underlined:\n%q", query, line)
+			}
+			if strings.Contains(line, backgroundSequence(common.styles.palette.SelectionBg)) {
+				t.Fatalf("filtering row has a selected shelf:\n%q", line)
+			}
+		})
+	}
+}
+
+func TestStartDelegateDropsMatchBeyondTruncation(t *testing.T) {
+	st := testCommon().ensureStyles()
+	got := renderStartField("abcdef", 3, []int{2}, st.listItem.NormalTitle, st.listItem.FilterMatch)
+	if plain := stripANSIForLandingTest(got); plain != "ab…" {
+		t.Fatalf("truncated field = %q, want %q", plain, "ab…")
+	}
+	if strings.Contains(got, "\x1b[4") {
+		t.Fatalf("discarded match styled the ellipsis: %q", got)
 	}
 }
 

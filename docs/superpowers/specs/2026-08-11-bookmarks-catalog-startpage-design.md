@@ -494,6 +494,56 @@ which, so a future refresh can re-check rather than re-guess.
 | `@zaibatsu.circumlunar.space` | Circumlunar Space pubnix | 640kb; server says *"Currently logged in sundogs"* | list, 3 users |
 | `@chunboan.zone` | A tiny shared community on one cheap server | server: *"We are a tiny shared community on a single cheap server"* | banner, no list |
 
+#### Amendment: communities dropped, 2026-08-12
+
+**This section is a snapshot of what shipped on 2026-08-11; the table above is
+left as written.** The day after implementation the nine communities were
+re-probed serially, and **three were removed from `tui/catalog.txt`**, leaving
+six. All three were alive — none is a dead-address removal. Two failed a
+criterion the original survey did not apply: *a catalog entry is a place to
+start, so it must lead somewhere.* The third was a scope call by the maintainer.
+
+| Dropped | Why |
+|---|---|
+| `@athena.dialup.mit.edu` | Not a community, and a dead end. Drilling into `arma`, `fisherp` and `madars` returns `No Plan.` — gecos, shell and idle time only, with sessions idle 104 and 109 days. It is a stock Unix `fingerd` over real MIT accounts, so the people listed never opted into being catalogued, and one response carries a real office phone number. Shipping a pointer to their names and contact details inside a binary other people install is the same call already made in [People — none](#people--none): a poor place to be approximately right. Its 2026-08-11 note, *"MIT Athena dialup, still answering"*, was accurate — "still answering" is just not the same as worth starting from |
+| `@chunboan.zone` | Reachable, but its response ends at *"Users currently logged in:"* with nothing after it, twice on 2026-08-12. `ParseUsers` has no names to build a list from — the `banner, no list` probe result above, which the original table recorded and accepted. A user who picks it off the startpage gets a banner and no way onward |
+| `@telehack.com` | Busy (86 users, 47d uptime) and leads somewhere, so it fails neither test above. Dropped on the maintainer's call while rewriting its note: fingering a user (`bobbinz`) returns a game stat sheet — `system level: 141 (TITAN)`, quests completed, races won, systems with ROOT — so what the entry actually offers a newcomer is a retro-net game's scoreboard, not a community writing plans. The `telehack` matcher in `ParseUsers` stays: the parser supports hosts the catalog does not advertise, and a user who types the address still gets a list |
+
+Kept deliberately, though it looks marginal by the same test:
+`@zaibatsu.circumlunar.space` still showed only three users online, but they are
+live rather than stale — `cat` last logged in 2026-08-10, `yargo` 2026-08-11
+with a maintained Project and Plan. Small is not dead; the criterion is whether
+a visit leads somewhere, not headcount. `@cosmic.voyage` (7 online) is kept on
+the same basis.
+
+The removals also drop the last community whose probe result was `no list`, so
+the communities section is now uniformly drillable. That is a consequence, not a
+new rule — `no list` is still an acceptable probe result for a *service*.
+
+#### Amendment: notes rewritten, 2026-08-12
+
+Seven notes were rewritten in the same pass, against re-probed responses. The
+target was **marketing voice**: copy that tells you a mood instead of what the
+host does. The [notes convention](#the-two-sources) already required notes to be
+traceable; these were, and were still poor copy — accuracy is the floor, not the
+goal.
+
+| Target | 2026-08-11 | Now | Basis for the change |
+|---|---|---|---|
+| `@plan.cat` | Classic finger, polished for the present | Simple .plan hosting, also on the web | The old note was a tagline naming a mood. The response shows the substance — `Shell: /bin/plan.cat`, `/home/davep`, current plans (`davep`, 2026-08-11) — i.e. hosting, with a web face |
+| `@happynetbox.com` | Finger server of user profiles, run by Ben Brown | .plan files updated via the web | Quoted the server accurately but spent the line on provenance a newcomer cannot use. What is distinctive is the mechanism the response also shows — *"25 most recently updated profiles"*, *"Sign up for Happy Net Box at https://happynetbox.com"* — plans written in a browser, served over finger |
+| `@zaibatsu.circumlunar.space` | Circumlunar Space pubnix | A small pubnix; it calls its users sundogs | Not markety, just opaque: it explained the name with the name. "Sundogs" is the server's own word (*"Currently logged in sundogs"*) and gives a newcomer a reason to look |
+| `@bbs.airandwave.net` | Menu of a dozen-plus finger services | Over two dozen services, from news to sudoku | Stale, and it undersold the single richest host in the catalog. The menu now lists **28** services across nine categories (2026-08-12); the spec's original probe recorded 14 |
+| `bot@happynetbox.com` | News headlines, with links for the curious | Tech news headlines with links, plus a fun fact | "for the curious" is filler flattery. The response also opens with the time and a `fun fact:` line the old note ignored; the headlines are plainly tech (`Show HN`, `Launch HN`) |
+| `browserversion@happynetbox.com` | The latest versions across the browser world | Current version numbers for major browsers | "the browser world" inflated what is literally an eleven-row table of version numbers. Kept countless deliberately: a fixed number goes stale silently the day the service adds a browser |
+| `1@happynetbox.com` | Interactive fiction, chained over finger | Interactive fiction, one page per finger query | "chained over finger" described the mechanism in lookit's vocabulary; the replacement says the same thing in the reader's |
+
+Unchanged and worth recording as deliberate: `@tilde.team` and
+`ring@thebackupbox.net` quote their servers directly;
+`textfile@typed-hole.org` (*"A lucky dip into textfiles.com"*) and
+`calendar@flanigan.us` (*"Today's date, across the years"*) are the most human
+notes in the file — that is voice, not marketing, and it stays.
+
 ### Services (17)
 
 | Target | Note | Basis | Probe |
@@ -602,7 +652,10 @@ all deliberately.
    service queries it directly." Here `kind` is display grouping only, and
    `routeEntry` decides list-vs-reader from the actual response. The outcome
    matches for well-behaved hosts, but it is not a promise — `@chunboan.zone` is
-   a real community whose root returns a banner. Making `kind` a routing promise
+   a real community whose root returns a banner. (It was dropped from the
+   catalog on 2026-08-12 for exactly that — see
+   [Amendment: communities dropped](#amendment-communities-dropped-2026-08-12) —
+   but the point stands: any host can respond that way.) Making `kind` a routing promise
    would have lookit assert structure the protocol does not carry, against the
    honesty convention.
 2. **No current-directory config.** The issue floats "current directory or

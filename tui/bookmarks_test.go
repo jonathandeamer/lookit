@@ -1,34 +1,61 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// TestMain points every test at a nonexistent bookmarks path by default, so no
-// test in this package can read (or write) the real user's config. Tests that
-// need a live file call useTempBookmarks.
+// TestMain points every test at an existing empty bookmarks file by default, so
+// ordinary tests do not trigger initialization while remaining isolated from the
+// real user's config. Tests that need a live file call useTempBookmarks.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "lookit-tui-test-*")
 	if err != nil {
 		panic(err)
 	}
-	bookmarksPathFn = func() (string, error) { return filepath.Join(dir, "absent"), nil }
+	path := filepath.Join(dir, "bookmarks")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		panic(err)
+	}
+	bookmarksPathFn = func() (string, error) { return path, nil }
 	code := m.Run()
 	os.RemoveAll(dir) //nolint:errcheck // best-effort cleanup
 	os.Exit(code)
 }
 
-// useTempBookmarks points bookmarksPathFn at a fresh file in t.TempDir for the
-// duration of one test, restoring the package default afterwards. The file is
-// not created: callers that want seeded content write it themselves.
-func useTempBookmarks(t *testing.T) string {
+// useBookmarksPath points bookmarksPathFn at path for one test, restoring the
+// package default afterwards.
+func useBookmarksPath(t *testing.T, path string) {
 	t.Helper()
 	saved := bookmarksPathFn
-	path := filepath.Join(t.TempDir(), "lookit", "bookmarks")
 	bookmarksPathFn = func() (string, error) { return path, nil }
 	t.Cleanup(func() { bookmarksPathFn = saved })
+}
+
+// useTempBookmarks points bookmarksPathFn at a fresh existing empty file for
+// one test, restoring the package default afterwards.
+func useTempBookmarks(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "lookit", "bookmarks")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create bookmark fixture directory: %v", err)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("create empty bookmark fixture: %v", err)
+	}
+	useBookmarksPath(t, path)
+	return path
+}
+
+// useMissingTempBookmarks points bookmarksPathFn at a missing path for one test,
+// restoring the package default afterwards.
+func useMissingTempBookmarks(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "lookit", "bookmarks")
+	useBookmarksPath(t, path)
 	return path
 }
 
@@ -231,15 +258,188 @@ func TestSaveBookmarkDataPreservesSymlink(t *testing.T) {
 	}
 }
 
-func TestLoadBookmarksMissingFileIsNotAnError(t *testing.T) {
-	path := useTempBookmarks(t) // deliberately never created
+func TestLoadBookmarksMissingFileCreatesAuthorBookmark(t *testing.T) {
+	path := useMissingTempBookmarks(t)
 
 	file, gotPath := loadBookmarks()
 	if gotPath != path {
 		t.Fatalf("path = %q, want %q", gotPath, path)
 	}
+	if len(file.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", file.problems)
+	}
+	if len(file.targets) != 1 || file.targets[0] != aboutFingerAuthor {
+		t.Fatalf("targets = %+v, want [%s]", file.targets, aboutFingerAuthor)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read initialized bookmarks: %v", err)
+	}
+	if got, want := string(data), aboutFingerAuthor+"\n"; got != want {
+		t.Fatalf("bookmarks = %q, want %q", got, want)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat initialized bookmarks: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Errorf("bookmarks mode = %o, want 600", got)
+	}
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat initialized directory: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Errorf("bookmark directory mode = %o, want 700", got)
+	}
+}
+
+func TestInitializeBookmarkDataReadsConcurrentWinnerWithoutClobbering(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lookit", "bookmarks")
+	if _, err := os.ReadFile(path); !os.IsNotExist(err) {
+		t.Fatalf("initial read error = %v, want not exist", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create bookmark directory: %v", err)
+	}
+	winner := []byte("@plan.cat\n")
+	if err := os.WriteFile(path, winner, 0o600); err != nil {
+		t.Fatalf("publish concurrent winner: %v", err)
+	}
+
+	file := initializeBookmarkData(path, appendBookmarkLine(nil, aboutFingerAuthor))
+	if len(file.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", file.problems)
+	}
+	if len(file.targets) != 1 || file.targets[0] != "@plan.cat" {
+		t.Fatalf("targets = %+v, want [@plan.cat]", file.targets)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read concurrent winner: %v", err)
+	}
+	if got := string(data); got != string(winner) {
+		t.Fatalf("bookmarks = %q, want concurrent winner %q", got, winner)
+	}
+}
+
+func TestInitializeBookmarkDataReportsConcurrentWinnerReadFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bookmarks")
+	if _, err := os.ReadFile(path); !os.IsNotExist(err) {
+		t.Fatalf("initial read error = %v, want not exist", err)
+	}
+	if err := os.Symlink("missing-target", path); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	file := initializeBookmarkData(path, appendBookmarkLine(nil, aboutFingerAuthor))
+	if len(file.targets) != 0 {
+		t.Fatalf("targets = %+v, want none", file.targets)
+	}
+	if len(file.problems) != 1 || file.problems[0].line != 0 ||
+		!strings.HasPrefix(file.problems[0].reason, "cannot read: ") {
+		t.Fatalf("problems = %+v, want one line-zero cannot-read problem", file.problems)
+	}
+}
+
+func TestLoadBookmarksDoesNotRestoreDeletedAuthorBookmark(t *testing.T) {
+	path := useMissingTempBookmarks(t)
+	file, _ := loadBookmarks()
+	if len(file.targets) != 1 || file.targets[0] != aboutFingerAuthor {
+		t.Fatalf("initial targets = %+v, want [%s]", file.targets, aboutFingerAuthor)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read initialized bookmarks: %v", err)
+	}
+	if err := saveBookmarkData(path, deleteBookmarkLine(data, aboutFingerAuthor)); err != nil {
+		t.Fatalf("remove author bookmark: %v", err)
+	}
+
+	file, _ = loadBookmarks()
 	if len(file.targets) != 0 || len(file.problems) != 0 {
-		t.Fatalf("file = %+v, want empty", file)
+		t.Fatalf("file after removal = %+v, want empty", file)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bookmarks after removal: %v", err)
+	}
+	// Deleting the only line leaves an existing zero-byte file, which remains
+	// authoritative rather than restoring the author bookmark.
+	if got, want := string(data), ""; got != want {
+		t.Fatalf("bookmarks after removal = %q, want %q", got, want)
+	}
+}
+
+func TestLoadBookmarksReportsDefaultCreationFailure(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatalf("lock fixture directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(root, 0o700); err != nil {
+			t.Errorf("restore fixture directory: %v", err)
+		}
+	})
+	path := filepath.Join(root, "bookmarks")
+	useBookmarksPath(t, path)
+
+	file, gotPath := loadBookmarks()
+	if gotPath != path {
+		t.Fatalf("path = %q, want %q", gotPath, path)
+	}
+	if len(file.targets) != 0 {
+		t.Fatalf("targets = %+v, want none", file.targets)
+	}
+	if len(file.problems) != 1 || file.problems[0].line != 0 ||
+		!strings.HasPrefix(file.problems[0].reason, "cannot create: ") {
+		t.Fatalf("problems = %+v, want one line-zero cannot-create problem", file.problems)
+	}
+}
+
+func TestLoadBookmarksNeverRewritesExistingFile(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "empty", data: ""},
+		{name: "author absent", data: "@plan.cat\n"},
+		{name: "author present", data: aboutFingerAuthor + "\n@plan.cat\n"},
+		{name: "comments only", data: "# deliberately empty\n\n"},
+		{name: "catalog off only", data: "catalog off\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := useTempBookmarks(t)
+			if err := os.WriteFile(path, []byte(tt.data), 0o600); err != nil {
+				t.Fatalf("seed bookmarks: %v", err)
+			}
+			loadBookmarks()
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read bookmarks: %v", err)
+			}
+			if string(got) != tt.data {
+				t.Fatalf("bookmarks = %q, want unchanged %q", got, tt.data)
+			}
+		})
+	}
+}
+
+func TestLoadBookmarksPathResolutionFailureIsUnchanged(t *testing.T) {
+	saved := bookmarksPathFn
+	bookmarksPathFn = func() (string, error) { return "", errors.New("no home") }
+	t.Cleanup(func() { bookmarksPathFn = saved })
+
+	file, path := loadBookmarks()
+	if path != "" || len(file.targets) != 0 || len(file.problems) != 1 {
+		t.Fatalf("file = %+v, path = %q", file, path)
+	}
+	if got, want := file.problems[0].reason, "cannot locate a config directory: no home"; got != want {
+		t.Fatalf("reason = %q, want %q", got, want)
 	}
 }
 

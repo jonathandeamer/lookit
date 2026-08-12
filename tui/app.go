@@ -357,6 +357,12 @@ func (m appModel) bookmarkTarget() (string, bool) {
 // so it reflects the file. Bookmark records contain only the target: the
 // protocol cannot establish a kind, and routing remains response-derived.
 func (m *appModel) toggleBookmark() tea.Cmd {
+	var position startTogglePosition
+	hasPosition := false
+	if m.state == stateStart {
+		position, hasPosition = m.start.captureTogglePosition()
+	}
+
 	target, ok := m.bookmarkTarget()
 	if !ok {
 		return nil
@@ -396,9 +402,20 @@ func (m *appModel) toggleBookmark() tea.Cmd {
 	}
 	if m.state == stateStart {
 		m.reloadStart()
-		m.start.selectTarget(target)
+		restored := false
+		if hasPosition && position.filtered != nil {
+			m.start.list.SetFilterText(position.filter)
+			if len(m.start.list.VisibleItems()) > 0 {
+				restored = m.start.selectSectionPosition(*position.filtered)
+			} else {
+				m.start.list.ResetFilter()
+				restored = m.start.selectSectionPosition(position.full)
+			}
+		} else if hasPosition {
+			restored = m.start.selectSectionPosition(position.full)
+		}
 		m.resize()
-		if _, ok := m.start.selected(); !ok {
+		if !restored {
 			return tea.Batch(m.focusInput(), m.setFlash(msg))
 		}
 	}
@@ -1206,6 +1223,11 @@ func (m *appModel) copyAddress() tea.Cmd {
 func (m *appModel) updateKeymap() {
 	refreshHelp := m.refreshHelp()
 	m.keys.Refresh.SetHelp(refreshHelp.Key, refreshHelp.Desc)
+	if m.state == stateStart {
+		m.keys.Bookmark.SetHelp("b", m.startBookmarkAction())
+	} else {
+		m.keys.Bookmark.SetHelp("b", "bookmark")
+	}
 	if m.pending != nil {
 		for _, binding := range []*key.Binding{
 			&m.keys.Open, &m.keys.FocusInput, &m.keys.Filter, &m.keys.Raw,
@@ -1490,8 +1512,16 @@ func (m appModel) startBar(width int, st styles) statusBar {
 	if n > 0 {
 		bar.meta = fmt.Sprintf("%d entries", n)
 	}
-	bar.hints = "↵ go · b bookmark · / filter · i target · ? help"
+	bar.hints = fmt.Sprintf("↵ go · b %s · / filter · i target · ? help", m.startBookmarkAction())
 	return bar
+}
+
+func (m appModel) startBookmarkAction() string {
+	entry, ok := m.start.selected()
+	if ok && entry.source == sourceBookmark {
+		return "remove"
+	}
+	return "bookmark"
 }
 
 func (m appModel) helpView() string {

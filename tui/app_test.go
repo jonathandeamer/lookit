@@ -2910,48 +2910,227 @@ func TestStartEmptyMessageNamesResolvedPath(t *testing.T) {
 	}
 }
 
-func TestBookmarkOnStartpageTogglesFile(t *testing.T) {
+func seedBookmarks(t *testing.T, data string) string {
+	t.Helper()
 	path := useTempBookmarks(t)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("seed dir: %v", err)
 	}
-	if err := os.WriteFile(path, []byte("@tilde.team\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatalf("seed bookmarks: %v", err)
 	}
+	return path
+}
+
+// visibleTargets returns the selectable startpage targets in list order,
+// which under an applied filter is bubbles' fuzzy rank order.
+func visibleTargets(m startModel) []string {
+	var out []string
+	for _, it := range m.list.VisibleItems() {
+		if si, ok := it.(startItem); ok && si.selectable() {
+			out = append(out, si.entry.target)
+		}
+	}
+	return out
+}
+
+func TestBookmarkingCatalogRowStaysAtSectionOrdinal(t *testing.T) {
+	path := seedBookmarks(t, "@tilde.team\n")
 
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
 	if !m.start.selectTarget("@plan.cat") {
-		t.Fatal("catalog row @plan.cat not found")
-	}
-	first, ok := m.start.selected()
-	if !ok {
-		t.Fatal("no selection to bookmark")
+		t.Fatal("@plan.cat not found")
 	}
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read after bookmark: %v", err)
+	selected, ok := m.start.selected()
+	if !ok || selected.target != "@happynetbox.com" {
+		t.Fatalf("selected = %+v, %v; want next community at the same ordinal", selected, ok)
 	}
-	if want := "@tilde.team\n@plan.cat\n"; string(data) != want {
-		t.Fatalf("file = %q, want %q", data, want)
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "@plan.cat\n") {
+		t.Fatalf("bookmark file = %q, err=%v", data, err)
+	}
+}
+
+func TestBookmarkingCatalogRowsStayAtSectionOrdinal(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "middle", target: "@tilde.team", want: "@happynetbox.com"},
+		{name: "final", target: "@chunboan.zone", want: "@zaibatsu.circumlunar.space"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			useTempBookmarks(t)
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			if !m.start.selectTarget(tt.target) {
+				t.Fatalf("%s not found", tt.target)
+			}
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			selected, ok := m.start.selected()
+			if !ok || selected.target != tt.want {
+				t.Fatalf("selected = %+v, %v; want %q at the catalog ordinal", selected, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemovingMiddleBookmarkStaysAtBookmarkOrdinal(t *testing.T) {
+	seedBookmarks(t, "@plan.cat\n@tilde.team\n@happynetbox.com\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	if !m.start.selectTarget("@tilde.team") {
+		t.Fatal("@tilde.team not found")
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if !ok || selected.target != "@happynetbox.com" {
+		t.Fatalf("selected = %+v, %v; want bookmark moved into the removed row's slot", selected, ok)
+	}
+}
+
+func TestRemovingBookmarksStaysAtSectionOrdinal(t *testing.T) {
+	tests := []struct {
+		name string
+		seed string
+		pick string
+		want string
+	}{
+		{name: "first", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@plan.cat", want: "@tilde.team"},
+		{name: "final", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@happynetbox.com", want: "@tilde.team"},
+		{name: "only", seed: "@tilde.team\n", pick: "@tilde.team", want: "@plan.cat"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seedBookmarks(t, tt.seed)
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			if !m.start.selectTarget(tt.pick) {
+				t.Fatalf("%s not found", tt.pick)
+			}
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			selected, ok := m.start.selected()
+			if !ok || selected.target != tt.want {
+				t.Fatalf("selected = %+v, %v; want %q at the section ordinal", selected, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestBookmarkingOnlyFinalCatalogSectionRowFallsBackward(t *testing.T) {
+	var seed strings.Builder
+	for _, entry := range loadCatalog() {
+		if entry.kind == kindService && entry.target != "quake@bbs.airandwave.net" {
+			seed.WriteString(entry.target)
+			seed.WriteByte('\n')
+		}
+	}
+	seedBookmarks(t, seed.String())
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	if !m.start.selectTarget("quake@bbs.airandwave.net") {
+		t.Fatal("sole remaining service not found")
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if !ok || selected.target != "@plan.cat" {
+		t.Fatalf("selected = %+v, %v; want nearest earlier catalog section", selected, ok)
+	}
+}
+
+func TestFilteredBookmarkTogglePreservesFilterAndOrdinal(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("typed-hole")
+	matches := visibleTargets(m.start)
+	if len(matches) < 3 {
+		t.Fatalf("precondition: filter matched %v, want at least 3 services", matches)
+	}
+	before, ok := m.start.selected()
+	if !ok || before.target != matches[0] {
+		t.Fatalf("precondition selected = %+v, %v; want first match %q", before, ok, matches[0])
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if m.start.list.FilterState() != list.FilterApplied || m.start.list.FilterValue() != "typed-hole" {
+		t.Fatalf("filter state=%v value=%q", m.start.list.FilterState(), m.start.list.FilterValue())
+	}
+	// The pinned row leaves SERVICES for BOOKMARKS; ordinal 0 of the remaining
+	// filtered services is what was matches[1].
+	if !ok || selected.target != matches[1] {
+		t.Fatalf("selected = %+v, %v; want next filtered service %q", selected, ok, matches[1])
+	}
+	if selected.source == sourceBookmark {
+		t.Fatalf("selection followed the pinned target into BOOKMARKS: %+v", selected)
+	}
+}
+
+func TestFilteredToggleClearsFilterWhenFinalMatchDisappears(t *testing.T) {
+	seedBookmarks(t, "alice@plan.cat\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("alice@plan.cat")
+	if got := visibleTargets(m.start); len(got) != 1 || got[0] != "alice@plan.cat" {
+		t.Fatalf("precondition: matches = %v, want only alice@plan.cat", got)
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	if m.start.list.FilterState() != list.Unfiltered || m.start.list.FilterValue() != "" {
+		t.Fatalf("filter state=%v value=%q, want cleared", m.start.list.FilterState(), m.start.list.FilterValue())
 	}
 	selected, ok := m.start.selected()
-	if !ok || selected.target != first.target {
-		t.Fatalf("selection after reload = %+v, %v; want %q", selected, ok, first.target)
+	if !ok || selected.kind != kindCommunity {
+		t.Fatalf("selected = %+v, %v; want first unfiltered catalog section", selected, ok)
 	}
+}
 
-	// Selection follows the moved row, so pressing b again removes the same target.
-	next, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
-	m = next.(appModel)
-	data, err = os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read after unbookmark: %v", err)
+func TestFilteredRemovalFallsToNextMatchingSection(t *testing.T) {
+	seedBookmarks(t, "alice@plan.cat\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("plan")
+	if !m.start.selectTarget("alice@plan.cat") {
+		t.Fatalf("precondition: filtered matches = %v, missing bookmark", visibleTargets(m.start))
 	}
-	if want := "@tilde.team\n"; string(data) != want {
-		t.Fatalf("file = %q, want %q (existing bookmark preserved)", data, want)
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if m.start.list.FilterState() != list.FilterApplied || m.start.list.FilterValue() != "plan" {
+		t.Fatalf("filter state=%v value=%q, want applied plan", m.start.list.FilterState(), m.start.list.FilterValue())
+	}
+	if !ok || selected.target != "@plan.cat" || selected.source != sourceCatalog {
+		t.Fatalf("selected = %+v, %v; want next matching catalog section", selected, ok)
+	}
+}
+
+func TestFilteredPinFallsToPreviousMatchingSection(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.start.list.SetFilterText("quake@")
+	if got := visibleTargets(m.start); len(got) != 1 || got[0] != "quake@bbs.airandwave.net" {
+		t.Fatalf("precondition: matches = %v, want only quake service", got)
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	selected, ok := m.start.selected()
+	if m.start.list.FilterState() != list.FilterApplied || m.start.list.FilterValue() != "quake@" {
+		t.Fatalf("filter state=%v value=%q, want applied quake@", m.start.list.FilterState(), m.start.list.FilterValue())
+	}
+	if !ok || selected.target != "quake@bbs.airandwave.net" || selected.source != sourceBookmark {
+		t.Fatalf("selected = %+v, %v; want previous matching bookmark section", selected, ok)
 	}
 }
 
@@ -2977,25 +3156,40 @@ func TestBookmarkRejectsTargetThatCannotRoundTripThroughFile(t *testing.T) {
 	}
 }
 
-func TestRemovingOnlyBookmarkFocusesInput(t *testing.T) {
-	path := useTempBookmarks(t)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("seed dir: %v", err)
-	}
-	if err := os.WriteFile(path, []byte("catalog off\n@plan.cat\n"), 0o600); err != nil {
-		t.Fatalf("seed bookmarks: %v", err)
-	}
-
+func TestFilteredRemovingOnlyCatalogOffBookmarkFocusesInput(t *testing.T) {
+	seedBookmarks(t, "catalog off\n@plan.cat\n")
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
+	m.start.list.SetFilterText("plan")
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
 
 	if !m.inputFocused {
-		t.Fatal("removing the only startpage row should focus the input")
+		t.Fatal("removing the only filtered startpage row should focus the input")
+	}
+	if m.start.list.FilterState() != list.Unfiltered || m.start.list.FilterValue() != "" {
+		t.Fatalf("empty startpage filter state=%v value=%q, want cleared", m.start.list.FilterState(), m.start.list.FilterValue())
 	}
 	if _, ok := m.start.selected(); ok {
 		t.Fatal("empty startpage unexpectedly has a selection")
+	}
+}
+
+func TestStartpageBookmarkHelpIsContextualAndResetsOutsideStart(t *testing.T) {
+	seedBookmarks(t, "@tilde.team\n")
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	m.updateKeymap()
+	if got := m.keys.Bookmark.Help().Desc; got != "remove" {
+		t.Fatalf("bookmark help = %q, want remove for a selected bookmark", got)
+	}
+
+	m.state = stateReader
+	m.history = []histNode{{entry: Entry{Target: mustTarget(t, "alice@plan.cat")}, state: stateReader, linkIdx: -1}}
+	m.pos = 0
+	m.updateKeymap()
+	if got := m.keys.Bookmark.Help().Desc; got != "bookmark" {
+		t.Fatalf("reader bookmark help = %q, want bookmark after leaving startpage", got)
 	}
 }
 

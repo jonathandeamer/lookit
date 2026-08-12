@@ -71,6 +71,23 @@ type startOverviewCounts struct {
 	services    int
 }
 
+type startSectionPosition struct {
+	section startSectionID
+	ordinal int
+}
+
+type startTogglePosition struct {
+	full     startSectionPosition
+	filtered *startSectionPosition
+	filter   string
+}
+
+var startSectionOrder = [...]startSectionID{
+	sectionBookmarks,
+	sectionCommunities,
+	sectionServices,
+}
+
 func startCounts(items []list.Item) startOverviewCounts {
 	var counts startOverviewCounts
 	for _, item := range items {
@@ -494,6 +511,8 @@ func (m startModel) selected() (startEntry, bool) {
 }
 
 // selectTarget restores selection by stable identity after a startpage reload.
+// Bookmark toggles deliberately restore by section and ordinal instead, because
+// toggling moves the acted-on target between BOOKMARKS and the catalog.
 func (m *startModel) selectTarget(target string) bool {
 	for i, item := range m.list.VisibleItems() {
 		entry, ok := item.(startItem)
@@ -503,6 +522,105 @@ func (m *startModel) selectTarget(target string) bool {
 		}
 	}
 	return false
+}
+
+// captureTogglePosition records the selected row's ordinal within its section
+// in both the assembled page and, when applied, bubbles' fuzzy-ranked results.
+func (m startModel) captureTogglePosition() (startTogglePosition, bool) {
+	selected, ok := m.list.SelectedItem().(startItem)
+	if !ok || !selected.selectable() {
+		return startTogglePosition{}, false
+	}
+
+	position := startTogglePosition{
+		full: startSectionPosition{section: selected.section},
+	}
+	for _, item := range m.list.Items() {
+		candidate, ok := item.(startItem)
+		if !ok || !candidate.selectable() || candidate.section != selected.section {
+			continue
+		}
+		if candidate.entry.target == selected.entry.target {
+			break
+		}
+		position.full.ordinal++
+	}
+
+	if m.list.FilterState() == list.FilterApplied {
+		filtered := startSectionPosition{section: selected.section}
+		for _, item := range m.list.VisibleItems() {
+			candidate, ok := item.(startItem)
+			if !ok || !candidate.selectable() || candidate.section != selected.section {
+				continue
+			}
+			if candidate.entry.target == selected.entry.target {
+				break
+			}
+			filtered.ordinal++
+		}
+		position.filtered = &filtered
+		position.filter = m.list.FilterValue()
+	}
+	return position, true
+}
+
+// selectSectionPosition restores a section-relative ordinal, preferring the
+// next section when that section disappears and the nearest previous one when
+// there is no later selectable section.
+func (m *startModel) selectSectionPosition(position startSectionPosition) bool {
+	indexes := make(map[startSectionID][]int, len(startSectionOrder))
+	for index, item := range m.list.VisibleItems() {
+		candidate, ok := item.(startItem)
+		if !ok || !candidate.selectable() {
+			continue
+		}
+		indexes[candidate.section] = append(indexes[candidate.section], index)
+	}
+
+	requested := -1
+	for i, section := range startSectionOrder {
+		if section == position.section {
+			requested = i
+			break
+		}
+	}
+	if requested < 0 {
+		return false
+	}
+
+	section := position.section
+	if len(indexes[section]) == 0 {
+		section = sectionUnknown
+		for _, candidate := range startSectionOrder[requested+1:] {
+			if len(indexes[candidate]) > 0 {
+				section = candidate
+				break
+			}
+		}
+		if section == sectionUnknown {
+			for i := requested - 1; i >= 0; i-- {
+				candidate := startSectionOrder[i]
+				if len(indexes[candidate]) > 0 {
+					section = candidate
+					break
+				}
+			}
+		}
+	}
+
+	sectionIndexes := indexes[section]
+	if len(sectionIndexes) == 0 {
+		return false
+	}
+	ordinal := position.ordinal
+	if ordinal < 0 {
+		ordinal = 0
+	}
+	if ordinal >= len(sectionIndexes) {
+		ordinal = len(sectionIndexes) - 1
+	}
+	m.list.Select(sectionIndexes[ordinal])
+	return true
 }
 
 func (m startModel) filtering() bool {

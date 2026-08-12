@@ -26,20 +26,20 @@ community @zaibatsu.circumlunar.space Sundogs seeking asylum from the commercial
 
 service @bbs.airandwave.net Over two dozen services, from news to sudoku
 service weather@bbs.airandwave.net Current weather and a 7-day forecast — weather:city@…
-service @graph.no Weather worldwide by place name — finger oslo@graph.no
 service quake@bbs.airandwave.net Latest earthquakes, M2.5+ past day
 service dict@bbs.airandwave.net Dictionary lookup — dict:word@…
 service urban@bbs.airandwave.net Slang, internet terms and memes — urban:word@…
 service wordsearch:today@bbs.airandwave.net Daily word search puzzle
 service sudoku:easy@bbs.airandwave.net An easy sudoku, fresh each day
+service @graph.no Weather worldwide by place name — finger oslo@graph.no
+service @typed-hole.org A small menu of fingers, from lobste.rs to smog
 service textfile@typed-hole.org A lucky dip into textfiles.com
+service cyoa@typed-hole.org Choose your own adventure
+service smog@typed-hole.org Saturday Morning Gemzine — back issues
+service @flanigan.us Four fingers: bonsai, ping, wisdom, calendar
 service calendar@flanigan.us Today’s date, across the years
 service bot@happynetbox.com Tech news headlines with links, plus a fun fact
 service random@happynetbox.com Jump to a random happynetbox user
 service browserversion@happynetbox.com Current version numbers for major browsers
 service 1@happynetbox.com Interactive fiction, one page per finger query
-service @typed-hole.org A small menu of fingers, from lobste.rs to smog
-service cyoa@typed-hole.org Choose your own adventure
-service smog@typed-hole.org Saturday Morning Gemzine — back issues
-service @flanigan.us Four fingers: bonsai, ping, wisdom, calendar
 service originsfinger@happynetbox.com Les Earnest tells how finger began

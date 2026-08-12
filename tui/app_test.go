@@ -3005,7 +3005,7 @@ func TestBookmarkingCatalogRowsStayAtSectionOrdinal(t *testing.T) {
 		want   string
 	}{
 		{name: "middle", target: "@tilde.team", want: "@happynetbox.com"},
-		{name: "final", target: "@chunboan.zone", want: "@zaibatsu.circumlunar.space"},
+		{name: "final", target: "@zaibatsu.circumlunar.space", want: "@cosmic.voyage"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3173,15 +3173,17 @@ func TestFilteredRemovalFallsToNextMatchingSection(t *testing.T) {
 	seedBookmarks(t, "alice@plan.cat\n")
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
-	m.start.list.SetFilterText("plan")
+	// "plan.cat", not "plan": the filter also matches notes, and
+	// @happynetbox.com's note mentions .plan files.
+	m.start.list.SetFilterText("plan.cat")
 	if !m.start.selectTarget("alice@plan.cat") {
 		t.Fatalf("precondition: filtered matches = %v, missing bookmark", visibleTargets(m.start))
 	}
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
 	selected, ok := m.start.selected()
-	if m.start.list.FilterState() != list.FilterApplied || m.start.list.FilterValue() != "plan" {
-		t.Fatalf("filter state=%v value=%q, want applied plan", m.start.list.FilterState(), m.start.list.FilterValue())
+	if m.start.list.FilterState() != list.FilterApplied || m.start.list.FilterValue() != "plan.cat" {
+		t.Fatalf("filter state=%v value=%q, want applied plan.cat", m.start.list.FilterState(), m.start.list.FilterValue())
 	}
 	if !ok || selected.target != "@plan.cat" || selected.source != sourceCatalog {
 		t.Fatalf("selected = %+v, %v; want next matching catalog section", selected, ok)

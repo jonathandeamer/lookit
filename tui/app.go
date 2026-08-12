@@ -58,6 +58,7 @@ type commonModel struct {
 	height         int
 	profile        colorprofile.Profile
 	darkBackground bool
+	contentFocused bool
 	styles         styles
 	fetch          FetchFunc
 }
@@ -154,6 +155,7 @@ func newAppWithContext(ctx context.Context, fetch FetchFunc, profile colorprofil
 		ctx:            ctx,
 		profile:        profile,
 		darkBackground: true,
+		contentFocused: false,
 		styles:         st,
 		fetch:          fetch,
 	}
@@ -331,7 +333,7 @@ func (m *appModel) gotoStart() tea.Cmd {
 	m.input.SetValue("") // drop the stale target; 'i' should open on an empty row
 	m.resize()
 	if _, ok := m.start.selected(); !ok {
-		m.inputFocused = true
+		m.setInputFocused(true)
 		return m.input.Focus()
 	}
 	return nil
@@ -483,12 +485,17 @@ func (m *appModel) back() tea.Cmd {
 
 // focusInput gives the keyboard to the target input, pre-filled with the
 // current target for browser-style editing.
+func (m *appModel) setInputFocused(focused bool) {
+	m.inputFocused = focused
+	m.common.contentFocused = !focused
+}
+
 func (m *appModel) focusInput() tea.Cmd {
 	m.clearRequestFailure()
 	if m.pos >= 0 {
 		m.input.SetValue(m.history[m.pos].entry.Target.Raw)
 	}
-	m.inputFocused = true
+	m.setInputFocused(true)
 	m.input.CursorEnd()
 	m.resize()
 	return m.input.Focus()
@@ -496,7 +503,7 @@ func (m *appModel) focusInput() tea.Cmd {
 
 // blurInput returns the keyboard to the content.
 func (m *appModel) blurInput() {
-	m.inputFocused = false
+	m.setInputFocused(false)
 	m.input.Blur()
 	m.resize()
 }
@@ -1001,7 +1008,7 @@ func routeEntry(entry Entry) routedEntry {
 }
 
 func (m *appModel) showRouted(routed routedEntry) {
-	m.inputFocused = false
+	m.setInputFocused(false)
 	m.input.Blur()
 	m.showingRaw = false
 	m.showingLinks = false

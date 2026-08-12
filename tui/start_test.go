@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -9,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // testCommon is shared with list_test.go; do not redeclare it here.
@@ -22,6 +24,308 @@ func twoSections() []startSection {
 			{target: "@plan.cat", kind: kindCommunity, note: "Classic finger, polished for the present", source: sourceCatalog},
 			{target: "@happynetbox.com", kind: kindCommunity, note: "Finger server of user profiles, run by Ben Brown", source: sourceCatalog},
 		}},
+	}
+}
+
+func threeSections() []startSection {
+	return []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@tilde.team", source: sourceBookmark},
+		}},
+		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+			{target: "@plan.cat", kind: kindCommunity, source: sourceCatalog},
+			{target: "@happynetbox.com", kind: kindCommunity, source: sourceCatalog},
+		}},
+		{id: sectionServices, title: "SERVICES", entries: []startEntry{
+			{target: "quake@bbs.airandwave.net", kind: kindService, source: sourceCatalog},
+			{target: "dict@bbs.airandwave.net", kind: kindService, source: sourceCatalog},
+		}},
+	}
+}
+
+func TestStartOverviewWideCountsAssembledRows(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, threeSections(), "", "")
+	got := stripANSIForLandingTest(m.overviewView())
+	want := "BOOKMARKS  1 │ CATALOG  2 communities · 2 services"
+	if got != want {
+		t.Fatalf("overview = %q, want %q", got, want)
+	}
+	assertStartOverviewFits(t, m)
+}
+
+func TestStartOverviewNarrowStacksOwnershipAndCatalog(t *testing.T) {
+	common := testCommon()
+	common.width = 40
+	m := newStart(common, threeSections(), "", "")
+	got := strings.Split(stripANSIForLandingTest(m.overviewView()), "\n")
+	want := []string{"BOOKMARKS  1", "CATALOG    2 communities · 2 services"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("overview = %#v, want %#v", got, want)
+	}
+	assertStartOverviewFits(t, m)
+}
+
+func TestStartOverviewUnfilteredGroupRules(t *testing.T) {
+	tests := []struct {
+		name     string
+		sections []startSection
+		empty    string
+		want     string
+		noHeader bool
+	}{
+		{
+			name:     "no bookmarks",
+			sections: threeSections()[1:],
+			want:     "BOOKMARKS  none yet │ CATALOG  2 communities · 2 services",
+			noHeader: true,
+		},
+		{
+			name:     "catalog off",
+			sections: threeSections()[:1],
+			want:     "BOOKMARKS  1",
+		},
+		{
+			name:  "file empty",
+			empty: "No bookmarks yet. The catalog is off.",
+			want:  "",
+		},
+		{
+			name: "singular catalog labels",
+			sections: []startSection{
+				{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{{target: "@plan.cat", kind: kindCommunity}}},
+				{id: sectionServices, title: "SERVICES", entries: []startEntry{{target: "date@example.com", kind: kindService}}},
+			},
+			want: "BOOKMARKS  none yet │ CATALOG  1 community · 1 service",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			common := testCommon()
+			common.width = 100
+			m := newStart(common, tt.sections, "", tt.empty)
+			if got := stripANSIForLandingTest(m.overviewView()); got != tt.want {
+				t.Fatalf("overview = %q, want %q", got, tt.want)
+			}
+			if tt.noHeader && strings.Contains(stripANSIForLandingTest(m.list.View()), "BOOKMARKS") {
+				t.Fatal("catalog-only startpage gained an empty bookmark section")
+			}
+			assertStartOverviewFits(t, m)
+		})
+	}
+}
+
+func TestStartOverviewPinnedCatalogRowsMoveToBookmarks(t *testing.T) {
+	catalog := []startEntry{
+		{target: "@plan.cat", kind: kindCommunity, source: sourceCatalog},
+		{target: "@tilde.team", kind: kindCommunity, source: sourceCatalog},
+		{target: "date@example.com", kind: kindService, source: sourceCatalog},
+	}
+	sections := buildSections(catalog, bookmarkFile{targets: []string{"@plan.cat"}})
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, sections, "", "")
+	got := stripANSIForLandingTest(m.overviewView())
+	want := "BOOKMARKS  1 │ CATALOG  1 community · 1 service"
+	if got != want {
+		t.Fatalf("overview = %q, want %q", got, want)
+	}
+	counts := m.overviewCounts()
+	if counts.bookmarks+counts.communities+counts.services != 3 {
+		t.Fatalf("overview duplicated a pinned catalog row: %#v", counts)
+	}
+}
+
+func TestStartOverviewAppliedFilterUsesOnlyMatchingGroups(t *testing.T) {
+	sections := threeSections()
+	sections[0].entries[0].note = "shared-match"
+	sections[2].entries[0].note = "shared-match"
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, sections, "", "")
+	m.list.SetFilterText("shared-match")
+
+	got := stripANSIForLandingTest(m.overviewView())
+	want := "BOOKMARKS  1 │ CATALOG  1 service"
+	if got != want {
+		t.Fatalf("filtered overview = %q, want %q", got, want)
+	}
+	counts := m.overviewCounts()
+	if total := counts.bookmarks + counts.communities + counts.services; total != 2 {
+		t.Fatalf("filtered overview total = %d, want 2", total)
+	}
+	app := appModel{start: m}
+	if got := app.startBar(80, common.styles).meta; got != "2 entries" {
+		t.Fatalf("filtered start bar meta = %q, want %q", got, "2 entries")
+	}
+	plainList := stripANSIForLandingTest(m.list.View())
+	bookmarkLine := lineContaining(t, plainList, "@tilde.team")
+	if strings.Contains(bookmarkLine, "◆") || strings.Contains(bookmarkLine, "BOOKMARK ") {
+		t.Fatalf("filtered bookmark row gained an ownership prefix: %q", bookmarkLine)
+	}
+	assertStartOverviewFits(t, m)
+
+	m.list.ResetFilter()
+	if got := stripANSIForLandingTest(m.overviewView()); got != "BOOKMARKS  1 │ CATALOG  2 communities · 2 services" {
+		t.Fatalf("cleared overview = %q", got)
+	}
+}
+
+func TestStartOverviewHidesWhileFilteringAndWithZeroAppliedMatches(t *testing.T) {
+	m := newStart(testCommon(), threeSections(), "", "")
+	m.list.SetFilterState(list.Filtering)
+	if got := m.overviewView(); got != "" || m.overviewHeight() != 0 {
+		t.Fatalf("filtering overview = %q, height %d; want hidden", got, m.overviewHeight())
+	}
+	m.list.SetFilterText("zzzz-no-match")
+	if got := m.overviewView(); got != "" || m.overviewHeight() != 0 {
+		t.Fatalf("zero-match applied overview = %q, height %d; want hidden", got, m.overviewHeight())
+	}
+}
+
+func TestStartOverviewHighlightsSelectedSectionOnly(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	common.contentFocused = true
+	m := newStart(common, threeSections(), "", "")
+
+	tests := []struct {
+		name   string
+		index  int
+		gold   string
+		others []string
+	}{
+		{name: "bookmark", index: 1, gold: "BOOKMARKS", others: []string{"2 communities", "2 services"}},
+		{name: "community", index: 3, gold: "2 communities", others: []string{"BOOKMARKS", "2 services"}},
+		{name: "service", index: 6, gold: "2 services", others: []string{"BOOKMARKS", "2 communities"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.list.Select(tt.index)
+			assertStartOverviewGoldSegment(t, m.overviewView(), common, tt.gold, tt.others...)
+		})
+	}
+}
+
+func TestStartOverviewHighlightSurvivesContinuationPage(t *testing.T) {
+	common := testCommon()
+	common.width = 40
+	common.height = 10
+	common.contentFocused = true
+	sections := []startSection{{id: sectionCommunities, title: "COMMUNITIES"}}
+	for i := range 8 {
+		sections[0].entries = append(sections[0].entries, startEntry{target: fmt.Sprintf("user-%d@example.com", i), kind: kindCommunity})
+	}
+	m := newStart(common, sections, "", "")
+	m.list.Select(len(m.list.Items()) - 1)
+	if m.list.Paginator.Page == 0 {
+		t.Fatal("test setup did not select a continuation page")
+	}
+	if strings.Contains(stripANSIForLandingTest(m.list.View()), "COMMUNITIES") {
+		t.Fatal("continuation page unexpectedly retained the inline section header")
+	}
+	assertStartOverviewGoldSegment(t, m.overviewView(), common, "8 communities", "BOOKMARKS")
+}
+
+func TestStartOverviewFilteredBookmarkKeepsOwnershipHighlight(t *testing.T) {
+	sections := threeSections()
+	sections[0].entries[0].note = "flat-match"
+	sections[2].entries[0].note = "flat-match"
+	common := testCommon()
+	common.width = 80
+	common.contentFocused = true
+	m := newStart(common, sections, "", "")
+	m.list.SetFilterText("flat-match")
+	m.list.Select(0)
+	if strings.Contains(stripANSIForLandingTest(m.list.View()), "BOOKMARKS") {
+		t.Fatal("flat filtered results unexpectedly retained the inline bookmark header")
+	}
+	assertStartOverviewGoldSegment(t, m.overviewView(), common, "BOOKMARKS", "1 service")
+}
+
+func TestStartOverviewInputFocusHasNoSelectedSegment(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	common.contentFocused = false
+	m := newStart(common, threeSections(), "", "")
+	view := m.overviewView()
+	if count := strings.Count(view, overviewGoldSequence(common)); count != 0 {
+		t.Fatalf("input-focused overview contains %d gold foreground sequences: %q", count, view)
+	}
+	if count := countSGRParam(view, "1"); count != 0 {
+		t.Fatalf("input-focused overview contains %d bold sequences: %q", count, view)
+	}
+}
+
+func TestStartSizingIncludesNoticeAndOverview(t *testing.T) {
+	common := testCommon()
+	common.width = 40
+	m := newStart(common, threeSections(), "first warning\nsecond warning", "")
+	m.setSize(40, 20)
+	want := 20 - startChromeRows - m.noticeHeight() - m.overviewHeight()
+	if got := m.list.Height(); got != want {
+		t.Fatalf("list height = %d, want %d (body minus chrome, notice, and overview)", got, want)
+	}
+	plain := stripANSIForLandingTest(m.View())
+	wantPrefix := "first warning\nsecond warning\n\nBOOKMARKS  1\nCATALOG    2 communities · 2 services\n"
+	if !strings.HasPrefix(plain, wantPrefix) {
+		t.Fatalf("view order =\n%q\nwant prefix\n%q", plain, wantPrefix)
+	}
+}
+
+func assertStartOverviewFits(t *testing.T, m startModel) {
+	t.Helper()
+	for i, line := range strings.Split(m.overviewView(), "\n") {
+		if got := ansi.StringWidth(line); got > m.list.Width() {
+			t.Fatalf("overview line %d width = %d, list width = %d: %q", i, got, m.list.Width(), line)
+		}
+	}
+}
+
+func assertStartOverviewGoldSegment(t *testing.T, view string, common *commonModel, gold string, others ...string) {
+	t.Helper()
+	style := lipgloss.NewStyle().Foreground(common.styles.palette.AccentGold).Bold(true)
+	if want := style.Render(gold); !strings.Contains(view, want) {
+		t.Fatalf("overview does not highlight %q with gold+bold: %q", gold, view)
+	}
+	if count := strings.Count(view, overviewGoldSequence(common)); count != 1 {
+		t.Fatalf("overview gold foreground sequence count = %d, want exactly 1: %q", count, view)
+	}
+	if count := countSGRParam(view, "1"); count != 1 {
+		t.Fatalf("overview bold sequence count = %d, want exactly 1: %q", count, view)
+	}
+	for _, other := range others {
+		if forbidden := style.Render(other); strings.Contains(view, forbidden) {
+			t.Fatalf("overview also highlights %q with gold+bold: %q", other, view)
+		}
+	}
+}
+
+func overviewGoldSequence(common *commonModel) string {
+	r, g, b, _ := common.styles.palette.AccentGold.RGBA()
+	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
+func countSGRParam(s, want string) int {
+	count := 0
+	for {
+		start := strings.Index(s, "\x1b[")
+		if start < 0 {
+			return count
+		}
+		s = s[start+2:]
+		end := strings.IndexByte(s, 'm')
+		if end < 0 {
+			return count
+		}
+		for _, param := range strings.Split(s[:end], ";") {
+			if param == want {
+				count++
+			}
+		}
+		s = s[end+1:]
 	}
 }
 

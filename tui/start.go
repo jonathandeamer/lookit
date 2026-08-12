@@ -58,10 +58,47 @@ func (i startItem) Description() string {
 // startModel is the launch screen: an embedded catalog plus the user's
 // bookmarks, rendered as one sectioned list.
 type startModel struct {
-	common *commonModel
-	list   list.Model
-	notice string // parse problems, surfaced rather than swallowed
-	empty  string // shown instead of the list when there is nothing to show
+	common          *commonModel
+	list            list.Model
+	assembledCounts startOverviewCounts
+	notice          string // parse problems, surfaced rather than swallowed
+	empty           string // shown instead of the list when there is nothing to show
+}
+
+type startOverviewCounts struct {
+	bookmarks   int
+	communities int
+	services    int
+}
+
+func startCounts(items []list.Item) startOverviewCounts {
+	var counts startOverviewCounts
+	for _, item := range items {
+		it, ok := item.(startItem)
+		if !ok || !it.selectable() {
+			continue
+		}
+		switch it.section {
+		case sectionBookmarks:
+			counts.bookmarks++
+		case sectionCommunities:
+			counts.communities++
+		case sectionServices:
+			counts.services++
+		}
+	}
+	return counts
+}
+
+// A row in a section with no overview identity (today only the dormant
+// PEOPLE/kindPerson group, which carries sectionUnknown) is counted nowhere. The
+// shipped catalog contains no person entries, so the overview total equals
+// startBar's visible count; adding one would silently break that invariant.
+func startCountLabel(n int, singular, plural string) string {
+	if n == 1 {
+		return "1 " + singular
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }
 
 func newStart(common *commonModel, sections []startSection, notice, empty string) startModel {
@@ -92,7 +129,7 @@ func newStart(common *commonModel, sections []startSection, notice, empty string
 	// Matches the noun our own bar uses, instead of the default "No items.".
 	l.SetStatusBarItemName("entry", "entries")
 
-	m := startModel{common: common, list: l, notice: notice, empty: empty}
+	m := startModel{common: common, list: l, assembledCounts: startCounts(items), notice: notice, empty: empty}
 	m.skipNonEntry(1) // never rest on the leading header
 	m.setSize(common.width, common.bodyHeight())
 	return m
@@ -322,6 +359,9 @@ func (m startModel) View() string {
 	body := m.empty
 	if len(m.list.Items()) > 0 || m.empty == "" {
 		body = m.list.View()
+		if overview := m.overviewView(); overview != "" {
+			body = overview + "\n" + body
+		}
 	}
 	if m.notice != "" {
 		return m.notice + "\n\n" + body
@@ -331,12 +371,95 @@ func (m startModel) View() string {
 
 func (m *startModel) setSize(width, height int) {
 	m.common.width = width
-	h := height - startChromeRows - m.noticeHeight()
+	h := height - startChromeRows - m.noticeHeight() - m.overviewHeight()
 	if h < 1 {
 		h = 1
 	}
 	m.list.SetDelegate(newStartDelegate(m.common, m.common.ensureStyles()))
 	m.list.SetSize(width, h)
+}
+
+func (m startModel) overviewCounts() startOverviewCounts {
+	if m.list.FilterState() == list.FilterApplied {
+		return startCounts(m.list.VisibleItems())
+	}
+	return m.assembledCounts
+}
+
+func (m startModel) overviewView() string {
+	if m.list.FilterState() == list.Filtering || len(m.list.Items()) == 0 {
+		return ""
+	}
+
+	counts := m.overviewCounts()
+	filtered := m.list.FilterState() == list.FilterApplied
+	st := m.common.ensureStyles()
+	labelStyle := lipgloss.NewStyle().Foreground(st.palette.Dim)
+	valueStyle := lipgloss.NewStyle().Foreground(st.palette.Text)
+	selectedSection := sectionUnknown
+	if m.common.contentFocused {
+		if selected, ok := m.list.SelectedItem().(startItem); ok && selected.selectable() {
+			selectedSection = selected.section
+		}
+	}
+	gold := lipgloss.NewStyle().Foreground(st.palette.AccentGold).Bold(true)
+
+	var groups []string
+	if !filtered || counts.bookmarks > 0 {
+		bookmarksStyle := labelStyle
+		if selectedSection == sectionBookmarks {
+			bookmarksStyle = gold
+		}
+		value := "none yet"
+		if counts.bookmarks > 0 {
+			value = fmt.Sprintf("%d", counts.bookmarks)
+		}
+		groups = append(groups, bookmarksStyle.Render("BOOKMARKS")+"  "+valueStyle.Render(value))
+	}
+
+	var catalogValues []string
+	if counts.communities > 0 {
+		style := valueStyle
+		if selectedSection == sectionCommunities {
+			style = gold
+		}
+		catalogValues = append(catalogValues, style.Render(startCountLabel(counts.communities, "community", "communities")))
+	}
+	if counts.services > 0 {
+		style := valueStyle
+		if selectedSection == sectionServices {
+			style = gold
+		}
+		catalogValues = append(catalogValues, style.Render(startCountLabel(counts.services, "service", "services")))
+	}
+	if len(catalogValues) > 0 {
+		gap := "  "
+		if m.common.width < startWideMinWidth {
+			gap = "    "
+		}
+		groups = append(groups, labelStyle.Render("CATALOG")+gap+strings.Join(catalogValues, " · "))
+	}
+	if len(groups) == 0 {
+		return ""
+	}
+
+	separator := " │ "
+	if m.common.width < startWideMinWidth {
+		separator = "\n"
+	}
+	lines := strings.Split(strings.Join(groups, separator), "\n")
+	for i, line := range lines {
+		lines[i] = ansi.Truncate(line, m.list.Width(), "…")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m startModel) overviewHeight() int {
+	view := m.overviewView()
+	if view == "" {
+		return 0
+	}
+	return len(strings.Split(view, "\n"))
 }
 
 func (m startModel) noticeHeight() int {

@@ -3075,6 +3075,34 @@ func TestStartpageArrowDownEntersList(t *testing.T) {
 	}
 }
 
+func TestStartpageArrowDownAndEscSynchronizeSharedFocus(t *testing.T) {
+	useTempBookmarks(t)
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	assertSharedFocusInverse(t, m)
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = next.(appModel)
+	if m.inputFocused || !m.common.contentFocused {
+		t.Fatalf("after down: inputFocused=%v contentFocused=%v", m.inputFocused, m.common.contentFocused)
+	}
+	assertSharedFocusInverse(t, m)
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = next.(appModel)
+	if !m.inputFocused || m.common.contentFocused {
+		t.Fatalf("after Esc: inputFocused=%v contentFocused=%v", m.inputFocused, m.common.contentFocused)
+	}
+	assertSharedFocusInverse(t, m)
+}
+
+func assertSharedFocusInverse(t *testing.T, m appModel) {
+	t.Helper()
+	if m.inputFocused == m.common.contentFocused {
+		t.Fatalf("focus truths are not inverse: inputFocused=%v contentFocused=%v", m.inputFocused, m.common.contentFocused)
+	}
+}
+
 func TestStartpageEscBacksOutThenQuits(t *testing.T) {
 	useTempBookmarks(t)
 

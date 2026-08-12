@@ -290,6 +290,21 @@ func TestEscapeCancelsPendingRequestAndDropsResult(t *testing.T) {
 	}
 }
 
+func TestCancelRequestRestoresSharedInputFocus(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.inputFocused = false
+	m.common.contentFocused = true
+	m.pending = &pendingRequest{returnToInput: true, cancel: func() {}}
+
+	cmd := m.cancelRequest()
+	if cmd == nil {
+		t.Fatal("cancelRequest returned no input focus command")
+	}
+	if !m.inputFocused || m.common.contentFocused {
+		t.Fatalf("cancelled request focus: inputFocused=%v contentFocused=%v", m.inputFocused, m.common.contentFocused)
+	}
+}
+
 func TestUnmatchedZeroIDResultIsDropped(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	entry := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: stale\n")}

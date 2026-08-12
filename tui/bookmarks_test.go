@@ -245,8 +245,14 @@ func TestLoadBookmarksMissingFileIsNotAnError(t *testing.T) {
 
 func TestShortenHome(t *testing.T) {
 	t.Setenv("HOME", "/tmp/home-example")
+	if got, want := shortenHome("/tmp/home-example"), "~"; got != want {
+		t.Errorf("shortenHome exact home = %q, want %q", got, want)
+	}
 	if got, want := shortenHome("/tmp/home-example/.config/lookit/bookmarks"), "~/.config/lookit/bookmarks"; got != want {
 		t.Errorf("shortenHome = %q, want %q", got, want)
+	}
+	if got, want := shortenHome("/tmp/home-example-backup/lookit/bookmarks"), "/tmp/home-example-backup/lookit/bookmarks"; got != want {
+		t.Errorf("shortenHome sibling = %q, want %q unchanged", got, want)
 	}
 	if got, want := shortenHome("/tmp/xdg/lookit/bookmarks"), "/tmp/xdg/lookit/bookmarks"; got != want {
 		t.Errorf("shortenHome = %q, want %q unchanged", got, want)

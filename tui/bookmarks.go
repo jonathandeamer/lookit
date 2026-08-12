@@ -325,5 +325,9 @@ func shortenHome(path string) string {
 	if err != nil || home == "" || !strings.HasPrefix(path, home) {
 		return path
 	}
-	return "~" + strings.TrimPrefix(path, home)
+	remainder := strings.TrimPrefix(path, home)
+	if remainder != "" && !os.IsPathSeparator(remainder[0]) {
+		return path
+	}
+	return "~" + remainder
 }

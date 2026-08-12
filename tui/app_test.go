@@ -3224,8 +3224,12 @@ func TestBookmarkRejectsTargetThatCannotRoundTripThroughFile(t *testing.T) {
 			if !strings.Contains(m.flash, "cannot bookmark") {
 				t.Fatalf("flash = %q, want a bookmark validation error", m.flash)
 			}
-			if _, err := os.Stat(path); !os.IsNotExist(err) {
-				t.Fatalf("invalid bookmark changed the file: stat error = %v", err)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read bookmarks after invalid bookmark: %v", err)
+			}
+			if got := string(data); got != "" {
+				t.Fatalf("invalid bookmark changed the file: %q", got)
 			}
 		})
 	}
@@ -3427,8 +3431,12 @@ func TestStartpageFilterOwnsCommandLetters(t *testing.T) {
 	if got := m.start.list.FilterInput.Value(); got != "b" {
 		t.Fatalf("filter = %q, want b", got)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("typing b in the filter changed bookmarks: stat error = %v", err)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bookmarks after filtering: %v", err)
+	}
+	if got := string(data); got != "" {
+		t.Fatalf("typing b in the filter changed bookmarks: %q", got)
 	}
 }
 

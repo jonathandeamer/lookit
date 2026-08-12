@@ -224,10 +224,11 @@ func resolveBookmarksPath() (string, error) {
 	return filepath.Join(home, ".config", "lookit", "bookmarks"), nil
 }
 
-// loadBookmarks reads and parses the user's file. It never creates anything: a
-// missing file is the normal first run and yields an empty result. An unreadable
-// file yields a problem the startpage surfaces. The resolved path is returned so
-// every message can name the file actually in use.
+// loadBookmarks reads and parses the user's file. On first use it initializes a
+// missing file with the author bookmark; every existing file, including an empty
+// one, is authoritative. Read and initialization failures become problems the
+// startpage surfaces. The resolved path is returned so every message can name
+// the file actually in use.
 func loadBookmarks() (bookmarkFile, string) {
 	path, err := bookmarksPathFn()
 	if err != nil {
@@ -236,7 +237,11 @@ func loadBookmarks() (bookmarkFile, string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return bookmarkFile{}, path
+			data = appendBookmarkLine(nil, aboutFingerAuthor)
+			if err := saveBookmarkData(path, data); err != nil {
+				return bookmarkFile{problems: []parseProblem{{reason: "cannot create: " + err.Error()}}}, path
+			}
+			return parseBookmarks(data), path
 		}
 		return bookmarkFile{problems: []parseProblem{{reason: "cannot read: " + err.Error()}}}, path
 	}
@@ -268,7 +273,7 @@ func deleteBookmarkLine(data []byte, target string) []byte {
 }
 
 // saveBookmarkData writes atomically (temp file + rename) at 0600, creating the
-// directory 0700 if needed. Reading never creates anything; only writing does.
+// directory 0700 if needed.
 func saveBookmarkData(path string, data []byte) error {
 	writePath, err := bookmarkWritePath(path)
 	if err != nil {

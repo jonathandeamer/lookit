@@ -1495,7 +1495,9 @@ func (m appModel) startBar(width int, st styles) statusBar {
 	}
 	n := 0
 	for _, it := range m.start.list.VisibleItems() {
-		if si, ok := it.(startItem); ok && si.selectable() {
+		// Structural parent copies are excluded here for the same reason as in
+		// startCounts: the bar and the overview must agree.
+		if si, ok := it.(startItem); ok && si.selectable() && !si.entry.structural {
 			n++
 		}
 	}

@@ -96,7 +96,8 @@ func startCounts(items []list.Item) startOverviewCounts {
 	var counts startOverviewCounts
 	for _, item := range items {
 		it, ok := item.(startItem)
-		if !ok || !it.selectable() {
+		// A structural parent is navigation structure, not another listing.
+		if !ok || !it.selectable() || it.entry.structural {
 			continue
 		}
 		switch it.section {

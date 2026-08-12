@@ -3635,3 +3635,41 @@ func TestFilteringKeepsCanonicalServiceParents(t *testing.T) {
 		})
 	}
 }
+
+func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
+	tests := []struct {
+		name   string
+		seed   string
+		filter string
+		want   startOverviewCounts
+		total  int
+	}{
+		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 19}, total: 25},
+		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 18}, total: 25},
+		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 18}, total: 25},
+		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 19}, total: 26},
+		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},
+		{name: "filtered pinned parent", seed: "@happynetbox.com\n", filter: "happynetbox.com", want: startOverviewCounts{bookmarks: 1, services: 5}, total: 6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.seed == "" {
+				useTempBookmarks(t)
+			} else {
+				seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			if tt.filter != "" {
+				m.start.list.SetFilterText(tt.filter)
+			}
+			if got := m.start.overviewCounts(); got != tt.want {
+				t.Fatalf("overview counts = %+v, want %+v", got, tt.want)
+			}
+			bar := m.startBar(80, newStyles(true))
+			if got, want := bar.meta, fmt.Sprintf("%d entries", tt.total); got != want {
+				t.Fatalf("status meta = %q, want %q", got, want)
+			}
+		})
+	}
+}

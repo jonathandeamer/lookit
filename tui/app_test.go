@@ -827,6 +827,35 @@ func TestVTogglesRawBodyOnProfile(t *testing.T) {
 	}
 }
 
+func TestBookmarkKeyTogglesCurrentTargetInRawReader(t *testing.T) {
+	path := useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "alice@plan.cat")
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
+		Target: target,
+		Body:   []byte("Login: alice\nPlan:\nhello\n"),
+	}})
+	m = opened.(appModel)
+	raw, _ := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	m = raw.(appModel)
+	if !m.showingRaw {
+		t.Fatal("precondition: v did not enter raw reader mode")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bookmark written from raw reader: %v", err)
+	}
+	if got, want := string(data), "alice@plan.cat\n"; got != want {
+		t.Fatalf("bookmarks = %q, want %q", got, want)
+	}
+	if !strings.Contains(m.flash, "bookmarked alice@plan.cat") {
+		t.Fatalf("flash = %q, want bookmark confirmation", m.flash)
+	}
+}
+
 func TestEscBackDoesNotRefetch(t *testing.T) {
 	// Esc navigates back through history without re-fetching.
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
@@ -2918,6 +2947,50 @@ func TestBookmarkOnStartpageTogglesFile(t *testing.T) {
 	}
 	if want := "@tilde.team\n"; string(data) != want {
 		t.Fatalf("file = %q, want %q (existing bookmark preserved)", data, want)
+	}
+}
+
+func TestBookmarkRejectsTargetThatCannotRoundTripThroughFile(t *testing.T) {
+	path := useTempBookmarks(t)
+	for _, raw := range []string{"weather:#oslo@bbs.airandwave.net", "alice smith@host"} {
+		t.Run(raw, func(t *testing.T) {
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.history = []histNode{{entry: Entry{Target: finger.Target{Raw: raw}}, state: stateReader, linkIdx: -1}}
+			m.pos = 0
+			m.state = stateReader
+			m.blurInput()
+
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			if !strings.Contains(m.flash, "cannot bookmark") {
+				t.Fatalf("flash = %q, want a bookmark validation error", m.flash)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("invalid bookmark changed the file: stat error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRemovingOnlyBookmarkFocusesInput(t *testing.T) {
+	path := useTempBookmarks(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("catalog off\n@plan.cat\n"), 0o600); err != nil {
+		t.Fatalf("seed bookmarks: %v", err)
+	}
+
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(appModel)
+
+	if !m.inputFocused {
+		t.Fatal("removing the only startpage row should focus the input")
+	}
+	if _, ok := m.start.selected(); ok {
+		t.Fatal("empty startpage unexpectedly has a selection")
 	}
 }
 

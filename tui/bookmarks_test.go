@@ -193,6 +193,44 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveBookmarkDataPreservesSymlink(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	dotfilesDir := filepath.Join(root, "dotfiles")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatalf("create config dir: %v", err)
+	}
+	if err := os.MkdirAll(dotfilesDir, 0o700); err != nil {
+		t.Fatalf("create dotfiles dir: %v", err)
+	}
+	target := filepath.Join(dotfilesDir, "bookmarks")
+	if err := os.WriteFile(target, []byte("@old.example\n"), 0o600); err != nil {
+		t.Fatalf("seed symlink target: %v", err)
+	}
+	path := filepath.Join(configDir, "bookmarks")
+	if err := os.Symlink(filepath.Join("..", "dotfiles", "bookmarks"), path); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if err := saveBookmarkData(path, []byte("@new.example\n")); err != nil {
+		t.Fatalf("saveBookmarkData() error = %v", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("lstat bookmarks path: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("bookmarks path mode = %v, want symlink", info.Mode())
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read symlink target: %v", err)
+	}
+	if got, want := string(data), "@new.example\n"; got != want {
+		t.Fatalf("symlink target = %q, want %q", got, want)
+	}
+}
+
 func TestLoadBookmarksMissingFileIsNotAnError(t *testing.T) {
 	path := useTempBookmarks(t) // deliberately never created
 

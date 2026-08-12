@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // testCommon is shared with list_test.go; do not redeclare it here.
@@ -119,6 +120,24 @@ func TestStartCatalogCreditIsLinkedAndNonSelectable(t *testing.T) {
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("View() missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestStartCatalogCreditFitsNarrowListWidth(t *testing.T) {
+	common := testCommon()
+	common.width = 18
+	m := newStart(common, twoSections(), "", "")
+	items := m.list.Items()
+	credit := items[len(items)-1]
+	st := common.ensureStyles()
+	delegate := startDelegate{userDelegate: defaultUserDelegate(st), st: st}
+
+	var rendered strings.Builder
+	delegate.Render(&rendered, m.list, len(items)-1, credit)
+	for _, line := range strings.Split(rendered.String(), "\n") {
+		if width := ansi.StringWidth(line); width > m.list.Width() {
+			t.Fatalf("credit line width = %d, list width = %d: %q", width, m.list.Width(), line)
 		}
 	}
 }

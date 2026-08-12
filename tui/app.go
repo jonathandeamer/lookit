@@ -359,6 +359,9 @@ func (m *appModel) toggleBookmark() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	if err := validateBookmarkRecordTarget(target); err != nil {
+		return m.setFlash("error: cannot bookmark: " + err.Error())
+	}
 	path, err := bookmarksPathFn()
 	if err != nil {
 		return m.setFlash("error: " + err.Error())
@@ -393,6 +396,9 @@ func (m *appModel) toggleBookmark() tea.Cmd {
 		m.reloadStart()
 		m.start.selectTarget(target)
 		m.resize()
+		if _, ok := m.start.selected(); !ok {
+			return tea.Batch(m.focusInput(), m.setFlash(msg))
+		}
 	}
 	return m.setFlash(msg)
 }
@@ -1242,7 +1248,7 @@ func (m *appModel) updateKeymap() {
 	m.keys.Jump.SetEnabled(content)
 	m.keys.Refresh.SetEnabled(canRefresh)
 	_, canBookmark := m.bookmarkTarget()
-	m.keys.Bookmark.SetEnabled(content && canBookmark && !m.showingRaw && !m.showingLinks)
+	m.keys.Bookmark.SetEnabled(content && canBookmark && !m.showingLinks)
 	m.keys.Home.SetEnabled(content && (m.pos >= 0 || m.state != stateStart))
 
 	inReader := content && m.state == stateReader && !m.showingRaw

@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // startChromeRows matches listChromeRows: space the bubbles list reserves once
@@ -122,9 +123,15 @@ func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		return
 	}
 	if it, ok := item.(startItem); ok && it.credit {
+		width := m.Width()
+		if width <= 0 {
+			return
+		}
 		dim := lipgloss.NewStyle().Foreground(d.st.palette.Dim)
-		url := lipgloss.NewStyle().Hyperlink(catalogCreditURL).Render(catalogCreditURL)
-		fmt.Fprintf(w, "%s\n%s", dim.Render("Catalog inspired by"), dim.Render(url)) //nolint:errcheck
+		label := ansi.Truncate("Catalog inspired by", width, "…")
+		visibleURL := ansi.Truncate(catalogCreditURL, width, "…")
+		url := lipgloss.NewStyle().Hyperlink(catalogCreditURL).Render(visibleURL)
+		fmt.Fprintf(w, "%s\n%s", dim.Render(label), dim.Render(url)) //nolint:errcheck
 		return
 	}
 	d.userDelegate.Render(w, m, index, item)

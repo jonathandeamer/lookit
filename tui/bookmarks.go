@@ -141,6 +141,19 @@ func parseBookmarkTarget(line string) (string, error) {
 	return fields[0], nil
 }
 
+// validateBookmarkRecordTarget verifies that target survives the bookmark
+// file's comment and single-field grammar without changing identity.
+func validateBookmarkRecordTarget(target string) error {
+	parsed, err := parseBookmarkTarget(strings.TrimSpace(stripComment(target)))
+	if err != nil {
+		return err
+	}
+	if parsed != target {
+		return fmt.Errorf("target %q does not round-trip through the bookmarks file", target)
+	}
+	return nil
+}
+
 // parseCatalogLine parses the maintainer-authored "<kind> <target> <note>"
 // grammar. Catalog notes are compiled into the binary, never read from the
 // user's file.
@@ -257,6 +270,11 @@ func deleteBookmarkLine(data []byte, target string) []byte {
 // saveBookmarkData writes atomically (temp file + rename) at 0600, creating the
 // directory 0700 if needed. Reading never creates anything; only writing does.
 func saveBookmarkData(path string, data []byte) error {
+	writePath, err := bookmarkWritePath(path)
+	if err != nil {
+		return err
+	}
+	path = writePath
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -278,6 +296,27 @@ func saveBookmarkData(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+// bookmarkWritePath follows a final symlink so the atomic rename replaces its
+// target rather than the user-managed link itself. Parent-directory symlinks do
+// not need special handling: normal path traversal already follows them.
+func bookmarkWritePath(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return path, nil
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve bookmarks symlink: %w", err)
+	}
+	return resolved, nil
 }
 
 // shortenHome renders a path with ~ for display without making it wrong.

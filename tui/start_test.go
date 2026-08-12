@@ -956,22 +956,6 @@ func TestStartApplyStylesKeepsSectionHeaders(t *testing.T) {
 	}
 }
 
-func TestStartRowTargetShortensChildrenUnlessFiltered(t *testing.T) {
-	child := startEntry{target: "dict@bbs.airandwave.net", child: true}
-	if got, want := startRowTarget(child, false), "  dict"; got != want {
-		t.Errorf("unfiltered child = %q, want %q", got, want)
-	}
-	// Filtering removes the parent that supplies the host, so the row must
-	// carry its full address again.
-	if got, want := startRowTarget(child, true), "dict@bbs.airandwave.net"; got != want {
-		t.Errorf("filtered child = %q, want %q", got, want)
-	}
-	parent := startEntry{target: "@bbs.airandwave.net"}
-	if got, want := startRowTarget(parent, false), "@bbs.airandwave.net"; got != want {
-		t.Errorf("parent = %q, want %q", got, want)
-	}
-}
-
 // In the narrow two-line layout the note sits under the target, so an
 // unindented note would hang left of its own row.
 func TestNarrowChildRowIndentsBothLines(t *testing.T) {
@@ -983,17 +967,20 @@ func TestNarrowChildRowIndentsBothLines(t *testing.T) {
 		t.Fatalf("delegate height = %d at width 40, want the two-line layout", d.Height())
 	}
 	l := list.New([]list.Item{
-		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", child: true}, section: sectionServices},
+		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", hint: "dictionary lookup", child: true}, section: sectionServices},
 		startItem{entry: startEntry{target: "other@example.com", note: "Other row"}, section: sectionServices},
 		startItem{entry: startEntry{target: "third@example.com", note: "Third row"}, section: sectionServices},
 	}, d, 40, 4)
 	// Render both rows unselected so the selection shelf's border and padding do
-	// not get mistaken for the child's own two-space indent. The base list style
-	// already left-pads every row by two spaces (tui/styles.go NormalTitle/
-	// NormalDesc), so asserting a bare "starts with two spaces" would pass even
-	// if the child-specific indent were dropped entirely. Compare the child's
+	// not get mistaken for the child's own indent. The base list style already
+	// left-pads every row by two spaces (tui/styles.go NormalTitle/NormalDesc),
+	// so asserting a bare "starts with two spaces" would pass even if the
+	// child-specific indent were dropped entirely. Compare the child's
 	// leading-space count against its non-child sibling's instead, so only the
-	// feature under test — the extra indent — can satisfy the assertion.
+	// feature under test — the extra indent — can satisfy the assertion. The
+	// target line gains 3 (the connector "├"/"└" is not itself a space) and the
+	// note line gains 5 (aligned under the token at column 5, not the
+	// connector).
 	l.Select(2) // a third row, so neither rendered row below carries the selection shelf
 	var childBuf, siblingBuf strings.Builder
 	d.Render(&childBuf, l, 0, l.Items()[0])
@@ -1003,12 +990,13 @@ func TestNarrowChildRowIndentsBothLines(t *testing.T) {
 	if len(childLines) != len(siblingLines) {
 		t.Fatalf("child rendered %d lines, sibling %d; want equal", len(childLines), len(siblingLines))
 	}
+	wantExtra := []int{3, 5}
 	for i := range childLines {
 		childIndent := len(childLines[i]) - len(strings.TrimLeft(childLines[i], " "))
 		siblingIndent := len(siblingLines[i]) - len(strings.TrimLeft(siblingLines[i], " "))
-		if got, want := childIndent, siblingIndent+2; got != want {
-			t.Errorf("line %d indent = %d, want %d (sibling %d + the child's own 2): child %q, sibling %q",
-				i, got, want, siblingIndent, childLines[i], siblingLines[i])
+		if got, want := childIndent, siblingIndent+wantExtra[i]; got != want {
+			t.Errorf("line %d indent = %d, want %d (sibling %d + %d): child %q, sibling %q",
+				i, got, want, siblingIndent, wantExtra[i], childLines[i], siblingLines[i])
 		}
 	}
 }
@@ -1069,7 +1057,7 @@ func TestEmptyFilterKeepsChildTokensAndQueryExpandsThem(t *testing.T) {
 		if strings.Contains(plain, "dict@bbs.airandwave.net") {
 			t.Errorf("child expanded to its full address while its group is still on screen:\n%s", plain)
 		}
-		if !strings.Contains(plain, "  dict") {
+		if !strings.Contains(plain, "├ dict") {
 			t.Errorf("child token missing:\n%s", plain)
 		}
 	})
@@ -1109,5 +1097,68 @@ func TestCountsIgnoreStructuralRows(t *testing.T) {
 	}
 	if got := startCounts(items); got.services != 1 {
 		t.Fatalf("services = %d, want 1 — the structural copy is not a listing", got.services)
+	}
+}
+
+func TestStartRowTargetDrawsConnectors(t *testing.T) {
+	mid := startEntry{target: "dict@bbs.airandwave.net", child: true}
+	last := startEntry{target: "wordsearch:today@bbs.airandwave.net", child: true, lastChild: true}
+	root := startEntry{target: "@bbs.airandwave.net"}
+	if got, want := startRowTarget(mid, false), "   ├ dict"; got != want {
+		t.Errorf("mid child = %q, want %q", got, want)
+	}
+	if got, want := startRowTarget(last, false), "   └ wordsearch:today"; got != want {
+		t.Errorf("last child = %q, want %q", got, want)
+	}
+	if got, want := startRowTarget(root, false), "@bbs.airandwave.net"; got != want {
+		t.Errorf("root = %q, want %q", got, want)
+	}
+	// Flattened: no parent above it, so the address returns and the connector
+	// goes with it.
+	if got, want := startRowTarget(mid, true), "dict@bbs.airandwave.net"; got != want {
+		t.Errorf("flattened child = %q, want %q", got, want)
+	}
+}
+
+func TestStartRowNotePerState(t *testing.T) {
+	hinted := startEntry{target: "smog@typed-hole.org", note: "Saturday Morning Gemzine — back issues", hint: "gemzine back issues", child: true}
+	bare := startEntry{target: "quake@bbs.airandwave.net", note: "Latest earthquakes, M2.5+ past day", child: true}
+	root := startEntry{target: "@typed-hole.org", note: "A small menu of fingers, from lobste.rs to smog"}
+
+	tests := []struct {
+		name      string
+		entry     startEntry
+		selected  bool
+		flattened bool
+		want      string
+	}{
+		{name: "hinted child shows its hint", entry: hinted, want: "gemzine back issues"},
+		{name: "child without a hint shows nothing", entry: bare, want: ""},
+		{name: "selected child shows its full note", entry: hinted, selected: true, want: "Saturday Morning Gemzine — back issues"},
+		{name: "selected child without a hint also shows it", entry: bare, selected: true, want: "Latest earthquakes, M2.5+ past day"},
+		{name: "flattened child shows its full note", entry: hinted, flattened: true, want: "Saturday Morning Gemzine — back issues"},
+		{name: "root keeps its note", entry: root, want: "A small menu of fingers, from lobste.rs to smog"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := startRowNote(tt.entry, tt.selected, tt.flattened); got != tt.want {
+				t.Fatalf("startRowNote = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// A bookmarked child has no parent in BOOKMARKS, so it is a listing there:
+// full target, full note, no connector.
+func TestBookmarkedChildRendersAsAListing(t *testing.T) {
+	entry := startEntry{
+		target: "smog@typed-hole.org", note: "Saturday Morning Gemzine — back issues",
+		hint: "gemzine back issues", source: sourceBookmark, bookmarked: true,
+	}
+	if got, want := startRowTarget(entry, false), "smog@typed-hole.org"; got != want {
+		t.Errorf("target = %q, want %q", got, want)
+	}
+	if got, want := startRowNote(entry, false, false), "Saturday Morning Gemzine — back issues"; got != want {
+		t.Errorf("note = %q, want %q", got, want)
 	}
 }

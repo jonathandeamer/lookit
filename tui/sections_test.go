@@ -295,3 +295,67 @@ func TestBookmarkSectionEntriesAreMarkedBookmarked(t *testing.T) {
 		t.Fatal("BOOKMARKS section not found")
 	}
 }
+
+// The delegate renders one item at a time and cannot see whether the next row
+// shares a host, so the connector's shape is decided here.
+func TestLastChildMarksTheFinalChildOfEveryGroup(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	want := map[string]bool{
+		"wordsearch:today@bbs.airandwave.net": true,  // final child of a six-child group
+		"dict@bbs.airandwave.net":             false, // first child of the same group
+		"calendar@flanigan.us":                true,  // final child of a two-child group
+		"bonsai@flanigan.us":                  false, // its non-final sibling
+		"textfile@typed-hole.org":             true,
+		"cyoa@typed-hole.org":                 false,
+		"random@happynetbox.com":              true,
+		"@bbs.airandwave.net":                 false, // a root is not a child
+		"@graph.no":                           false, // no group at all
+		"@happynetbox.com":                    false, // structural parent
+	}
+	seen := make(map[string]bool, len(want))
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		for _, e := range s.entries {
+			if expected, ok := want[e.target]; ok {
+				seen[e.target] = true
+				if e.lastChild != expected {
+					t.Errorf("%s lastChild = %v, want %v", e.target, e.lastChild, expected)
+				}
+			}
+		}
+	}
+	for target := range want {
+		if !seen[target] {
+			t.Errorf("%s never appeared in SERVICES", target)
+		}
+	}
+}
+
+// No service host in the shipped catalog has exactly one child any more —
+// @flanigan.us gained bonsai — but the rule must still hold for one, so this
+// case is built rather than found.
+func TestLastChildMarksTheOnlyChildOfASingleChildGroup(t *testing.T) {
+	catalog := []startEntry{
+		{target: "@example.com", kind: kindService, note: "Root", source: sourceCatalog},
+		{target: "only@example.com", kind: kindService, note: "Only child", source: sourceCatalog},
+	}
+	sections := buildSections(catalog, bookmarkFile{})
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		if len(s.entries) != 2 {
+			t.Fatalf("entries = %+v, want a root and one child", s.entries)
+		}
+		if s.entries[0].lastChild {
+			t.Errorf("root = %+v, want lastChild false", s.entries[0])
+		}
+		if !s.entries[1].child || !s.entries[1].lastChild {
+			t.Errorf("only child = %+v, want child and lastChild true", s.entries[1])
+		}
+		return
+	}
+	t.Fatal("SERVICES section not found")
+}

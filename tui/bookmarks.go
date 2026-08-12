@@ -56,6 +56,7 @@ type startEntry struct {
 	source entrySource
 
 	child      bool // indented under its host's parent row; renders its token only
+	lastChild  bool // final child of its group; draws "└" instead of "├"
 	structural bool // a parent copy of a target listed elsewhere; not counted, hidden while filtering
 	bookmarked bool // the target is in the bookmarks file, whatever section rendered this row
 }

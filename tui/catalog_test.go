@@ -90,3 +90,49 @@ func TestCatalogHasRootForEveryGroupedHost(t *testing.T) {
 		}
 	}
 }
+
+// A hint renders only where a token renders: on a service child. "Not a root"
+// is too loose — a queried community such as ring@thebackupbox.net is non-root
+// but is never grouped, so a hint on it would never appear.
+func TestCatalogHintsOnlyOnServiceChildren(t *testing.T) {
+	entries, _ := parseCatalogData(catalogData)
+	for _, e := range entries {
+		if e.hint == "" {
+			continue
+		}
+		if e.kind != kindService || entryToken(e.target) == "" {
+			t.Errorf("%s carries hint %q but never renders as a token", e.target, e.hint)
+		}
+	}
+}
+
+func TestCatalogHintValidationRejectsNonChildren(t *testing.T) {
+	data := []byte(strings.Join([]string{
+		"community ring@thebackupbox.net The finger ring | the ring",
+		"service @graph.no Weather worldwide | weather",
+	}, "\n"))
+	entries, problems := parseCatalogData(data)
+	if len(problems) != 0 {
+		t.Fatalf("parse problems = %+v, want none; the grammar is valid, the placement is not", problems)
+	}
+	for _, e := range entries {
+		if e.hint != "" && (e.kind != kindService || entryToken(e.target) == "") {
+			return // the condition the catalog test asserts against catalogData
+		}
+	}
+	t.Fatal("fixture did not produce a misplaced hint; the guard cannot be trusted")
+}
+
+// The note is cut at the first "|", so a note containing one would lose its
+// tail. Same treatment "#" already gets: forbid the character.
+func TestCatalogNotesContainNoPipe(t *testing.T) {
+	for i, raw := range strings.Split(string(catalogData), "\n") {
+		record := strings.TrimSpace(raw)
+		if record == "" || strings.HasPrefix(record, "#") {
+			continue
+		}
+		if strings.Count(record, "|") > 1 {
+			t.Errorf("line %d has more than one \"|\": %q", i+1, record)
+		}
+	}
+}

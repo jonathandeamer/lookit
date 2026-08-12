@@ -985,18 +985,30 @@ func TestNarrowChildRowIndentsBothLines(t *testing.T) {
 	l := list.New([]list.Item{
 		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", child: true}, section: sectionServices},
 		startItem{entry: startEntry{target: "other@example.com", note: "Other row"}, section: sectionServices},
+		startItem{entry: startEntry{target: "third@example.com", note: "Third row"}, section: sectionServices},
 	}, d, 40, 4)
-	// Render the child unselected so the selection shelf's border and padding do
-	// not get mistaken for the child's own two-space indent.
-	l.Select(1)
-	var buf strings.Builder
-	d.Render(&buf, l, 0, l.Items()[0])
-	for _, line := range strings.Split(ansi.Strip(buf.String()), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "  ") {
-			t.Errorf("line %q is not indented; both lines of a child row must be", line)
+	// Render both rows unselected so the selection shelf's border and padding do
+	// not get mistaken for the child's own two-space indent. The base list style
+	// already left-pads every row by two spaces (tui/styles.go NormalTitle/
+	// NormalDesc), so asserting a bare "starts with two spaces" would pass even
+	// if the child-specific indent were dropped entirely. Compare the child's
+	// leading-space count against its non-child sibling's instead, so only the
+	// feature under test — the extra indent — can satisfy the assertion.
+	l.Select(2) // a third row, so neither rendered row below carries the selection shelf
+	var childBuf, siblingBuf strings.Builder
+	d.Render(&childBuf, l, 0, l.Items()[0])
+	d.Render(&siblingBuf, l, 1, l.Items()[1])
+	childLines := strings.Split(ansi.Strip(childBuf.String()), "\n")
+	siblingLines := strings.Split(ansi.Strip(siblingBuf.String()), "\n")
+	if len(childLines) != len(siblingLines) {
+		t.Fatalf("child rendered %d lines, sibling %d; want equal", len(childLines), len(siblingLines))
+	}
+	for i := range childLines {
+		childIndent := len(childLines[i]) - len(strings.TrimLeft(childLines[i], " "))
+		siblingIndent := len(siblingLines[i]) - len(strings.TrimLeft(siblingLines[i], " "))
+		if got, want := childIndent, siblingIndent+2; got != want {
+			t.Errorf("line %d indent = %d, want %d (sibling %d + the child's own 2): child %q, sibling %q",
+				i, got, want, siblingIndent, childLines[i], siblingLines[i])
 		}
 	}
 }

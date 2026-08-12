@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 type startSectionID uint8
 
@@ -57,6 +60,14 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 	for _, target := range bm.targets {
 		pinned[target] = true
 	}
+
+	roots := make(map[string]startEntry, len(catalog))
+	for _, e := range catalog {
+		if entryToken(e.target) == "" {
+			roots[entryHost(e.target)] = e
+		}
+	}
+
 	for _, group := range []struct {
 		title string
 		kind  entryKind
@@ -66,17 +77,90 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 		{title: "SERVICES", kind: kindService, id: sectionServices},
 		{title: "PEOPLE", kind: kindPerson, id: sectionUnknown},
 	} {
-		var entries []startEntry
+		var listed []startEntry
 		for _, e := range catalog {
 			if e.kind == group.kind && !pinned[e.target] {
-				entries = append(entries, e)
+				listed = append(listed, e)
 			}
 		}
-		if len(entries) > 0 {
-			sections = append(sections, startSection{id: group.id, title: group.title, entries: entries})
+		if len(listed) == 0 {
+			continue
 		}
+		if group.kind == kindService {
+			listed = groupByHost(listed, roots, pinned)
+		} else {
+			sort.SliceStable(listed, func(i, j int) bool {
+				leftHost, rightHost := entryHost(listed[i].target), entryHost(listed[j].target)
+				if leftHost != rightHost {
+					return leftHost < rightHost
+				}
+				return entryToken(listed[i].target) < entryToken(listed[j].target)
+			})
+		}
+		sections = append(sections, startSection{id: group.id, title: group.title, entries: listed})
 	}
 	return sections
+}
+
+// groupByHost orders service rows by host, then by query token within each host,
+// with the host's root row first. Display order is therefore computed, not
+// inherited from catalog.txt: a new catalog line can be added anywhere.
+//
+// A host with service children whose root is not itself a listed service row —
+// because the root is classified differently (@happynetbox.com is a community)
+// or because it is pinned — gets a structural copy of that root as its parent.
+// Structure is not a listing: structural rows are not counted and vanish while
+// filtering.
+func groupByHost(listed []startEntry, roots map[string]startEntry, pinned map[string]bool) []startEntry {
+	byHost := make(map[string][]startEntry, len(listed))
+	var hosts []string
+	for _, e := range listed {
+		host := entryHost(e.target)
+		if _, seen := byHost[host]; !seen {
+			hosts = append(hosts, host)
+		}
+		byHost[host] = append(byHost[host], e)
+	}
+	sort.Strings(hosts)
+
+	out := make([]startEntry, 0, len(listed)+len(hosts))
+	for _, host := range hosts {
+		rows := byHost[host]
+		// A root's token is "", which sorts before every child.
+		sort.SliceStable(rows, func(i, j int) bool {
+			return entryToken(rows[i].target) < entryToken(rows[j].target)
+		})
+
+		hasChild := false
+		for _, e := range rows {
+			if entryToken(e.target) != "" {
+				hasChild = true
+				break
+			}
+		}
+		root, hasRoot := roots[host]
+		// No children means no group. No root means the catalog invariant is
+		// broken (TestCatalogHasRootForEveryGroupedHost); render flat rather
+		// than inventing a parent, so the rows stay reachable.
+		if !hasChild || !hasRoot {
+			out = append(out, rows...)
+			continue
+		}
+
+		if rows[0].target == root.target {
+			out = append(out, rows[0])
+			rows = rows[1:]
+		} else {
+			parent := root
+			parent.structural = true
+			out = append(out, parent)
+		}
+		for _, e := range rows {
+			e.child = true
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // entryHost is the address after the final "@": the machine a row belongs to.

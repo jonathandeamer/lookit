@@ -35,8 +35,9 @@ func parseKind(s string) (entryKind, bool) {
 	return 0, false
 }
 
-// entrySource records which file an entry came from: it decides section
-// placement and whether 'b' adds or removes.
+// entrySource records whether an entry is rendered from BOOKMARKS or from the
+// catalog. Bookmark state is separate because a retained catalog parent can
+// represent a target that is also bookmarked.
 type entrySource uint8
 
 const (
@@ -44,13 +45,18 @@ const (
 	sourceBookmark
 )
 
-// startEntry is one assembled row on the startpage. kind and note come only
-// from the catalog; an unmatched bookmark leaves both at their zero values.
+// startEntry is one startpage row. target/kind/note/source come from the two
+// sources; child/structural/bookmarked are set during assembly and describe how
+// the row is displayed, not where it came from.
 type startEntry struct {
 	target string
 	kind   entryKind
 	note   string
 	source entrySource
+
+	child      bool // indented under its host's parent row; renders its token only
+	structural bool // a parent copy of a target listed elsewhere; not counted, hidden while filtering
+	bookmarked bool //nolint:unused // the target is in the bookmarks file, whatever section rendered this row; populated in Task 3
 }
 
 // parseProblem is a line we refused, surfaced to the user rather than swallowed.

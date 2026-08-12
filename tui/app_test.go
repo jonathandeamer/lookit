@@ -1508,7 +1508,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
 	oldBg := m.common.styles.palette.BaseBg
-	assertFullWidthStyledLine(t, "inactive start selection before restyle", lineContaining(t, m.start.View(), "@plan.cat"), m.start.list.Width(), m.common.styles.palette.SubtleBg)
+	assertFullWidthStyledLine(t, "inactive start selection before restyle", lineContaining(t, m.start.View(), "@cosmic.voyage"), m.start.list.Width(), m.common.styles.palette.SubtleBg)
 
 	next, _ := m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
 	got := next.(appModel)
@@ -1528,7 +1528,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	if !sameColor(got.input.Styles().Focused.Prompt.GetForeground(), got.common.styles.input.Focused.Prompt.GetForeground()) {
 		t.Fatal("input styles were not reapplied")
 	}
-	assertFullWidthStyledLine(t, "inactive start selection after restyle", lineContaining(t, got.start.View(), "@plan.cat"), got.start.list.Width(), got.common.styles.palette.SubtleBg)
+	assertFullWidthStyledLine(t, "inactive start selection after restyle", lineContaining(t, got.start.View(), "@cosmic.voyage"), got.start.list.Width(), got.common.styles.palette.SubtleBg)
 }
 
 func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {
@@ -2989,7 +2989,7 @@ func TestBookmarkingCatalogRowStaysAtSectionOrdinal(t *testing.T) {
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
 	selected, ok := m.start.selected()
-	if !ok || selected.target != "@happynetbox.com" {
+	if !ok || selected.target != "ring@thebackupbox.net" {
 		t.Fatalf("selected = %+v, %v; want next community at the same ordinal", selected, ok)
 	}
 	data, err := os.ReadFile(path)
@@ -3004,8 +3004,8 @@ func TestBookmarkingCatalogRowsStayAtSectionOrdinal(t *testing.T) {
 		target string
 		want   string
 	}{
-		{name: "middle", target: "@tilde.team", want: "@happynetbox.com"},
-		{name: "final", target: "@zaibatsu.circumlunar.space", want: "@cosmic.voyage"},
+		{name: "middle", target: "@tilde.team", want: "@zaibatsu.circumlunar.space"},
+		{name: "final", target: "@zaibatsu.circumlunar.space", want: "@tilde.team"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3049,7 +3049,7 @@ func TestRemovingBookmarksStaysAtSectionOrdinal(t *testing.T) {
 	}{
 		{name: "first", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@plan.cat", want: "@tilde.team"},
 		{name: "final", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@happynetbox.com", want: "@tilde.team"},
-		{name: "only", seed: "@tilde.team\n", pick: "@tilde.team", want: "@plan.cat"},
+		{name: "only", seed: "@tilde.team\n", pick: "@tilde.team", want: "@cosmic.voyage"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3116,7 +3116,11 @@ func TestBookmarkingOnlyFinalCatalogSectionRowFallsBackward(t *testing.T) {
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
 	selected, ok := m.start.selected()
-	if !ok || selected.target != "@plan.cat" {
+	// quake is the sole remaining service, but it sits at ordinal 1 within
+	// SERVICES: a structural @bbs.airandwave.net parent row occupies ordinal 0
+	// (structural rows are still selectable until Task 5 excludes them from
+	// counting). The fallback lands on COMMUNITIES ordinal 1.
+	if !ok || selected.target != "@happynetbox.com" {
 		t.Fatalf("selected = %+v, %v; want nearest earlier catalog section", selected, ok)
 	}
 }

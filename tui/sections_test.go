@@ -1,6 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"reflect"
+	"slices"
+	"testing"
+)
 
 func catalogFixture() []startEntry {
 	return []startEntry{
@@ -102,6 +106,118 @@ func TestEntryHostAndToken(t *testing.T) {
 		}
 		if got := entryToken(tt.target); got != tt.token {
 			t.Errorf("entryToken(%q) = %q, want %q", tt.target, got, tt.token)
+		}
+	}
+}
+
+func sectionTargets(t *testing.T, sections []startSection, id startSectionID) []string {
+	t.Helper()
+	for _, s := range sections {
+		if s.id == id {
+			targets := make([]string, 0, len(s.entries))
+			for _, e := range s.entries {
+				targets = append(targets, e.target)
+			}
+			return targets
+		}
+	}
+	t.Fatalf("section %v not found", id)
+	return nil
+}
+
+func TestCommunitiesSortAlphabeticallyByHost(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	want := []string{
+		"@cosmic.voyage",
+		"@happynetbox.com",
+		"@plan.cat",
+		"ring@thebackupbox.net",
+		"@tilde.team",
+		"@zaibatsu.circumlunar.space",
+	}
+	if got := sectionTargets(t, sections, sectionCommunities); !reflect.DeepEqual(got, want) {
+		t.Fatalf("communities = %v, want %v", got, want)
+	}
+}
+
+// A queried community sorts on its host, but only service rows participate in
+// parent/child grouping — even if that host also has a root catalog entry.
+func TestQueriedCommunitySortsByHostButStaysFlat(t *testing.T) {
+	catalog := []startEntry{
+		{target: "ring@thebackupbox.net", kind: kindCommunity, note: "Ring", source: sourceCatalog},
+		{target: "@thebackupbox.net", kind: kindService, note: "Root", source: sourceCatalog},
+	}
+	sections := buildSections(catalog, bookmarkFile{})
+	for _, section := range sections {
+		if section.id != sectionCommunities {
+			continue
+		}
+		if got := section.entries[0]; got.child || got.structural {
+			t.Fatalf("queried community = %+v, want a plain sorted row", got)
+		}
+		return
+	}
+	t.Fatal("COMMUNITIES section not found")
+}
+
+func TestServicesGroupUnderHostRoots(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	want := []string{
+		"@bbs.airandwave.net",
+		"dict@bbs.airandwave.net",
+		"quake@bbs.airandwave.net",
+		"sudoku:easy@bbs.airandwave.net",
+		"urban@bbs.airandwave.net",
+		"weather@bbs.airandwave.net",
+		"wordsearch:today@bbs.airandwave.net",
+		"@flanigan.us",
+		"calendar@flanigan.us",
+		"@graph.no",
+		"@happynetbox.com",
+		"1@happynetbox.com",
+		"bot@happynetbox.com",
+		"browserversion@happynetbox.com",
+		"originsfinger@happynetbox.com",
+		"random@happynetbox.com",
+		"@typed-hole.org",
+		"cyoa@typed-hole.org",
+		"smog@typed-hole.org",
+		"textfile@typed-hole.org",
+	}
+	if got := sectionTargets(t, sections, sectionServices); !reflect.DeepEqual(got, want) {
+		t.Fatalf("services = %v, want %v", got, want)
+	}
+}
+
+// @graph.no has a root and no children, so it is a plain row: no indent.
+func TestRootWithoutChildrenIsNotAParent(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	for _, s := range sections {
+		for _, e := range s.entries {
+			if e.target == "@graph.no" && (e.child || e.structural) {
+				t.Fatalf("@graph.no = %+v; want a plain row", e)
+			}
+		}
+	}
+}
+
+// @happynetbox.com is a community listing AND the parent of its services, so
+// the services copy is structural: a duplicate that exists only as structure.
+func TestDualRoleHostAppearsInBothSections(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	communities := sectionTargets(t, sections, sectionCommunities)
+	if !slices.Contains(communities, "@happynetbox.com") {
+		t.Fatalf("communities = %v, want @happynetbox.com", communities)
+	}
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		if s.entries[10].target != "@happynetbox.com" || !s.entries[10].structural {
+			t.Fatalf("services[10] = %+v, want a structural @happynetbox.com", s.entries[10])
+		}
+		if s.entries[11].target != "1@happynetbox.com" || !s.entries[11].child {
+			t.Fatalf("services[11] = %+v, want a child row", s.entries[11])
 		}
 	}
 }

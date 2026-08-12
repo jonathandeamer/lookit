@@ -1,6 +1,12 @@
 # lookit's built-in catalog: places worth starting from.
 #
-# Format: <kind> <target> <note>
+# Format: <kind> <target> <note>[ | <hint>]
+#
+# The optional hint is the short label a service child shows in its row; the
+# note stays authoritative and appears when the row is selected, filtered, or
+# bookmarked. Write a hint only where the token does not say what it is —
+# lowercase, two or three words. A hint on anything but a service child fails
+# TestCatalogHintsOnlyOnServiceChildren.
 # Compiled into the binary; users override nothing here. Their own list lives
 # in ~/.config/lookit/bookmarks as one target per line, and "catalog off" there
 # hides all of this.

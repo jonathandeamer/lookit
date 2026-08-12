@@ -32,6 +32,15 @@ func (i startItem) selectable() bool {
 	return i.header == "" && i.entry.target != ""
 }
 
+// countsAsListing reports whether this row should count toward the overview
+// and status-bar totals: a selectable row that is not a structural parent
+// copy. startCounts and appModel.startBar each tally rows independently, and
+// both must call this rather than re-encode the rule, or the overview and the
+// status bar can silently disagree on screen.
+func (i startItem) countsAsListing() bool {
+	return i.selectable() && !i.entry.structural
+}
+
 // FilterValue drives "/". Non-entry rows return "" so they drop out while
 // filtering, which flattens the view to matches — the behaviour we want.
 // Structural rows return "" for a second reason: filtering removes the section
@@ -96,8 +105,7 @@ func startCounts(items []list.Item) startOverviewCounts {
 	var counts startOverviewCounts
 	for _, item := range items {
 		it, ok := item.(startItem)
-		// A structural parent is navigation structure, not another listing.
-		if !ok || !it.selectable() || it.entry.structural {
+		if !ok || !it.countsAsListing() {
 			continue
 		}
 		switch it.section {

@@ -192,12 +192,20 @@ func TestServicesGroupUnderHostRoots(t *testing.T) {
 // @graph.no has a root and no children, so it is a plain row: no indent.
 func TestRootWithoutChildrenIsNotAParent(t *testing.T) {
 	sections := buildSections(loadCatalog(), bookmarkFile{})
+	found := false
 	for _, s := range sections {
 		for _, e := range s.entries {
-			if e.target == "@graph.no" && (e.child || e.structural) {
+			if e.target != "@graph.no" {
+				continue
+			}
+			found = true
+			if e.child || e.structural {
 				t.Fatalf("@graph.no = %+v; want a plain row", e)
 			}
 		}
+	}
+	if !found {
+		t.Fatal("@graph.no not found in any section")
 	}
 }
 
@@ -209,16 +217,27 @@ func TestDualRoleHostAppearsInBothSections(t *testing.T) {
 	if !slices.Contains(communities, "@happynetbox.com") {
 		t.Fatalf("communities = %v, want @happynetbox.com", communities)
 	}
+	foundServices := false
 	for _, s := range sections {
 		if s.id != sectionServices {
 			continue
 		}
+		foundServices = true
 		if s.entries[10].target != "@happynetbox.com" || !s.entries[10].structural {
 			t.Fatalf("services[10] = %+v, want a structural @happynetbox.com", s.entries[10])
+		}
+		// @happynetbox.com is unpinned here, so its structural copy must not
+		// claim to be bookmarked — the b hint would read "remove" while
+		// pressing b would add it.
+		if s.entries[10].bookmarked {
+			t.Fatalf("services[10] = %+v, want an unpinned structural parent", s.entries[10])
 		}
 		if s.entries[11].target != "1@happynetbox.com" || !s.entries[11].child {
 			t.Fatalf("services[11] = %+v, want a child row", s.entries[11])
 		}
+	}
+	if !foundServices {
+		t.Fatal("SERVICES section not found")
 	}
 }
 
@@ -245,12 +264,17 @@ func TestPinnedParentKeepsHeadingItsGroupAndKnowsItIsPinned(t *testing.T) {
 
 func TestBookmarkSectionEntriesAreMarkedBookmarked(t *testing.T) {
 	sections := buildSections(loadCatalog(), bookmarkFile{targets: []string{"@tilde.team"}})
+	found := false
 	for _, s := range sections {
 		if s.id != sectionBookmarks {
 			continue
 		}
+		found = true
 		if !s.entries[0].bookmarked {
 			t.Fatalf("bookmark row = %+v, want bookmarked", s.entries[0])
 		}
+	}
+	if !found {
+		t.Fatal("BOOKMARKS section not found")
 	}
 }

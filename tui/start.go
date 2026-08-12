@@ -248,11 +248,6 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 			descStyle = inactiveShelf.Foreground(d.st.palette.Dim)
 		}
 	}
-	// A hint is a quiet aid, not content: it recedes unless the row is selected,
-	// where it has been replaced by the full note anyway.
-	if item.entry.child && !isSelected && !emptyFilter && !showShelf {
-		descStyle = descStyle.Foreground(d.st.palette.Dim)
-	}
 	titleStyle = startStyleWithinWidth(titleStyle, m.Width())
 	descStyle = startStyleWithinWidth(descStyle, m.Width())
 

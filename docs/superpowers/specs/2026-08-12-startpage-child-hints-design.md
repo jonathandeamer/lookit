@@ -25,7 +25,7 @@ service smog@typed-hole.org Saturday Morning Gemzine — back issues | gemzine b
 service quake@bbs.airandwave.net Latest earthquakes, M2.5+ past day
 ```
 
-Present, the hint is what the child row shows, dimmed. Absent, the row is its
+Present, the hint is what the child row shows. Absent, the row is its
 token alone. The **full note stays authoritative**: it feeds filtering, the
 selected row, and every context where the child renders as a listing rather
 than as a group member.
@@ -70,9 +70,10 @@ The other nine — `bonsai`, `dict`, `quake`, `urban`, `weather`, `sudoku:easy`,
 
 A child's prefix becomes three spaces, a connector, and a space: `   ├ ` for
 every child but the last of its group, `   └ ` for the last. Text lands at
-column 5 instead of column 2. The optional hint in the note column takes the dim
-palette colour, distinguishing it as a label rather than descriptive content.
-(The original design intended to dim the connector itself; colouring the connector
+column 5 instead of column 2. The optional hint in the note column renders in
+the same style as any other note; what sets it apart as a label rather than
+descriptive content is brevity — it is short, and its siblings' note columns
+are empty. (The original design intended to dim the connector itself; colouring the connector
 separately would require splitting the target field into two styled spans and
 re-deriving the filter match offsets across them, which proved costlier than the
 visual benefit justified. This tradeoff was recorded as a deliberate call during
@@ -128,7 +129,7 @@ The note column by row state:
 | Row | Note column |
 |---|---|
 | Host parent, community row, structural parent | full note (unchanged) |
-| Child, unselected, with a hint | the hint, dimmed |
+| Child, unselected, with a hint | the hint, in the normal note style |
 | Child, unselected, no hint | empty |
 | Child, selected | its full note, normal weight |
 | Child in a flattened view (filter active, query non-empty) | full note |
@@ -158,7 +159,7 @@ with the token it decorates.
 full target, full note, no connector.
 
 **The narrow two-line layout mirrors the wide one.** The first line carries the
-connector; the second carries the hint (dimmed), the full note when selected, or
+connector; the second carries the hint, the full note when selected, or
 nothing. The second line aligns under the token at column 5, not under the
 connector.
 
@@ -207,7 +208,7 @@ actions; ordering; community rows; the reader.
   a **synthetic catalog fixture**: adding `bonsai` left no real service group
   with one child, and the rule must still hold for one.
 - **Delegate, one case per row state** in the table above: token-only child;
-  hinted child, dimmed; selected child showing its full note; flattened child
+  hinted child; selected child showing its full note; flattened child
   showing full target and full note with no connector.
 - **The two filtering states:** with `/` pressed and the query empty, children
   keep their tokens and connectors and the headers stay; after one character is

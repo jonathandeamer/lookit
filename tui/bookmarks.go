@@ -55,7 +55,7 @@ type startEntry struct {
 	hint   string // short label a child row shows in place of its note; "" when absent
 	source entrySource
 
-	child      bool // indented under its host's parent row; renders its token only
+	child      bool // drawn under its host's parent row behind a connector; renders its token only
 	lastChild  bool // final child of its group; draws "└" instead of "├"
 	structural bool // a parent copy of a target listed elsewhere; not counted, hidden while filtering
 	bookmarked bool // the target is in the bookmarks file, whatever section rendered this row

@@ -1,5 +1,7 @@
 package tui
 
+import "strings"
+
 type startSectionID uint8
 
 const (
@@ -75,4 +77,22 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 		}
 	}
 	return sections
+}
+
+// entryHost is the address after the final "@": the machine a row belongs to.
+// Grouping keys off this, so "@graph.no" and "oslo@graph.no" group together.
+func entryHost(target string) string {
+	if i := strings.LastIndex(target, "@"); i >= 0 {
+		return target[i+1:]
+	}
+	return target
+}
+
+// entryToken is the query before the final "@" — empty for a host root, which
+// is what makes a row a parent rather than a child.
+func entryToken(target string) string {
+	if i := strings.LastIndex(target, "@"); i >= 0 {
+		return target[:i]
+	}
+	return ""
 }

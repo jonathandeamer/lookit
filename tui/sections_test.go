@@ -83,3 +83,25 @@ func TestBuildSectionsEmpty(t *testing.T) {
 		t.Fatalf("sections = %+v, want none", got)
 	}
 }
+
+func TestEntryHostAndToken(t *testing.T) {
+	tests := []struct {
+		target string
+		host   string
+		token  string
+	}{
+		{target: "@graph.no", host: "graph.no", token: ""},
+		{target: "dict@bbs.airandwave.net", host: "bbs.airandwave.net", token: "dict"},
+		{target: "wordsearch:today@bbs.airandwave.net", host: "bbs.airandwave.net", token: "wordsearch:today"},
+		{target: "ring@thebackupbox.net", host: "thebackupbox.net", token: "ring"},
+		{target: "1@happynetbox.com", host: "happynetbox.com", token: "1"},
+	}
+	for _, tt := range tests {
+		if got := entryHost(tt.target); got != tt.host {
+			t.Errorf("entryHost(%q) = %q, want %q", tt.target, got, tt.host)
+		}
+		if got := entryToken(tt.target); got != tt.token {
+			t.Errorf("entryToken(%q) = %q, want %q", tt.target, got, tt.token)
+		}
+	}
+}

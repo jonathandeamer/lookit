@@ -38,6 +38,8 @@ service bot@happynetbox.com Tech news headlines with links, plus a fun fact
 service random@happynetbox.com Jump to a random happynetbox user
 service browserversion@happynetbox.com Current version numbers for major browsers
 service 1@happynetbox.com Interactive fiction, one page per finger query
+service @typed-hole.org A small menu of fingers, from lobste.rs to smog
 service cyoa@typed-hole.org Choose your own adventure
 service smog@typed-hole.org Saturday Morning Gemzine — back issues
+service @flanigan.us Four fingers: bonsai, ping, wisdom, calendar
 service originsfinger@happynetbox.com Les Earnest tells how finger began

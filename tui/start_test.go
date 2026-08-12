@@ -955,3 +955,89 @@ func TestStartApplyStylesKeepsSectionHeaders(t *testing.T) {
 		t.Fatalf("View() lost its section headers after applyStyles:\n%s", got)
 	}
 }
+
+func TestStartRowTargetShortensChildrenUnlessFiltered(t *testing.T) {
+	child := startEntry{target: "dict@bbs.airandwave.net", child: true}
+	if got, want := startRowTarget(child, false), "  dict"; got != want {
+		t.Errorf("unfiltered child = %q, want %q", got, want)
+	}
+	// Filtering removes the parent that supplies the host, so the row must
+	// carry its full address again.
+	if got, want := startRowTarget(child, true), "dict@bbs.airandwave.net"; got != want {
+		t.Errorf("filtered child = %q, want %q", got, want)
+	}
+	parent := startEntry{target: "@bbs.airandwave.net"}
+	if got, want := startRowTarget(parent, false), "@bbs.airandwave.net"; got != want {
+		t.Errorf("parent = %q, want %q", got, want)
+	}
+}
+
+// In the narrow two-line layout the note sits under the target, so an
+// unindented note would hang left of its own row.
+func TestNarrowChildRowIndentsBothLines(t *testing.T) {
+	common := testCommon()
+	common.width = 40
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	if d.Height() != 2 {
+		t.Fatalf("delegate height = %d at width 40, want the two-line layout", d.Height())
+	}
+	l := list.New([]list.Item{
+		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", child: true}, section: sectionServices},
+		startItem{entry: startEntry{target: "other@example.com", note: "Other row"}, section: sectionServices},
+	}, d, 40, 4)
+	// Render the child unselected so the selection shelf's border and padding do
+	// not get mistaken for the child's own two-space indent.
+	l.Select(1)
+	var buf strings.Builder
+	d.Render(&buf, l, 0, l.Items()[0])
+	for _, line := range strings.Split(ansi.Strip(buf.String()), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "  ") {
+			t.Errorf("line %q is not indented; both lines of a child row must be", line)
+		}
+	}
+}
+
+func TestFilteredChildRendersFullTargetWithMatchHighlight(t *testing.T) {
+	for _, query := range []string{"dict", "airandwave"} {
+		t.Run(query, func(t *testing.T) {
+			common := testCommon()
+			common.width = 80
+			sections := []startSection{{
+				id: sectionServices, title: "SERVICES",
+				entries: []startEntry{{
+					target: "dict@bbs.airandwave.net", note: "Dictionary lookup",
+					source: sourceCatalog, child: true,
+				}},
+			}}
+			m := newStart(common, sections, "", "")
+			m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+			m = typeStartFilter(t, m, query)
+			m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+			view := m.View()
+			plain := ansi.Strip(view)
+			lineIndex := lineIndexContaining(t, plain, "dict@bbs.airandwave.net")
+			line := strings.Split(view, "\n")[lineIndex]
+			if got := underlinedText(line); got != query {
+				t.Fatalf("underlined text = %q, want %q\n%q", got, query, line)
+			}
+		})
+	}
+}
+
+// A structural row duplicates a target listed elsewhere. Filtering drops the
+// headers that tell the two copies apart, so the duplicate must drop out too.
+func TestStructuralRowsDoNotMatchFilters(t *testing.T) {
+	structural := startItem{entry: startEntry{target: "@happynetbox.com", structural: true}}
+	if got := structural.FilterValue(); got != "" {
+		t.Fatalf("FilterValue() = %q, want empty so the copy is filtered out", got)
+	}
+	listing := startItem{entry: startEntry{target: "@happynetbox.com", note: "n"}}
+	if got, want := listing.FilterValue(), "@happynetbox.com n"; got != want {
+		t.Fatalf("FilterValue() = %q, want %q", got, want)
+	}
+}

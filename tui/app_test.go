@@ -3579,3 +3579,59 @@ func TestParentBookmarkHintAndActionAgree(t *testing.T) {
 		})
 	}
 }
+
+func TestFilteringShowsOneHappynetboxParentPinnedOrUnpinned(t *testing.T) {
+	tests := []struct {
+		name string
+		seed string
+	}{
+		{name: "unpinned"},
+		{name: "pinned", seed: "@happynetbox.com\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.seed == "" {
+				useTempBookmarks(t)
+			} else {
+				seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			m.start.list.SetFilterText("happynetbox.com")
+			var seen int
+			for _, item := range m.start.list.VisibleItems() {
+				if it, ok := item.(startItem); ok && it.entry.target == "@happynetbox.com" {
+					seen++
+				}
+			}
+			if seen != 1 {
+				t.Fatalf("@happynetbox.com appears %d times under a filter, want 1", seen)
+			}
+		})
+	}
+}
+
+func TestFilteringKeepsCanonicalServiceParents(t *testing.T) {
+	for _, target := range []string{
+		"@bbs.airandwave.net",
+		"@flanigan.us",
+		"@graph.no",
+		"@typed-hole.org",
+	} {
+		t.Run(target, func(t *testing.T) {
+			useTempBookmarks(t)
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			m.start.list.SetFilterText(target)
+			var roots []startEntry
+			for _, item := range m.start.list.VisibleItems() {
+				if it, ok := item.(startItem); ok && it.entry.target == target {
+					roots = append(roots, it.entry)
+				}
+			}
+			if len(roots) != 1 || roots[0].structural {
+				t.Fatalf("filtered roots = %+v, want one canonical parent", roots)
+			}
+		})
+	}
+}

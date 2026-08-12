@@ -34,8 +34,11 @@ func (i startItem) selectable() bool {
 
 // FilterValue drives "/". Non-entry rows return "" so they drop out while
 // filtering, which flattens the view to matches — the behaviour we want.
+// Structural rows return "" for a second reason: filtering removes the section
+// headers that distinguish a parent copy from the listing it duplicates, so
+// without this a filter would show two identical selectable rows.
 func (i startItem) FilterValue() string {
-	if !i.selectable() {
+	if !i.selectable() || i.entry.structural {
 		return ""
 	}
 	return i.entry.target + " " + i.entry.note
@@ -225,6 +228,8 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	titleStyle = startStyleWithinWidth(titleStyle, m.Width())
 	descStyle = startStyleWithinWidth(descStyle, m.Width())
 
+	rowTarget := startRowTarget(item.entry, isFiltered)
+
 	var targetMatches, noteMatches []int
 	if isFiltered && !emptyFilter {
 		targetMatches, noteMatches = splitStartMatches(m.MatchesForItem(index), item.entry.target)
@@ -233,7 +238,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	if d.Height() == 1 {
 		frame := titleStyle.GetHorizontalFrameSize()
 		targetWidth, noteWidth := startColumnWidths(m.Width(), frame)
-		target := renderStartField(item.entry.target, targetWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
+		target := renderStartField(rowTarget, targetWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
 		note := renderStartField(item.entry.note, noteWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
 		target = padStartField(target, targetWidth, startInlineStyle(titleStyle))
 		row := target + note
@@ -253,8 +258,12 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	if descWidth < 0 {
 		descWidth = 0
 	}
-	target := renderStartField(item.entry.target, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
-	note := renderStartField(item.entry.note, descWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
+	rowNote := item.entry.note
+	if item.entry.child && !isFiltered {
+		rowNote = "  " + rowNote
+	}
+	target := renderStartField(rowTarget, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
+	note := renderStartField(rowNote, descWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
 	if showShelf {
 		fmt.Fprintf(w, "%s\n%s", renderSelectedShelfLine(target, titleStyle, m.Width()), renderSelectedShelfLine(note, descStyle, m.Width())) //nolint:errcheck
 		return
@@ -269,6 +278,16 @@ func startColumnWidths(width, frame int) (int, int) {
 	}
 	target := available * startTargetColumnPct / 100
 	return target, available - target
+}
+
+// startRowTarget is the target column's text. A child shows only its query
+// token, indented, because the parent row above it states the host — but under
+// a filter the parent may not be on screen, so the full address returns.
+func startRowTarget(entry startEntry, filtered bool) string {
+	if entry.child && !filtered {
+		return "  " + entryToken(entry.target)
+	}
+	return entry.target
 }
 
 func splitStartMatches(matches []int, target string) (targetMatches, noteMatches []int) {

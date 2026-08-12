@@ -3681,3 +3681,34 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 		})
 	}
 }
+
+func TestHintWordFindsItsChildButNotItsBookmark(t *testing.T) {
+	t.Run("child is findable by its hint", func(t *testing.T) {
+		useTempBookmarks(t)
+		m := newApp(stubFetch(t), colorprofile.NoTTY)
+		m.blurInput()
+		m.start.list.SetFilterText("pick-a-path")
+		var found bool
+		for _, item := range m.start.list.VisibleItems() {
+			if it, ok := item.(startItem); ok && it.entry.target == "cyoa@typed-hole.org" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("cyoa@typed-hole.org not found by a word from its hint")
+		}
+	})
+
+	t.Run("its bookmark copy is not", func(t *testing.T) {
+		seedBookmarks(t, "cyoa@typed-hole.org\n")
+		m := newApp(stubFetch(t), colorprofile.NoTTY)
+		m.blurInput()
+		m.start.list.SetFilterText("pick-a-path")
+		for _, item := range m.start.list.VisibleItems() {
+			it, ok := item.(startItem)
+			if ok && it.entry.target == "cyoa@typed-hole.org" && it.section == sectionBookmarks {
+				t.Fatal("BOOKMARKS row matched hint text it never displays")
+			}
+		}
+	})
+}

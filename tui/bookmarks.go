@@ -238,14 +238,26 @@ func loadBookmarks() (bookmarkFile, string) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			data = appendBookmarkLine(nil, aboutFingerAuthor)
-			if err := saveBookmarkData(path, data); err != nil {
-				return bookmarkFile{problems: []parseProblem{{reason: "cannot create: " + err.Error()}}}, path
-			}
-			return parseBookmarks(data), path
+			return initializeBookmarkData(path, data), path
 		}
 		return bookmarkFile{problems: []parseProblem{{reason: "cannot read: " + err.Error()}}}, path
 	}
 	return parseBookmarks(data), path
+}
+
+// initializeBookmarkData publishes a fully staged first file without replacing
+// a concurrent winner. A winner is authoritative and must be read from disk.
+func initializeBookmarkData(path string, data []byte) bookmarkFile {
+	if err := createBookmarkData(path, data); err != nil {
+		if !os.IsExist(err) {
+			return bookmarkFile{problems: []parseProblem{{reason: "cannot create: " + err.Error()}}}
+		}
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return bookmarkFile{problems: []parseProblem{{reason: "cannot read: " + err.Error()}}}
+		}
+	}
+	return parseBookmarks(data)
 }
 
 // appendBookmarkLine adds one record, leaving every existing byte untouched.
@@ -279,28 +291,55 @@ func saveBookmarkData(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	path = writePath
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".bookmarks-*")
+	tmpName, err := stageBookmarkData(writePath, data)
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
 	defer os.Remove(tmpName) //nolint:errcheck // best-effort cleanup if rename succeeded
+	return os.Rename(tmpName, writePath)
+}
+
+// createBookmarkData atomically publishes a staged file only when path is still
+// absent. Hard-link creation is atomic and refuses to replace an existing path.
+func createBookmarkData(path string, data []byte) error {
+	tmpName, err := stageBookmarkData(path, data)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpName) //nolint:errcheck // best-effort cleanup of the staging name
+	return os.Link(tmpName, path)
+}
+
+// stageBookmarkData writes and closes a mode-0600 temporary file in path's
+// directory so either publication operation stays on the same filesystem.
+func stageBookmarkData(path string, data []byte) (string, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(dir, ".bookmarks-*")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	staged := false
+	defer func() {
+		if !staged {
+			os.Remove(tmpName) //nolint:errcheck // best-effort cleanup after staging failure
+		}
+	}()
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close() //nolint:errcheck
-		return err
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return "", err
 	}
 	if err := os.Chmod(tmpName, 0o600); err != nil {
-		return err
+		return "", err
 	}
-	return os.Rename(tmpName, path)
+	staged = true
+	return tmpName, nil
 }
 
 // bookmarkWritePath follows a final symlink so the atomic rename replaces its

@@ -4,7 +4,7 @@
 
 **Goal:** Initialize a missing bookmarks file with jonathan@tilde.team exactly once, while treating every existing file as authoritative so removing the line is permanent.
 
-**Architecture:** Keep first-file initialization inside loadBookmarks, the existing disk-ingress boundary. Build the seed with appendBookmarkLine(nil, aboutFingerAuthor), persist it through saveBookmarkData, and parse the same bytes only after a successful write; existing files continue down the unchanged read-and-parse path.
+**Architecture:** Keep first-file initialization inside loadBookmarks, the existing disk-ingress boundary. Build the seed with appendBookmarkLine(nil, aboutFingerAuthor), stage it with the same helper used by saveBookmarkData, and atomically publish it through a create-if-absent hard link. If another process wins publication, read and parse its authoritative file. Normal edits retain saveBookmarkData's final-symlink-aware atomic replacement path.
 
 **Tech Stack:** Go 1.26 toolchain, standard-library filesystem APIs, the existing tui bookmark parser/writer, Go testing, and Markdown.
 
@@ -16,8 +16,10 @@
 - Any existing file is authoritative, including empty, comment-only, and catalog-off-only files.
 - Reuse aboutFingerAuthor; do not duplicate the author target in production code.
 - Generate exact seed bytes with appendBookmarkLine(nil, aboutFingerAuthor).
-- Persist through saveBookmarkData so the new lookit directory is 0700 and the file is 0600.
-- On initialization failure, return zero targets and one line-zero problem beginning with cannot create:; never synthesize an in-memory bookmark.
+- Stage initialization and replacement writes through one helper so the new lookit directory is 0700 and every staged file is fully written at 0600 before publication.
+- Publish initialization with an atomic create-if-absent hard link; never replace a path that appeared after the initial missing-file read.
+- If exclusive publication loses, read and parse the authoritative winner; report a failed winner read as one line-zero cannot read: problem.
+- On any other initialization failure, return zero targets and one line-zero problem beginning with cannot create:; never synthesize an in-memory bookmark.
 - Do not change bookmark grammar, catalog data, section assembly, routing, or toggle behavior.
 - Tests stay offline and never access the developer's real bookmarks.
 - Preserve pre-existing dirty-worktree changes.
@@ -25,8 +27,8 @@
 
 ## File Map
 
-- tui/bookmarks_test.go — isolate normal tests behind existing empty files and cover initialization, authoritative files, deletion persistence, permissions, and errors.
-- tui/bookmarks.go — initialize only the missing-file branch and update the stale loadBookmarks and saveBookmarkData contract comments.
+- tui/bookmarks_test.go — isolate normal tests behind existing empty files and cover initialization, authoritative files, deletion persistence, permissions, errors, and deterministic no-clobber publication.
+- tui/bookmarks.go — initialize only the missing-file branch, share fully written staging between publication modes, use exclusive publication for initialization, and preserve replacement publication for normal edits.
 - README.md — explain the starter bookmark and removal semantics.
 - CLAUDE.md and AGENTS.md — keep mirrored architecture guidance current.
 - docs/superpowers/specs/2026-08-12-default-author-bookmark-design.md — approved design; no further behavior changes.
@@ -41,8 +43,8 @@
 - Modify: tui/bookmarks.go:233-251,276-277
 
 **Interfaces:**
-- Consumes: aboutFingerAuthor string; appendBookmarkLine([]byte, string) []byte; saveBookmarkData(string, []byte) error; parseBookmarks([]byte) bookmarkFile.
-- Produces: unchanged loadBookmarks() (bookmarkFile, string) with first-file initialization; test helpers useBookmarksPath and useMissingTempBookmarks.
+- Consumes: aboutFingerAuthor string; appendBookmarkLine([]byte, string) []byte; parseBookmarks([]byte) bookmarkFile; standard-library os.Link create-if-absent semantics.
+- Produces: unchanged loadBookmarks() (bookmarkFile, string) with race-safe first-file initialization; initializeBookmarkData, createBookmarkData, and shared stageBookmarkData helpers; test helpers useBookmarksPath and useMissingTempBookmarks.
 
 - [ ] **Step 1: Make the package-wide fixture an existing empty file**
 
@@ -217,7 +219,7 @@ func TestLoadBookmarksReportsDefaultCreationFailure(t *testing.T) {
 }
 ~~~
 
-A regular file used as a parent yields ENOTDIR from os.ReadFile, which is not os.IsNotExist, so loadBookmarks reports cannot read: and never reaches saveBookmarkData. A missing child in a read-only directory is the Unix/macOS fixture that actually exercises cannot create:. Restore writability in t.Cleanup so t.TempDir can delete the tree. Do not add a production injection hook only for this test.
+A regular file used as a parent yields ENOTDIR from os.ReadFile, which is not os.IsNotExist, so loadBookmarks reports cannot read: and never reaches initialization. A missing child in a read-only directory is the Unix/macOS fixture that actually exercises cannot create:. Restore writability in t.Cleanup so t.TempDir can delete the tree. Do not add a production injection hook only for this test.
 
 - [ ] **Step 6: Add regression tests for authoritative files and resolver errors**
 
@@ -278,40 +280,23 @@ go test ./tui/ -run 'TestLoadBookmarks(MissingFileCreatesAuthorBookmark|DoesNotR
 
 Expected: FAIL because missing-file loading returns no target and creates no file. The existing-file and resolver cases already pass.
 
-- [ ] **Step 8: Implement the minimal missing-file branch**
+- [ ] **Step 8: Implement race-safe missing-file publication**
 
-Update loadBookmarks and its stale comment. Also drop the now-false "Reading never creates anything" sentence from the saveBookmarkData comment:
+Update `loadBookmarks` so its missing-file branch delegates to
+`initializeBookmarkData`. Extract `stageBookmarkData` from the existing writer:
+it creates the directory at `0700`, writes and closes a same-directory temporary
+file, and sets mode `0600`. Keep `saveBookmarkData` on its existing
+`bookmarkWritePath` plus `os.Rename` replacement path for ordinary edits.
 
-~~~go
-// saveBookmarkData writes atomically (temp file + rename) at 0600, creating the
-// directory 0700 if needed.
-~~~
-
-~~~go
-// loadBookmarks reads and parses the user's file. On first use it initializes a
-// missing file with the author bookmark; every existing file, including an empty
-// one, is authoritative. Read and initialization failures become problems the
-// startpage surfaces. The resolved path is returned so every message can name
-// the file actually in use.
-func loadBookmarks() (bookmarkFile, string) {
-	path, err := bookmarksPathFn()
-	if err != nil {
-		return bookmarkFile{problems: []parseProblem{{reason: "cannot locate a config directory: " + err.Error()}}}, ""
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			data = appendBookmarkLine(nil, aboutFingerAuthor)
-			if err := saveBookmarkData(path, data); err != nil {
-				return bookmarkFile{problems: []parseProblem{{reason: "cannot create: " + err.Error()}}}, path
-			}
-			return parseBookmarks(data), path
-		}
-		return bookmarkFile{problems: []parseProblem{{reason: "cannot read: " + err.Error()}}}, path
-	}
-	return parseBookmarks(data), path
-}
-~~~
+Add `createBookmarkData`, which uses the shared staging helper and publishes the
+temporary inode to the original final pathname with `os.Link`. Because both
+names are in the same directory, publication is atomic on supported macOS/Linux
+filesystems; an existing final pathname produces `EEXIST` and is never replaced.
+In `initializeBookmarkData`, parse the staged seed after successful publication.
+On `EEXIST`, read and parse the authoritative final file; surface that read's
+failure as `cannot read:`. Surface all other staging/publication failures as
+`cannot create:`. Both publication paths remove leftover staging names on every
+return, best effort.
 
 - [ ] **Step 9: Run focused tests and verify GREEN**
 

@@ -22,9 +22,11 @@ jonathan@tilde.team
 
 The seed bytes come from `appendBookmarkLine(nil, aboutFingerAuthor)`, reusing
 the author address that already powers About's finger action. The file is
-created through the existing atomic bookmark writer, including its `0700`
-parent-directory and `0600` file permissions. The newly written data is then
-parsed through the normal bookmark parser and appears in `BOOKMARKS`.
+fully staged at `0600` in its `0700` parent directory, then published with an
+atomic create-if-absent hard link. This shares staging with the existing atomic
+replacement writer without giving initialization its replacement semantics.
+The newly written data is then parsed through the normal bookmark parser and
+appears in `BOOKMARKS`.
 
 Any existing bookmarks file is authoritative and remains byte-for-byte
 untouched, including an empty, comment-only, or `catalog off`-only file.
@@ -36,7 +38,10 @@ users who already have a bookmarks file do not receive the new default.
 If resolving the path fails, behaviour is unchanged. If creating the initial
 file fails, lookit does not invent an in-memory bookmark that cannot be removed;
 it returns zero targets with a file-level `cannot create: <error>` problem, which
-the startpage surfaces through its existing notice path.
+the startpage surfaces through its existing notice path. If another process
+creates the final path after lookit observes it missing, that file wins: lookit
+reads and parses it instead of replacing it. A failure to read that winning file
+is surfaced as `cannot read: <error>`.
 
 ## Relation to prior specs
 
@@ -57,11 +62,13 @@ does not introduce a second identity or an inferred biographical claim.
 ## Scope
 
 The change belongs at the missing-file branch of `loadBookmarks`: construct the
-seed with `appendBookmarkLine(nil, aboutFingerAuthor)`, persist it with
-`saveBookmarkData`, and parse those bytes on success. It does not change the
-bookmarks grammar, catalog, section assembly, routing, or bookmark toggle
-behaviour. `jonathan@tilde.team` remains an unclassified bookmark with no
-catalog-authored description.
+seed with `appendBookmarkLine(nil, aboutFingerAuthor)`, stage it through the
+writer shared with `saveBookmarkData`, and publish it exclusively. A losing
+publisher reads the authoritative winner. Normal bookmark edits retain
+`saveBookmarkData`'s final-symlink-aware atomic replacement path. This does not
+change the bookmarks grammar, catalog, section assembly, routing, or bookmark
+toggle behaviour. `jonathan@tilde.team` remains an unclassified bookmark with
+no catalog-authored description.
 
 The README will say that lookit creates this initial bookmark only when the
 bookmarks file is absent and that removing its line is permanent while the file
@@ -78,7 +85,9 @@ Tests will establish that:
   byte-for-byte unchanged;
 - deleting the seeded line and reloading does not recreate it;
 - initialization failures surface `cannot create: <error>` with zero targets;
-  and
+- a deterministic real-filesystem publication race cannot clobber the winner;
+- losing publication reads the winner, and a failed winner read surfaces
+  `cannot read: <error>`; and
 - path-resolution failures retain their current behaviour.
 
 The package-wide `TestMain` fixture will point at one existing empty file, and

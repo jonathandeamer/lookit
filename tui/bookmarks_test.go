@@ -295,6 +295,55 @@ func TestLoadBookmarksMissingFileCreatesAuthorBookmark(t *testing.T) {
 	}
 }
 
+func TestInitializeBookmarkDataReadsConcurrentWinnerWithoutClobbering(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lookit", "bookmarks")
+	if _, err := os.ReadFile(path); !os.IsNotExist(err) {
+		t.Fatalf("initial read error = %v, want not exist", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create bookmark directory: %v", err)
+	}
+	winner := []byte("@plan.cat\n")
+	if err := os.WriteFile(path, winner, 0o600); err != nil {
+		t.Fatalf("publish concurrent winner: %v", err)
+	}
+
+	file := initializeBookmarkData(path, appendBookmarkLine(nil, aboutFingerAuthor))
+	if len(file.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", file.problems)
+	}
+	if len(file.targets) != 1 || file.targets[0] != "@plan.cat" {
+		t.Fatalf("targets = %+v, want [@plan.cat]", file.targets)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read concurrent winner: %v", err)
+	}
+	if got := string(data); got != string(winner) {
+		t.Fatalf("bookmarks = %q, want concurrent winner %q", got, winner)
+	}
+}
+
+func TestInitializeBookmarkDataReportsConcurrentWinnerReadFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bookmarks")
+	if _, err := os.ReadFile(path); !os.IsNotExist(err) {
+		t.Fatalf("initial read error = %v, want not exist", err)
+	}
+	if err := os.Symlink("missing-target", path); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	file := initializeBookmarkData(path, appendBookmarkLine(nil, aboutFingerAuthor))
+	if len(file.targets) != 0 {
+		t.Fatalf("targets = %+v, want none", file.targets)
+	}
+	if len(file.problems) != 1 || file.problems[0].line != 0 ||
+		!strings.HasPrefix(file.problems[0].reason, "cannot read: ") {
+		t.Fatalf("problems = %+v, want one line-zero cannot-read problem", file.problems)
+	}
+}
+
 func TestLoadBookmarksDoesNotRestoreDeletedAuthorBookmark(t *testing.T) {
 	path := useMissingTempBookmarks(t)
 	file, _ := loadBookmarks()

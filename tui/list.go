@@ -149,7 +149,7 @@ func newListWithPreamble(common *commonModel, host finger.Target, users []User, 
 	total := len(users)
 	m := newList(common, host, users)
 	m.generic = generic
-	if parsed, ok := parseUserList(body); ok {
+	if parsed, ok := parseUserList(body, host.HostPort); ok {
 		m.preamble = parsed.preamble
 	} else {
 		m.preamble = extractListPreamble(body)
@@ -226,6 +226,24 @@ func (m listModel) preambleHeight() int {
 func (m listModel) selected() (userItem, bool) {
 	it, ok := m.list.SelectedItem().(userItem)
 	return it, ok
+}
+
+func sameUserIdentity(want, candidate userItem) bool {
+	if want.target != "" {
+		return candidate.target == want.target
+	}
+	return candidate.login == want.login
+}
+
+func (m *listModel) selectIdentity(want userItem) {
+	for i, raw := range m.list.VisibleItems() {
+		candidate, ok := raw.(userItem)
+		if ok && sameUserIdentity(want, candidate) {
+			m.list.Select(i)
+			return
+		}
+	}
+	m.list.Select(0)
 }
 
 // filtering reports whether the user is actively typing a filter.

@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	aboutTagline      = "A modern TUI browser for the finger protocol"
-	aboutRepo         = "https://github.com/jonathandeamer/lookit"
-	aboutFingerAuthor = "jonathan@tilde.team"
-	aboutIssuesURL    = "https://github.com/jonathandeamer/lookit/issues"
+	aboutTagline          = "A modern TUI browser for the finger protocol"
+	aboutRepo             = "https://github.com/jonathandeamer/lookit"
+	aboutFingerAuthor     = "jonathan@tilde.team"
+	aboutIssuesURL        = "https://github.com/jonathandeamer/lookit/issues"
+	aboutCatalogCreditURL = "https://640kb.neocities.org/fingerverse/"
 )
 
 // aboutModel renders the full-screen about view. Like readerModel it owns no
@@ -67,7 +68,9 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	if builtAt != "" && builtAt != "unknown" {
 		identity = append(identity, dim.Render("built "+builtAt))
 	}
-	identity = append(identity, dim.Render(aboutRepo))
+	catalogCredit := "Catalog inspired by " +
+		lipgloss.NewStyle().Hyperlink(aboutCatalogCreditURL).Render(aboutCatalogCreditURL)
+	identity = append(identity, dim.Render(aboutRepo), dim.Render(catalogCredit))
 	identityBlock := lipgloss.JoinVertical(lipgloss.Center, identity...)
 
 	bullets := lipgloss.JoinVertical(
@@ -90,7 +93,7 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	actions := lipgloss.JoinVertical(
 		lipgloss.Left,
 		pad(left1)+dim.Render("↵ go"),
-		pad(left2)+dim.Render("y to copy the issues URL"),
+		pad(left2)+dim.Render("y copy issues URL"),
 	)
 
 	block := lipgloss.JoinVertical(

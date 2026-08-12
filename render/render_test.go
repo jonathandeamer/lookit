@@ -198,3 +198,29 @@ func TestRenderWithBackgroundUsesDarkPalette(t *testing.T) {
 		t.Fatalf("dark render missing dark field colour escape:\n%q", got)
 	}
 }
+
+func TestSplit_HeaderAndBodyRoundtrip(t *testing.T) {
+	body := []byte("Login: alice\nPlan:\nHello world\n")
+	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
+	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
+	rendered := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+
+	header, bodyPart := Split(rendered)
+
+	// Roundtrip: concatenating must recover the original.
+	if header+bodyPart != rendered {
+		t.Errorf("Split roundtrip failed:\nheader=%q\nbody=%q\noriginal=%q", header, bodyPart, rendered)
+	}
+	// Header must be non-empty (there is always chrome).
+	if header == "" {
+		t.Error("Split returned empty header")
+	}
+	// Body must contain the plan text.
+	if !strings.Contains(bodyPart, "Hello world") {
+		t.Errorf("Split body does not contain body text: %q", bodyPart)
+	}
+	// Header must NOT contain the plan text.
+	if strings.Contains(header, "Hello world") {
+		t.Errorf("Split header contains body text: %q", header)
+	}
+}

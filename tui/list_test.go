@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,7 +11,7 @@ import (
 )
 
 func testCommon() *commonModel {
-	return &commonModel{width: 80, height: 24, darkBackground: true, styles: newStyles(true)}
+	return &commonModel{ctx: context.Background(), width: 80, height: 24, darkBackground: true, styles: newStyles(true)}
 }
 
 func hostTarget(t *testing.T, raw string) finger.Target {
@@ -32,6 +33,34 @@ func TestNewListSelectsFirstUser(t *testing.T) {
 	}
 	if sel.login != "alrs" {
 		t.Fatalf("selected login = %q, want alrs", sel.login)
+	}
+}
+
+func TestSelectIdentityUsesTargetThenLogin(t *testing.T) {
+	m := newList(testCommon(), hostTarget(t, "@tilde.team"), []User{
+		{Login: "same", Target: "alice@one.example"},
+		{Login: "same", Target: "alice@two.example"},
+		{Login: "plain"},
+	})
+	m.selectIdentity(userItem{login: "same", target: "alice@two.example"})
+	selected, _ := m.selected()
+	if selected.target != "alice@two.example" {
+		t.Fatalf("target = %q", selected.target)
+	}
+	m.selectIdentity(userItem{login: "plain"})
+	selected, _ = m.selected()
+	if selected.login != "plain" {
+		t.Fatalf("login = %q", selected.login)
+	}
+}
+
+func TestSelectIdentityFallsBackInsideFilter(t *testing.T) {
+	m := newList(testCommon(), hostTarget(t, "@tilde.team"), []User{{Login: "alice"}, {Login: "bob"}, {Login: "bobby"}})
+	m.list.SetFilterText("bob")
+	m.selectIdentity(userItem{login: "missing"})
+	selected, ok := m.selected()
+	if !ok || selected.login != "bob" {
+		t.Fatalf("fallback = %#v, ok=%v", selected, ok)
 	}
 }
 

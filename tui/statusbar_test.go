@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -35,10 +36,54 @@ func TestStatusBarDirectoryHasNoUserHalf(t *testing.T) {
 	}
 }
 
-func TestStatusBarLandingShowsHint(t *testing.T) {
-	out := landingBar(80, newStyles(true)).render()
+func TestStatusBarStartShowsFocusedInputHint(t *testing.T) {
+	m := appModel{inputFocused: true}
+	out := m.startBar(80, newStyles(true)).render()
 	if !strings.Contains(out, "type a target") {
-		t.Fatalf("landing bar %q missing hint", out)
+		t.Fatalf("start bar %q missing focused-input hint", out)
+	}
+}
+
+func TestStatusBarStartDoesNotCountCatalogCredit(t *testing.T) {
+	m := appModel{start: newStart(testCommon(), twoSections(), "", "")}
+	out := m.startBar(80, newStyles(true)).render()
+	if !strings.Contains(out, "3 entries") {
+		t.Fatalf("start bar %q should count only selectable entries", out)
+	}
+}
+
+func TestStatusBarStartBookmarkActionIsContextual(t *testing.T) {
+	tests := []struct {
+		name   string
+		seed   string
+		filter string
+		pick   string
+		want   string
+	}{
+		{name: "catalog row", pick: "@plan.cat", want: "b bookmark"},
+		{name: "bookmark row", seed: "@tilde.team\n", pick: "@tilde.team", want: "b remove"},
+		{name: "filtered bookmark row", seed: "@tilde.team\n", filter: "tilde", pick: "@tilde.team", want: "b remove"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.seed == "" {
+				useTempBookmarks(t)
+			} else {
+				seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			if tt.filter != "" {
+				m.start.list.SetFilterText(tt.filter)
+			}
+			if !m.start.selectTarget(tt.pick) {
+				t.Fatalf("%s not found", tt.pick)
+			}
+			out := m.startBar(80, newStyles(true)).render()
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("start bar %q missing %q", out, tt.want)
+			}
+		})
 	}
 }
 
@@ -104,6 +149,20 @@ func TestStatusBarWarnFlagRendered(t *testing.T) {
 		meta: "3 users", hints: "? help", width: 80, styles: newStyles(true)}
 	if !strings.Contains(b.render(), "partial (truncated)") {
 		t.Fatalf("bar missing warn flag")
+	}
+}
+
+func TestStatusBarShowsFlagAtExactWidth(t *testing.T) {
+	b := statusBar{flags: []string{"auto-detected"}, width: 15, styles: newStyles(true)}
+	if got := b.render(); !strings.Contains(got, "auto-detected") {
+		t.Fatalf("exact-width flag missing: %q", got)
+	}
+}
+
+func TestStatusBarDoesNotReserveSpaceForHiddenBreadcrumb(t *testing.T) {
+	b := statusBar{host: "@tilde.team", hints: "abcdefghij", width: 10, styles: newStyles(true)}
+	if got := ansi.Strip(b.render()); !strings.Contains(got, "abcdefghij") {
+		t.Fatalf("full-width hint truncated for hidden breadcrumb: %q", got)
 	}
 }
 

@@ -41,7 +41,7 @@ func TestVersionString(t *testing.T) {
 	t.Cleanup(func() { version, builtAt = oldVersion, oldBuiltAt })
 	version = "0.2.0"
 	builtAt = "2026-05-29"
-	if got, want := versionString(), "lookit 0.2.0 (built 2026-05-29)"; got != want {
+	if got, want := versionString(), "lookit version 0.2.0 (built 2026-05-29)"; got != want {
 		t.Fatalf("versionString() = %q, want %q", got, want)
 	}
 }
@@ -54,20 +54,39 @@ func TestVersionStringOmitsUnknownBuildDate(t *testing.T) {
 	t.Cleanup(func() { version, builtAt = oldVersion, oldBuiltAt })
 	version = "v0.1.0"
 	builtAt = "unknown"
-	if got, want := versionString(), "lookit v0.1.0"; got != want {
+	if got, want := versionString(), "lookit version v0.1.0"; got != want {
 		t.Fatalf("versionString() = %q, want %q", got, want)
 	}
 }
 
-func TestRunHelp(t *testing.T) {
+func TestRunHelpFlags(t *testing.T) {
+	pinProfile(t, colorprofile.NoTTY)
+	for _, flag := range []string{"-h", "--help"} {
+		t.Run(flag, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run([]string{flag}, &stdout, &stderr)
+			if code != exitOK {
+				t.Fatalf("exit code = %d, want %d", code, exitOK)
+			}
+			if !strings.Contains(stdout.String(), "Usage:") {
+				t.Fatalf("stdout = %q, want help block", stdout.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q, want empty", stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunHelpPrecedesEarlierUnknownOption(t *testing.T) {
 	pinProfile(t, colorprofile.NoTTY)
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--help"}, &stdout, &stderr)
+	code := run([]string{"--bogus", "--help"}, &stdout, &stderr)
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
 	}
-	if !strings.Contains(stdout.String(), "usage:") {
-		t.Fatalf("stdout = %q, want usage block", stdout.String())
+	if !strings.Contains(stdout.String(), "Usage:") {
+		t.Fatalf("stdout = %q, want help block", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
@@ -86,7 +105,27 @@ func TestRunVersionFlag(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
 	}
-	if got, want := stdout.String(), "lookit dev\n"; got != want {
+	if got, want := stdout.String(), "lookit version dev\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunVersionPrecedesEarlierUnknownOption(t *testing.T) {
+	oldVersion, oldBuiltAt := version, builtAt
+	t.Cleanup(func() { version, builtAt = oldVersion, oldBuiltAt })
+	version = "dev"
+	builtAt = "unknown"
+	pinProfile(t, colorprofile.NoTTY)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--bogus", "--version"}, &stdout, &stderr)
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	if got, want := stdout.String(), "lookit version dev\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	if stderr.Len() != 0 {
@@ -109,8 +148,8 @@ func TestRunVersionFlagStyled(t *testing.T) {
 	if !strings.Contains(stdout.String(), "\x1b[") {
 		t.Fatalf("styled version has no ANSI: %q", stdout.String())
 	}
-	if got := ansi.Strip(stdout.String()); got != "lookit dev\n" {
-		t.Fatalf("stripped version = %q, want %q", got, "lookit dev\n")
+	if got := ansi.Strip(stdout.String()); got != "lookit version dev\n" {
+		t.Fatalf("stripped version = %q, want %q", got, "lookit version dev\n")
 	}
 }
 
@@ -178,6 +217,21 @@ func TestRunSeedsTUIWithBlankArg(t *testing.T) {
 	}
 }
 
+func TestRunUnknownOptionIdentifiesFlag(t *testing.T) {
+	pinProfile(t, colorprofile.NoTTY)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--bogus"}, &stdout, &stderr)
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d", code, exitError)
+	}
+	if got, want := stderr.String(), "lookit: unknown option \"--bogus\"\nTry 'lookit --help' for usage.\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
 func TestRunTooManyArgs(t *testing.T) {
 	pinProfile(t, colorprofile.NoTTY)
 	var stdout, stderr bytes.Buffer
@@ -185,8 +239,11 @@ func TestRunTooManyArgs(t *testing.T) {
 	if code != exitError {
 		t.Fatalf("exit code = %d, want %d", code, exitError)
 	}
-	if !strings.Contains(stderr.String(), "usage:") {
-		t.Fatalf("stderr = %q, want usage block", stderr.String())
+	if got, want := stderr.String(), "lookit: expected at most one target\nTry 'lookit --help' for usage.\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -198,8 +255,20 @@ func TestRunTUIFailure(t *testing.T) {
 	if code != exitError {
 		t.Fatalf("exit code = %d, want %d", code, exitError)
 	}
-	if !strings.Contains(stderr.String(), "terminal unavailable") {
-		t.Fatalf("stderr = %q, want TUI error", stderr.String())
+	if got, want := stderr.String(), "lookit: terminal unavailable\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestModuleVersionMatchesReleaseForm(t *testing.T) {
+	if got := moduleVersion("v0.2.0"); got != "0.2.0" {
+		t.Fatalf("moduleVersion = %q, want 0.2.0", got)
+	}
+	if got := moduleVersion("0.2.0"); got != "0.2.0" {
+		t.Fatalf("moduleVersion passthrough = %q, want 0.2.0", got)
 	}
 }
 

@@ -45,7 +45,9 @@ lookit @tilde.team:79        # spell out the port (79 is the default)
 lookit --version
 ```
 
-Type a target and press Enter to fetch it. Finger a bare `@host` and, when it answers with a list of users, lookit opens that list: move with the arrows, `/` to filter, Enter to finger whoever's highlighted. Enter on a user drills in, Esc walks back through where you've been, and Ctrl+C quits.
+Type a target and press Enter to fetch it. Finger a bare `@host` and, when it answers with a list of users, lookit opens that list: move with the arrows, `/` to filter, Enter to finger whoever's highlighted. Enter on a user drills in, Esc walks back through where you've been, and `r` refreshes the current response or retries a failed lookup. While a request is loading, Esc cancels it. Ctrl+C always quits.
+
+lookit opens on a startpage: a built-in catalog of finger communities and services, with your own bookmarks pinned above it. Press `↓` to browse it, `↵` to go, and `b` to bookmark whatever you're looking at — on a user list that bookmarks the host, so drill into someone before pressing `b` to bookmark the person. Bookmarks live in `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), one `<target>` per line, so you can edit them by hand; add `catalog off` there to hide the built-in list entirely. Press `h` to return to the startpage from anywhere.
 
 Everything is keyboard-driven. Press `?` inside lookit for the full, context-aware key list.
 
@@ -58,7 +60,7 @@ Everything is keyboard-driven. Press `?` inside lookit for the full, context-awa
 
 ## Coming soon
 - Richer styling and link discovery, tuned to how today's finger servers format their menus and links.
-- Discovery and subscriptions: finding finger hosts worth a visit, and following a `.plan` to see what's changed since you last looked.
+- Discovery and subscriptions: following a `.plan` to see what's changed since you last looked.
 - Maybe a local mode: finger the machine you're already on, reading its users and `.plan` files straight off disk with no network round-trip.
 
 ## Built with

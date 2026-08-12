@@ -29,7 +29,7 @@ func TestParseColumnarPlanCat(t *testing.T) {
 		"jss                                       Fri May 29 05:31 UTC\n" +
 		"geurimja             Geurimja             Thu May 28 21:57 UTC\n" +
 		"26d0                 Jimenshi             Thu May 28 03:20 UTC\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -50,7 +50,7 @@ func TestParseColumnarDedupTildePink(t *testing.T) {
 		"irek                            pts/16   256d  Sep 14 2025\n" +
 		"ghoti                           pts/7      1d  Apr  6 14:59\n" +
 		"irek                            pts/17   200d  Sep 14 2025\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -65,7 +65,7 @@ func TestParseGridTildeTeam(t *testing.T) {
 		"users currently logged in are:\n\n" +
 		"alrs\tdtracker\tkapad\n" +
 		"anshupati\tenyc\tkneezle\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -84,7 +84,7 @@ func TestParseGridStopsAtSecondBlockCosmicVoyage(t *testing.T) {
 		"   betsy\n" +
 		"   Melvin P Feltersnatch\n" +
 		"   Oleander\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -95,7 +95,7 @@ func TestParseGridStopsAtSecondBlockCosmicVoyage(t *testing.T) {
 
 func TestParseGridSingleUserZaibatsu(t *testing.T) {
 	body := []byte("Currently logged in sundogs:\ndokuja\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -108,7 +108,7 @@ func TestParseMarkerHappyNetBox(t *testing.T) {
 	body := []byte("Happy Net Box\n\n25 most recently updated profiles:\n" +
 		"> andypiper\n> benbrown\n> goose\n\n" +
 		"For a random profile:\n> finger random@happynetbox.com\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -125,7 +125,7 @@ func TestParseTypedHoleAvailableFingers(t *testing.T) {
 		"feed:\t\t\tget my latest toots\n" +
 		"lobsters:\t\tget lobste.rs hottest stories\n" +
 		"weather:\t\tget typed-hole.org current weather\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -148,7 +148,7 @@ func TestParseSavaRocksTable(t *testing.T) {
 		"+---------+----------------------+-----------------------------+\n" +
 		"| root    | no linux without him | system account / no passwd  |\n" +
 		"+---------+----------------------+-----------------------------+\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -167,7 +167,7 @@ func TestParseRedterminalAvailableFingers(t *testing.T) {
 		"feed     @fab@pleroma.envs.net's latest Mastodon toots\n" +
 		"gemlog   Get latest gemlog post\n" +
 		"weather  Current weather at fab's place\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -182,7 +182,7 @@ func TestParseTheBackupBoxRing(t *testing.T) {
 		"=> 2026-05-25 finger://tilde.team/yalla\n" +
 		"=> 2026-05-23 finger://envs.net/wheresalice\n" +
 		"=> 2026-05-06 finger://thebackupbox.net/epoch\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -203,7 +203,7 @@ func TestParseTelehackStatusTable(t *testing.T) {
 		" 167  -                                0s              Queens, NY\n" +
 		" 182  miser      CommanderKeenVI       6s   relay      Zeeland, MI\n" +
 		" 55   spoony     1step4ward2stepsback  11s  finger     Adelaide, Australia\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -272,7 +272,7 @@ func TestParsedListPreamblesExcludeRawSelectableRows(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parsed, ok := parseUserList(tt.body)
+			parsed, ok := parseUserList(tt.body, "")
 			if !ok {
 				t.Fatal("parseUserList ok = false, want true")
 			}
@@ -291,13 +291,13 @@ func TestParsedListPreamblesExcludeRawSelectableRows(t *testing.T) {
 func TestDeclineBannerTildeTown(t *testing.T) {
 	body := []byte("Hi! we're a little community that exists on a linux server. " +
 		"to learn more go to https://tilde.town\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (banner only)")
 	}
 }
 
 func TestDeclineEmptyTildeClub(t *testing.T) {
-	if _, ok := ParseUsers([]byte("")); ok {
+	if _, ok := ParseUsers([]byte(""), ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (empty)")
 	}
 }
@@ -306,7 +306,7 @@ func TestDeclineInlineCueTypedHoleWithoutAvailableFingers(t *testing.T) {
 	// Users are inline on the cue line ("probably julien"); must NOT be parsed.
 	body := []byte("Welcome to the Typed Hole\n" +
 		"Users currently logged in: probably julien\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (inline cue must not parse)")
 	}
 }
@@ -314,7 +314,7 @@ func TestDeclineInlineCueTypedHoleWithoutAvailableFingers(t *testing.T) {
 func TestDeclineDaemonHelpDebian(t *testing.T) {
 	body := []byte("userdir-ldap finger daemon\n--------------------------\n" +
 		"finger <uid>[/<attributes>]@db.debian.org\n  where uid is the user id\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (daemon help)")
 	}
 }
@@ -326,7 +326,7 @@ func TestDeclineGraphNoWeatherHelp(t *testing.T) {
 		"* Contact: finger@falkp.no\n\n" +
 		"Usage:\n    finger oslo@graph.no\n\n" +
 		"Using imperial units:\n    finger ^oslo@graph.no\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (graph.no usage help)")
 	}
 }
@@ -341,7 +341,7 @@ func TestDeclineDebianAttributeLegendFull(t *testing.T) {
 		"      email : Email\n      labeleduri : URL\n      ircnick : IRC nickname\n" +
 		"      icquin : ICQ UIN\n      jabberjid : Jabber ID\n" +
 		"      keyfingerprint : Fingerprint\n      key : Key block\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (LDAP attribute legend)")
 	}
 }
@@ -352,7 +352,7 @@ func TestDeclineDebianAttributeLegendFull(t *testing.T) {
 func TestDeclineAvailableFingersCueWithoutEntries(t *testing.T) {
 	body := []byte("Welcome.\n\n<== Available Fingers ==>\n\n" +
 		"(the service list is temporarily unavailable)\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (Available Fingers cue, no entries)")
 	}
 }
@@ -360,7 +360,7 @@ func TestDeclineAvailableFingersCueWithoutEntries(t *testing.T) {
 func TestDeclineTelehackHeaderWithoutRows(t *testing.T) {
 	body := []byte("TELEHACK SYSTEM STATUS\n\n" +
 		" port username   status\n ---- --------   ------\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (telehack header, no data rows)")
 	}
 }
@@ -368,14 +368,14 @@ func TestDeclineTelehackHeaderWithoutRows(t *testing.T) {
 func TestDeclineRingCueWithoutURLs(t *testing.T) {
 	body := []byte("This is the finger ring!\nand now for the list:\n" +
 		"the ring is empty today, check back soon\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (ring cue, no finger:// URLs)")
 	}
 }
 
 func TestDeclineSavaTitleWithoutTableRows(t *testing.T) {
 	body := []byte("Users on this finger server\n\n(none connected right now)\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (sava title, no | table rows)")
 	}
 }
@@ -386,7 +386,7 @@ func TestParseGenericBareLoginBlock(t *testing.T) {
 	// No Login header, no online/logged-in cue, no "> " marker, no named menu:
 	// every earlier matcher declines, so the generic fallback must open this.
 	body := []byte("the crew:\nbetsy\nMelchizedek\nOleander\nStarbloom\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true (bare-login block)")
 	}
@@ -399,7 +399,7 @@ func TestParseGenericBareLoginBlock(t *testing.T) {
 func TestParseGenericColumnarNoHeader(t *testing.T) {
 	// login + 2-space gap + name, but no "Login" header so parseColumnar declines.
 	body := []byte("klu      pilot\ntomasino  navigator\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true (headerless columnar)")
 	}
@@ -413,7 +413,7 @@ func TestParseGenericColumnarNoHeader(t *testing.T) {
 
 func TestGenericRequiresTwoLogins(t *testing.T) {
 	// A single bare-login line is not enough to open a list.
-	if _, ok := ParseUsers([]byte("Welcome.\n\nbetsy\n")); ok {
+	if _, ok := ParseUsers([]byte("Welcome.\n\nbetsy\n"), ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (only one structured login)")
 	}
 }
@@ -431,7 +431,7 @@ func TestGenericDeclinesColonLegendDebian(t *testing.T) {
 		"      sn : Last name\n" +
 		"      email : Email\n" +
 		"      key : Key block\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (colon attribute legend)")
 	}
 }
@@ -439,7 +439,7 @@ func TestGenericDeclinesColonLegendDebian(t *testing.T) {
 func TestGenericDeclinesSingleSpaceProse(t *testing.T) {
 	// "login value" with a single space is prose, not a columnar entry.
 	body := []byte("must provide username\nplease try again later\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (single-space prose)")
 	}
 }
@@ -450,7 +450,7 @@ func TestGenericHarvestsFingerCommandTarget(t *testing.T) {
 	// A bare-login block opens the list; a "finger user@host" mention elsewhere
 	// in the body is appended as a cross-host drill target.
 	body := []byte("betsy\nMelchizedek\n\nContact me: finger bob@example.org\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -466,7 +466,7 @@ func TestGenericHarvestsFingerURLTarget(t *testing.T) {
 	// A bare-login block opens the list; a finger:// URL elsewhere in the body
 	// is appended as a cross-host drill target (login@host, host as the name).
 	body := []byte("betsy\nMelchizedek\n\nsee also finger://example.org/carol\n")
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatal("ParseUsers ok = false, want true")
 	}
@@ -485,7 +485,7 @@ func TestGenericTargetsDoNotOpenAlone(t *testing.T) {
 	// No structured-login block: a lone "finger user@host" mention in prose must
 	// NOT open a list (additive-only rule). This is the graph.no shape.
 	body := []byte("Weather via finger.\nUsage:\n    finger oslo@graph.no\n")
-	if _, ok := ParseUsers(body); ok {
+	if _, ok := ParseUsers(body, ""); ok {
 		t.Fatal("ParseUsers ok = true, want false (targets are additive-only)")
 	}
 }
@@ -526,7 +526,7 @@ func TestParseUsers_NoLiveEscapeInParsedFields(t *testing.T) {
 		"alice     ^[[31mAlice^[[0m\n" +
 		"bob       Bob\n")
 
-	users, ok := ParseUsers(body)
+	users, ok := ParseUsers(body, "")
 	if !ok {
 		t.Fatalf("ParseUsers declined a columnar list it should accept")
 	}

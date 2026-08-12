@@ -46,3 +46,16 @@ func RenderWithBackground(t finger.Target, body []byte, meta finger.Meta, queryE
 
 	return sb.String()
 }
+
+// Split separates the header chrome from the body in the output of
+// RenderWithBackground. The header is the first line (including its trailing
+// newline); the body is everything after it. Concatenating header and body
+// always reconstructs the original rendered string. If rendered contains no
+// newline at all, Split returns (rendered, "").
+func Split(rendered string) (header, body string) {
+	idx := strings.IndexByte(rendered, '\n')
+	if idx < 0 {
+		return rendered, ""
+	}
+	return rendered[:idx+1], rendered[idx+1:]
+}

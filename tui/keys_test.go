@@ -13,6 +13,7 @@ func TestKeyMapBindings(t *testing.T) {
 	cases := map[string]key.Binding{
 		"i":   k.FocusInput,
 		"y":   k.Copy,
+		"r":   k.Refresh,
 		"v":   k.Raw,
 		"q":   k.Quit,
 		"?":   k.Help,
@@ -25,6 +26,33 @@ func TestKeyMapBindings(t *testing.T) {
 	}
 }
 
+func TestRefreshKeyHelp(t *testing.T) {
+	got := newKeyMap().Refresh.Help()
+	if got != (key.Help{Key: "r", Desc: "refresh"}) {
+		t.Fatalf("Refresh help = %+v", got)
+	}
+}
+
+func TestLinkKeyHelp(t *testing.T) {
+	k := newKeyMap()
+	tests := []struct {
+		name string
+		got  key.Help
+		want key.Help
+	}{
+		{name: "next", got: k.LinkNext.Help(), want: key.Help{Key: "tab/n", Desc: "next link"}},
+		{name: "previous", got: k.LinkPrev.Help(), want: key.Help{Key: "shift+tab/N", Desc: "previous link"}},
+		{name: "panel", got: k.LinkPanel.Help(), want: key.Help{Key: "L", Desc: "browse links"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Fatalf("link help = %+v, want %+v", tt.got, tt.want)
+			}
+		})
+	}
+}
+
 func TestKeyMapFullHelpIncludesPageAndMoveKeys(t *testing.T) {
 	k := newKeyMap()
 	var all []string
@@ -34,7 +62,7 @@ func TestKeyMapFullHelpIncludesPageAndMoveKeys(t *testing.T) {
 		}
 	}
 	joined := strings.Join(all, " ")
-	for _, want := range []string{"i", "y", "esc", "q"} {
+	for _, want := range []string{"i", "y", "r", "esc", "q"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("FullHelp missing %q; got %s", want, joined)
 		}
@@ -75,5 +103,28 @@ func TestKeyMapAboutBinding(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(all, " "), "a") {
 		t.Fatalf("FullHelp should advertise the about key 'a': %v", all)
+	}
+}
+
+func TestBookmarkAndHomeKeysBound(t *testing.T) {
+	k := newKeyMap()
+	if got := k.Bookmark.Keys(); !contains(got, "b") {
+		t.Fatalf("Bookmark keys = %v, want b", got)
+	}
+	if got := k.Home.Keys(); !contains(got, "h") {
+		t.Fatalf("Home keys = %v, want h", got)
+	}
+	// h moved from Page to Home, so the help must stop claiming it.
+	if got := k.Page.Keys(); contains(got, "h") {
+		t.Fatalf("Page keys = %v, must not still claim h", got)
+	}
+	// ...but l is untouched: keyMap.Page is display-only, and the viewport and
+	// list both still bind l to page forward. Dropping it would advertise LESS
+	// than lookit does, which is the opposite of the honesty this list exists for.
+	if got := k.Page.Keys(); !contains(got, "l") {
+		t.Fatalf("Page keys = %v, want l — it still pages", got)
+	}
+	if got := k.Page.Keys(); !contains(got, "left") || !contains(got, "right") {
+		t.Fatalf("Page keys = %v, want the arrows", got)
 	}
 }

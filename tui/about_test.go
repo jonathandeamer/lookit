@@ -4,12 +4,14 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestAboutViewRendersIdentityAndActions(t *testing.T) {
 	out := aboutView(newStyles(true), colorprofile.TrueColor, "v0.0.1", "2026-06-03", 80, 24)
-	plain := stripANSIForLandingTest(out)
+	plain := ansi.Strip(out)
 	for _, want := range []string{
 		heroWordmark,
 		aboutTagline,
@@ -21,7 +23,7 @@ func TestAboutViewRendersIdentityAndActions(t *testing.T) {
 		"finger jonathan@tilde.team",
 		"↵ go",
 		"Report a bug or idea",
-		"y to copy the issues URL",
+		"y copy issues URL",
 		"Thanks for supporting the small internet",
 	} {
 		if !strings.Contains(plain, want) {
@@ -36,7 +38,7 @@ func TestAboutViewRendersIdentityAndActions(t *testing.T) {
 }
 
 func TestAboutViewHidesBuildRowWhenUnknown(t *testing.T) {
-	plain := stripANSIForLandingTest(aboutView(newStyles(true), colorprofile.TrueColor, "dev", "unknown", 80, 24))
+	plain := ansi.Strip(aboutView(newStyles(true), colorprofile.TrueColor, "dev", "unknown", 80, 24))
 	if strings.Contains(plain, "built ") {
 		t.Fatalf("about view should hide the build row when builtAt is unknown:\n%s", plain)
 	}
@@ -58,8 +60,8 @@ func TestAboutViewHeroGradientByProfile(t *testing.T) {
 }
 
 func TestAboutViewNarrowTruncatesLongLines(t *testing.T) {
-	wide := stripANSIForLandingTest(aboutView(newStyles(true), colorprofile.TrueColor, "v0.0.1", "2026-06-03", 80, 24))
-	narrow := stripANSIForLandingTest(aboutView(newStyles(true), colorprofile.TrueColor, "v0.0.1", "2026-06-03", 28, 24))
+	wide := ansi.Strip(aboutView(newStyles(true), colorprofile.TrueColor, "v0.0.1", "2026-06-03", 80, 24))
+	narrow := ansi.Strip(aboutView(newStyles(true), colorprofile.TrueColor, "v0.0.1", "2026-06-03", 28, 24))
 	if !strings.Contains(narrow, heroWordmark) {
 		t.Fatalf("narrow about view should still show the wordmark:\n%s", narrow)
 	}
@@ -68,5 +70,18 @@ func TestAboutViewNarrowTruncatesLongLines(t *testing.T) {
 	}
 	if !strings.Contains(wide, aboutTagline) {
 		t.Fatalf("wide about view should show the full tagline:\n%s", wide)
+	}
+}
+
+func TestAboutViewRendersCatalogCreditHyperlink(t *testing.T) {
+	out := aboutView(newStyles(true), colorprofile.TrueColor, "v0.0.1", "2026-06-03", 80, 24)
+	plain := ansi.Strip(out)
+	wantLine := "Catalog inspired by " + aboutCatalogCreditURL
+	if !strings.Contains(plain, wantLine) {
+		t.Fatalf("about view missing %q:\n%s", wantLine, plain)
+	}
+	wantLink := lipgloss.NewStyle().Hyperlink(aboutCatalogCreditURL).Render(aboutCatalogCreditURL)
+	if !strings.Contains(out, wantLink) {
+		t.Fatalf("about view missing catalog OSC 8 hyperlink:\n%s", out)
 	}
 }

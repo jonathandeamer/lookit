@@ -43,7 +43,7 @@ func init() {
 		return
 	}
 	if version == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		version = info.Main.Version
+		version = moduleVersion(info.Main.Version)
 	}
 	if builtAt == "unknown" {
 		for _, s := range info.Settings {
@@ -52,6 +52,13 @@ func init() {
 			}
 		}
 	}
+}
+
+// moduleVersion normalizes a module-proxy version ("v0.2.0") to the bare form
+// ldflags injects on a release build ("0.2.0"), so `lookit --version` reads the
+// same either way.
+func moduleVersion(v string) string {
+	return strings.TrimPrefix(v, "v")
 }
 
 // vcsDate trims an RFC 3339 VCS timestamp to its date portion.
@@ -72,7 +79,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	outProfile := detectProfile(stdout, os.Environ())
 	errProfile := detectProfile(stderr, os.Environ())
 
-	var positional []string
 	for _, a := range args {
 		switch a {
 		case "-h", "--help":
@@ -81,17 +87,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case "-v", "--version":
 			fmt.Fprintln(stdout, render.Version(versionString(), outProfile))
 			return exitOK
-		default:
-			if strings.HasPrefix(a, "-") {
-				fmt.Fprint(stderr, render.Usage(errProfile))
-				return exitError
-			}
-			positional = append(positional, a)
 		}
 	}
 
+	var positional []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			fmt.Fprint(stderr, render.InvocationError(fmt.Sprintf("unknown option %q", a), errProfile))
+			return exitError
+		}
+		positional = append(positional, a)
+	}
+
 	if len(positional) > 1 {
-		fmt.Fprint(stderr, render.Usage(errProfile))
+		fmt.Fprint(stderr, render.InvocationError("expected at most one target", errProfile))
 		return exitError
 	}
 
@@ -113,7 +122,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func versionString() string {
 	if builtAt == "" || builtAt == "unknown" {
-		return "lookit " + version
+		return "lookit version " + version
 	}
-	return fmt.Sprintf("lookit %s (built %s)", version, builtAt)
+	return fmt.Sprintf("lookit version %s (built %s)", version, builtAt)
 }

@@ -13,13 +13,12 @@ point rather than a permanent API.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `lookit: <error>` | `main.go:42`, `main.go:60` | TUI startup failure and one-shot target parse failure on stderr. |
-| `usage:` | `main.go:68` | Help/usage output on stderr for invalid arguments, `-h`, and `--help`. |
-| `  lookit` | `main.go:69` | Usage line. |
-| `  lookit user@host[:port]` | `main.go:70` | Usage line. |
-| `  lookit @host[:port]` | `main.go:71` | Usage line. |
-| `  lookit version` | `main.go:72` | Usage line. |
-| `lookit <version> (built <builtAt>)`, or `lookit <version>` when the build date is unknown | `main.go` (`versionString`) | `-v`/`--version` output on stdout. |
+| `A finger client built for exploring, not just querying.` plus the structured `Usage:`, `Targets:`, `Options:`, and `Examples:` sections | `render/cli.go` (`Usage`) | `-h`/`--help` output on stdout. |
+| `Press ? inside lookit for keyboard shortcuts.` | `render/cli.go` (`Usage`) | Final pointer in `-h`/`--help` output. |
+| `lookit version <version> (built <builtAt>)`, or `lookit version <version>` when the build date is unknown | `main.go` (`versionString`) | `-v`/`--version` output on stdout. |
+| `lookit: unknown option "<option>"` followed by `Try 'lookit --help' for usage.` | `main.go` (`run`), `render/cli.go` (`InvocationError`) | Unknown option diagnostic on stderr. |
+| `lookit: expected at most one target` followed by `Try 'lookit --help' for usage.` | `main.go` (`run`), `render/cli.go` (`InvocationError`) | Excess positional-target diagnostic on stderr. |
+| `lookit: <error>` | `main.go` (`run`), `render/cli.go` (`ErrorLine`) | TUI startup failure on stderr. |
 
 ## Target Parsing
 
@@ -60,7 +59,7 @@ both one-shot CLI output and the TUI reader viewport.
 | `(no response body)` | `render/render.go:27-29` | Successful query with an empty body. |
 | `<bytes> · <elapsed>` | `render/chrome.go:23-29` | Footer stats. |
 | `truncated` | `render/render.go:40-43` | Footer notice when `finger.Meta.Truncated` is true. |
-| `<queryErr.Error()>` | `render/render.go:46-48` | Error line after the footer. Text comes from `finger.Query` or context cancellation. |
+| `<queryErr.Error()>` | `render/render.go`, `tui/request.go`, `tui/app.go` | Renderer error line following header/body processing for ordinary query errors. Explicit TUI cancellation is suppressed, and any returned partial body is discarded, before rendering. |
 
 ## TUI Landing And Input
 
@@ -83,13 +82,17 @@ both one-shot CLI output and the TUI reader viewport.
 | `◂ esc: <target>` | `tui/statusbar.go:41-44` | Back breadcrumb when history has a previous node. |
 | `esc back` | `tui/app.go:644-649`, `tui/app.go:691` | Back hint. Omitted from joined hints when the breadcrumb already shows the target. |
 | `? help` | `tui/app.go:644-649`, `tui/app.go:691` | Help hint. |
-| `<spinner> loading <target>` | `tui/app.go:655-658` | Loading status bar. |
+| `<spinner> loading <target> · <elapsed> · esc cancel · q quit` | `tui/request.go` | Loading status bar. Elapsed time starts after one second. |
+| `r refresh` | `tui/app.go`, `tui/keys.go` | Refresh hint/status and enabled help binding for an ordinary landed reader response or user list. |
+| `r retry` | `tui/app.go`, `tui/keys.go` | Retry hint/status and enabled help binding for an empty-body failure or persistent failed-refresh warning. |
+| `refresh failed: <error> · showing previous response · r retry` | `tui/request.go`, `tui/app.go` | Persistent status after an empty-body refresh failure; the prior response remains visible. |
+| `retry failed: <error> · r retry` | `tui/request.go`, `tui/app.go` | Persistent status after an empty-body retry failure. |
 | `↵ go · esc cancel` | `tui/app.go:674-683` | Status bar while editing the target input over existing content. |
 | `<n> users` | `tui/app.go:698-700` | List metadata. |
 | `↵ go` | `tui/app.go:700-711` | List action hint. |
 | `/ filter` | `tui/app.go:700-711` | List action hint. |
 | `auto-detected` | `tui/app.go:702-704` | List flag for generic list detection. |
-| `r raw` | `tui/app.go:702-705` | List hint shown for generic lists. |
+| `v view source` | `tui/app.go` | List hint shown for generic lists. |
 | `partial (error)` | `tui/app.go:706-708` | List flag for parseable list bodies returned with an error. |
 | `partial (truncated)` | `tui/app.go:708-710` | List flag for parseable list bodies returned truncated. |
 | `page <n>/<total>` | `tui/app.go:712-714` | List pagination metadata. |
@@ -108,7 +111,8 @@ from enabled bindings, so not every label is visible in every state.
 | `esc back` | `tui/keys.go:30` | Back/cancel binding. |
 | `↵ go` | `tui/keys.go:31` | Submit/open binding. |
 | `/ filter` | `tui/keys.go:32` | List filter binding. |
-| `r raw` | `tui/keys.go:33` | Raw/source view binding. |
+| `v view source` | `tui/keys.go` | Raw/source view binding. |
+| `r refresh` / `r retry` | `tui/keys.go`, `tui/app.go` | Contextual refresh/retry binding; disabled outside an idle reader or list screen. |
 | `y copy` | `tui/keys.go:34` | Copy address binding. |
 | `? help` | `tui/keys.go:35` | Help binding. This is shown in the status bar, not inside the open help panel. |
 | `q quit` | `tui/keys.go:36` | Quit binding, disabled while the input is focused. |
@@ -122,7 +126,7 @@ from enabled bindings, so not every label is visible in every state.
 | --- | --- | --- |
 | `<host> — <n> users` | `tui/list.go:80` | Bubble list title. Currently hidden by `SetShowTitle(false)`, but still stored on the model. |
 | `<name> · <target>` | `tui/list.go:45-49` | User list row description when both name and explicit target are present. |
-| `Auto-detected user list from an unrecognized response — press r to view raw.` | `tui/list.go:157-163` | Preamble note for generic list detection. |
+| `Auto-detected user list from an unrecognized response — press v to view source.` | `tui/list.go` | Preamble note for generic list detection. |
 | `List truncated — showing first <max> of <total>` | `tui/list.go:165-170` | Preamble note when parsed list entries exceed `maxListEntries`. |
 
 ## Inherited Component Text

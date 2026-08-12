@@ -137,12 +137,37 @@ already drops non-selectable rows and flattens the view to matches, so a bare
 unchanged — still `target + " " + note` — so typing `airandwave` still matches
 every child, and match highlighting is unaffected.
 
-**The overview counts do not inflate.** `CATALOG 6 communities · 19 services`
-(17 today, plus the two new roots) must stay true with `@happynetbox.com` on
-screen twice — it is counted once, as the community it is. Counts therefore derive
-from catalog entries by kind, not from rendered rows. This is a change to
-`startCounts` (`tui/start.go:92`), which counts displayed items by section
-today.
+**Every flattened view shows a target once.** While a filter is active the
+structural parent copy is dropped, keeping only the canonical listing row. This
+matters because filtering removes the section headers that distinguish the two
+`@happynetbox.com` copies: without the rule, a `happynetbox` filter would show
+two adjacent, identical, both-selectable rows with identical `FilterValue()`,
+and a pinned parent would show a third. Unfiltered, the copies stay — their
+headers supply the context that filtering removes.
+
+Concretely: a parent copy is dropped from a flattened view when the same target
+already appears as a listing row (its own catalog section, or BOOKMARKS).
+Parents that *are* their section's listing — `@bbs.airandwave.net`,
+`@graph.no`, `@typed-hole.org`, `@flanigan.us` — are canonical and always
+survive.
+
+**Counting is by distinct target, and the status bar agrees.** The layout-polish
+spec already fixes the rule: counts "describe the assembled rows after
+bookmark/catalog deduplication… no target is counted twice"
+(`2026-08-12-startpage-layout-polish-design.md`). A structural duplicate must
+not weaken that, so both totals count **distinct selectable targets**:
+
+| Situation | Overview | Status bar |
+|---|---|---|
+| Unfiltered | `CATALOG 6 communities · 19 services` — the second `@happynetbox.com` row is not counted again | distinct targets, so the duplicate row is not counted |
+| A child is pinned | BOOKMARKS rises, its classification falls, exactly as today | unchanged in total |
+| A parent is pinned | BOOKMARKS rises, its classification falls; the retained parent copy adds nothing | unchanged in total |
+| Filter applied | counts describe the visible rows, which by the rule above hold no duplicates | same |
+
+This changes `startCounts` (`tui/start.go:92`), which counts displayed items by
+section today, and the status-bar tally (`tui/app.go:1496-1503`), which counts
+visible selectable rows. Without the second change the bar would read one higher
+than the overview whenever a duplicate is on screen.
 
 Indentation is two spaces inside the target column. In the narrow two-line
 layout the same indent prefixes both the target line and the note line.
@@ -156,12 +181,25 @@ root exactly as today. Only section headers remain non-selectable, so
 **Bookmark dedup gains one exception: a parent row is structure, not a
 listing.** Today a bookmarked target is suppressed from its catalog section so
 it cannot appear twice. Applied to parents, that would decapitate a group —
-pinning `@bbs.airandwave.net` would leave seven orphaned children. The rule
+pinning `@bbs.airandwave.net` would leave its six children orphaned. The rule
 becomes: pinning suppresses the *listing* copies, never the *parent* copy.
 
 This also resolves the dual-role case under the same rule rather than a special
 case: `b` on `@happynetbox.com` pins it once, removes the COMMUNITIES copy, and
 leaves the SERVICES parent heading its five services.
+
+**Bookmarked-ness becomes its own field, separate from `source`.** A retained
+parent copy is `sourceCatalog` even when its target is bookmarked, and
+`startBookmarkAction` (`tui/app.go:1509`) derives the `b` hint from
+`entry.source == sourceBookmark` while `toggleBookmark` (`tui/app.go:373`)
+decides by scanning the bookmarks file for the target. Left alone, a pinned
+parent would advertise `b bookmark` and then *remove* the bookmark — the hint
+lying about what the key does.
+
+So `startEntry` gains a `bookmarked bool`, set during assembly from the
+bookmarks file, and the hint reads that. `source` keeps its existing meaning:
+which section rendered this row. The two were the same fact until parents
+started outliving dedup; they are now distinct and must be stored distinctly.
 
 **Children pin as themselves.** `b` on `dict` writes the full
 `dict@bbs.airandwave.net` to the bookmarks file — the format does not change —
@@ -181,7 +219,15 @@ would overrule them.
   entry fails the build.
 - Delegate: a child renders its bare token unfiltered and its full target under
   an applied filter, with match highlighting intact in both.
-- Counts: the duplicated row does not inflate `CATALOG`.
+- Flattening: a `happynetbox` filter yields exactly one `@happynetbox.com` row,
+  both when it is unpinned and when it is pinned; the canonical parents
+  (`@bbs.airandwave.net` and the rest) always survive a filter that matches
+  them.
+- Bookmark hint: `b` on a parent reads "bookmark" when unpinned and "remove"
+  when pinned, and the key does what the hint says in both states — the
+  regression this design would otherwise introduce.
+- Counts: the duplicated row does not inflate `CATALOG` **or** the status-bar
+  tally, and the two agree in every row of the table above.
 - Existing startpage tests encode today's flat order and will need updating —
   `TestBookmarkingCatalogRowsStayAtSectionOrdinal` and its neighbours assert
   section ordinals against the current file order.

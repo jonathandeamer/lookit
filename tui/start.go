@@ -216,6 +216,11 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	isSelected := index == m.Index()
 	emptyFilter := m.FilterState() == list.Filtering && m.FilterValue() == ""
 	isFiltered := m.FilterState() == list.Filtering || m.FilterState() == list.FilterApplied
+	// Flattened means the view has actually collapsed: headers and structural
+	// rows are gone and a child has no parent above it to supply its host. That
+	// needs a non-empty query, not merely an active filter — pressing "/" alone
+	// leaves every group and header on screen, where a child is still a child.
+	flattened := isFiltered && !emptyFilter
 	showShelf := isSelected && m.FilterState() != list.Filtering
 
 	titleStyle, descStyle := d.st.listItem.NormalTitle, d.st.listItem.NormalDesc
@@ -237,10 +242,10 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	titleStyle = startStyleWithinWidth(titleStyle, m.Width())
 	descStyle = startStyleWithinWidth(descStyle, m.Width())
 
-	rowTarget := startRowTarget(item.entry, isFiltered)
+	rowTarget := startRowTarget(item.entry, flattened)
 
 	var targetMatches, noteMatches []int
-	if isFiltered && !emptyFilter {
+	if flattened {
 		targetMatches, noteMatches = splitStartMatches(m.MatchesForItem(index), item.entry.target)
 	}
 
@@ -268,7 +273,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 		descWidth = 0
 	}
 	rowNote := item.entry.note
-	if item.entry.child && !isFiltered {
+	if item.entry.child && !flattened {
 		rowNote = "  " + rowNote
 	}
 	target := renderStartField(rowTarget, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
@@ -290,10 +295,11 @@ func startColumnWidths(width, frame int) (int, int) {
 }
 
 // startRowTarget is the target column's text. A child shows only its query
-// token, indented, because the parent row above it states the host — but under
-// a filter the parent may not be on screen, so the full address returns.
-func startRowTarget(entry startEntry, filtered bool) string {
-	if entry.child && !filtered {
+// token, indented, because the parent row above it states the host — but once
+// the view flattens, the parent may be off screen, so the full address returns.
+// Flattened is not the same as "a filter is active": see renderEntry.
+func startRowTarget(entry startEntry, flattened bool) string {
+	if entry.child && !flattened {
 		return "  " + entryToken(entry.target)
 	}
 	return entry.target

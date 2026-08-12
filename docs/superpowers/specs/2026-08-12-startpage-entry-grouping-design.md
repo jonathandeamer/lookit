@@ -158,6 +158,14 @@ They are briefly on screen together before the first keystroke, though the
 section headers are still present at that point, so nothing is ambiguous. The
 structural copy disappears as soon as the query becomes non-empty.
 
+**That state defines "flattened" for the renderer too.** `renderEntry` derives
+`flattened = (Filtering || FilterApplied) && query != ""`, and both the target
+column and the child note indent read it. Keying off "a filter is active" alone
+would expand every child to its full address the instant `/` is pressed, while
+its host row and section header are still visibly around it — the row would be
+answering a question nobody had asked yet. A child stops being a child only when
+the view actually collapses.
+
 Concretely: a parent copy is dropped from a flattened view when the same target
 already appears as a listing row (its own catalog section, or BOOKMARKS).
 Parents that *are* their section's listing — `@bbs.airandwave.net`,

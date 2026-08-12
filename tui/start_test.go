@@ -1041,6 +1041,50 @@ func TestFilteredChildRendersFullTargetWithMatchHighlight(t *testing.T) {
 	}
 }
 
+// Pressing "/" with nothing typed does not flatten anything: bubbles still
+// returns every item, headers included, so a child is still sitting under its
+// parent and must keep its token. Only a non-empty query collapses the view and
+// leaves a child needing its full address.
+func TestEmptyFilterKeepsChildTokensAndQueryExpandsThem(t *testing.T) {
+	newStartWithGroup := func(t *testing.T) startModel {
+		t.Helper()
+		common := testCommon()
+		common.width = 80
+		return newStart(common, []startSection{{
+			id: sectionServices, title: "SERVICES",
+			entries: []startEntry{
+				{target: "@bbs.airandwave.net", note: "Over two dozen services", source: sourceCatalog},
+				{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", source: sourceCatalog, child: true},
+			},
+		}}, "", "")
+	}
+
+	t.Run("empty query keeps the token", func(t *testing.T) {
+		m := newStartWithGroup(t)
+		m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+		if got := m.list.FilterState(); got != list.Filtering {
+			t.Fatalf("filter state = %v, want Filtering", got)
+		}
+		plain := ansi.Strip(m.View())
+		if strings.Contains(plain, "dict@bbs.airandwave.net") {
+			t.Errorf("child expanded to its full address while its group is still on screen:\n%s", plain)
+		}
+		if !strings.Contains(plain, "  dict") {
+			t.Errorf("child token missing:\n%s", plain)
+		}
+	})
+
+	t.Run("a typed query expands it", func(t *testing.T) {
+		m := newStartWithGroup(t)
+		m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+		m = typeStartFilter(t, m, "dict")
+		plain := ansi.Strip(m.View())
+		if !strings.Contains(plain, "dict@bbs.airandwave.net") {
+			t.Errorf("flattened child kept its bare token:\n%s", plain)
+		}
+	})
+}
+
 // A structural row duplicates a target listed elsewhere. Filtering drops the
 // headers that tell the two copies apart, so the duplicate must drop out too.
 func TestStructuralRowsDoNotMatchFilters(t *testing.T) {

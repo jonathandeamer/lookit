@@ -3700,9 +3700,27 @@ func TestHintWordFindsItsChildButNotItsBookmark(t *testing.T) {
 	})
 
 	t.Run("its bookmark copy is not", func(t *testing.T) {
+		// Positive control: pinning cyoa@typed-hole.org removes it from
+		// SERVICES, so "pick-a-path" alone would match zero visible items
+		// whether or not filtering actually works — 0 matches proves
+		// nothing. Assert, in the same run, that another hinted child
+		// (smog@typed-hole.org, left unpinned) IS still findable by its own
+		// hint word, so a broken filter would fail this subtest too.
 		seedBookmarks(t, "cyoa@typed-hole.org\n")
 		m := newApp(stubFetch(t), colorprofile.NoTTY)
 		m.blurInput()
+
+		m.start.list.SetFilterText("gemzine")
+		var smogFound bool
+		for _, item := range m.start.list.VisibleItems() {
+			if it, ok := item.(startItem); ok && it.entry.target == "smog@typed-hole.org" {
+				smogFound = true
+			}
+		}
+		if !smogFound {
+			t.Fatal("smog@typed-hole.org not found by a word from its hint; filtering itself may be broken")
+		}
+
 		m.start.list.SetFilterText("pick-a-path")
 		for _, item := range m.start.list.VisibleItems() {
 			it, ok := item.(startItem)

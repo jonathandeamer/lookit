@@ -1001,6 +1001,60 @@ func TestNarrowChildRowIndentsBothLines(t *testing.T) {
 	}
 }
 
+// The wide (>=72 column) single-line layout is the primary rendering path for
+// a hinted child, but it was untested at the rendered-output level: reverting
+// the delegate from rowNote back to item.entry.note left every existing test
+// green. Assert on the rendered, ansi-stripped row rather than the pure
+// startRowNote function, so a regression here is caught the way it would
+// actually ship.
+func TestWideChildRowShowsHintNoteOrFullNote(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	if d.Height() != 1 {
+		t.Fatalf("delegate height = %d at width 80, want the wide single-line layout", d.Height())
+	}
+
+	const (
+		hintedNote = "Quick dictionary lookup service"
+		hintedHint = "dict lookup"
+		bareNote   = "Full weather description text field"
+	)
+	items := []list.Item{
+		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: hintedNote, hint: hintedHint, child: true}, section: sectionServices},
+		startItem{entry: startEntry{target: "weather@bbs.airandwave.net", note: bareNote, child: true}, section: sectionServices},
+		startItem{entry: startEntry{target: "urban@bbs.airandwave.net", note: hintedNote, hint: hintedHint, child: true, lastChild: true}, section: sectionServices},
+	}
+	l := list.New(items, d, 80, 4)
+	l.Select(2) // urban is selected; dict and weather render unselected
+
+	var hintedBuf, bareBuf, selectedBuf strings.Builder
+	d.Render(&hintedBuf, l, 0, items[0])
+	d.Render(&bareBuf, l, 1, items[1])
+	d.Render(&selectedBuf, l, 2, items[2])
+
+	hintedLine := ansi.Strip(hintedBuf.String())
+	bareLine := ansi.Strip(bareBuf.String())
+	selectedLine := ansi.Strip(selectedBuf.String())
+
+	if !strings.Contains(hintedLine, hintedHint) {
+		t.Errorf("hinted unselected child row = %q, want it to contain hint %q", hintedLine, hintedHint)
+	}
+	if strings.Contains(hintedLine, hintedNote) {
+		t.Errorf("hinted unselected child row = %q, want the full note absent (only the hint shows)", hintedLine)
+	}
+
+	targetEnd := strings.LastIndex(bareLine, "weather") + len("weather")
+	if noteRegion := strings.TrimSpace(bareLine[targetEnd:]); noteRegion != "" {
+		t.Errorf("unhinted unselected child row = %q, want an empty note column, got remainder %q", bareLine, noteRegion)
+	}
+
+	if !strings.Contains(selectedLine, hintedNote) {
+		t.Errorf("selected child row = %q, want it to contain the full note %q", selectedLine, hintedNote)
+	}
+}
+
 func TestFilteredChildRendersFullTargetWithMatchHighlight(t *testing.T) {
 	for _, query := range []string{"dict", "airandwave"} {
 		t.Run(query, func(t *testing.T) {
@@ -1145,21 +1199,6 @@ func TestStartRowNotePerState(t *testing.T) {
 				t.Fatalf("startRowNote = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-// A bookmarked child has no parent in BOOKMARKS, so it is a listing there:
-// full target, full note, no connector.
-func TestBookmarkedChildRendersAsAListing(t *testing.T) {
-	entry := startEntry{
-		target: "smog@typed-hole.org", note: "Saturday Morning Gemzine — back issues",
-		hint: "gemzine back issues", source: sourceBookmark, bookmarked: true,
-	}
-	if got, want := startRowTarget(entry, false), "smog@typed-hole.org"; got != want {
-		t.Errorf("target = %q, want %q", got, want)
-	}
-	if got, want := startRowNote(entry, false, false), "Saturday Morning Gemzine — back issues"; got != want {
-		t.Errorf("note = %q, want %q", got, want)
 	}
 }
 

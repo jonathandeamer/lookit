@@ -189,15 +189,26 @@ func parseCatalogLine(line string) (startEntry, error) {
 	return startEntry{target: target, kind: kind, note: note, hint: hint, source: sourceCatalog}, nil
 }
 
-// splitCatalogNote separates a note from its optional short hint at " | ". The
-// hint is what a child row displays; the note stays authoritative and feeds
-// filtering, the selected row, and every context where the child renders as a
-// listing. An empty half is a typo in a file that ships compiled in, so it is
-// refused rather than rendered as a blank column.
+// splitCatalogNote separates a note from its optional short hint at " | ",
+// matching the documented grammar. A "|" that is not delimiter-shaped — no
+// space immediately before it and no space immediately after — is left
+// embedded in the note rather than treated as a split point, so a stray pipe
+// inside prose (no surrounding whitespace) cannot silently become a bogus
+// hint; TestCatalogIsWellFormed's pipe guard catches that case at the raw-text
+// level instead. The two field boundaries count as the missing whitespace: by
+// the time this is called, parseCatalogLine's earlier SplitN has already
+// consumed the single space that would otherwise precede a delimiter at the
+// very start of field, and a run of trailing whitespace never survives that
+// same normalization at the very end — so a leading or trailing "|" is still
+// delimiter-shaped, and its empty note/hint is caught below rather than
+// silently accepted.
 func splitCatalogNote(field string) (note, hint string, err error) {
 	before, after, found := strings.Cut(field, "|")
 	if !found {
 		return field, "", nil
+	}
+	if (before != "" && !strings.HasSuffix(before, " ")) || (after != "" && !strings.HasPrefix(after, " ")) {
+		return field, "", nil // not delimiter-shaped; leave the "|" in the note
 	}
 	note, hint = strings.TrimSpace(before), strings.TrimSpace(after)
 	if note == "" || hint == "" {

@@ -82,6 +82,26 @@ func TestBuildSectionsCatalogOff(t *testing.T) {
 	}
 }
 
+// A bookmarked target that is also a service child in the catalog (grouped
+// under its host root everywhere else) must not carry child/lastChild into
+// BOOKMARKS: bm.targets never passes through groupByHost, the only place
+// those flags are ever set, so a bookmark row is always a listing — full
+// target, full note, no connector — never a group member. smog@typed-hole.org
+// is a real catalog service child, so this exercises the actual assembly
+// path rather than a synthetic fixture.
+func TestBuildSectionsBookmarkedServiceChildIsNotAChildRow(t *testing.T) {
+	bm := bookmarkFile{targets: []string{"smog@typed-hole.org"}}
+	got := buildSections(loadCatalog(), bm)
+	if len(got) == 0 || got[0].id != sectionBookmarks {
+		t.Fatalf("sections = %+v, want a BOOKMARKS section first", got)
+	}
+	for _, e := range got[0].entries {
+		if e.child || e.lastChild {
+			t.Errorf("%s has child=%v lastChild=%v; a BOOKMARKS row is a listing, not a group member", e.target, e.child, e.lastChild)
+		}
+	}
+}
+
 func TestBuildSectionsEmpty(t *testing.T) {
 	if got := buildSections(nil, bookmarkFile{catalogHidden: true}); len(got) != 0 {
 		t.Fatalf("sections = %+v, want none", got)

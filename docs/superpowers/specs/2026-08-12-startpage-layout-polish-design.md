@@ -3,10 +3,10 @@
 **Date:** 2026-08-12
 
 **Status:** Approved design; reviewed 2026-08-12 and revised — filtered overview
-counts, single `BOOKMARKS` name, an even 50/50 column split, no per-row
-bookmark marker, the catalog credit relocated to About, named layout constants,
-delegate-focus and delegate-divergence notes, and the `b`-again trade-off stated
-in full
+counts, native zero-match filtering, filter-stable bookmark toggling, a single
+`BOOKMARKS` name, an even 50/50 column split, no per-row bookmark marker, the
+catalog credit relocated to About, named layout constants, and explicit
+delegate-focus, relayout, and delegate-divergence notes
 
 **Scope:** Presentation and interaction polish for the bookmarks/catalog
 startpage, plus the one About line the startpage hands off (see *The Catalog
@@ -104,9 +104,9 @@ When a catalog service becomes a bookmark, the bookmark count rises and the
 service count falls; no target is counted twice.
 
 Only non-empty catalog classifications appear in the overview, in section
-order. If a future catalog adds people, the catalog group extends naturally to
-`8 communities · 15 services · 3 people`; if pinning empties a classification,
-that classification drops out along with its section.
+order. For the shipped catalog those classifications are `communities` and
+`services`. If pinning empties either classification, it drops out along with
+its section.
 
 At wide widths the overview is one line. When that line does not fit—always
 below the `startWideMinWidth` layout breakpoint—it becomes two labelled rows:
@@ -128,11 +128,12 @@ discoverable even when a long section's heading is on an earlier page.
   replaces the overview and list, names the active bookmarks path, and explains
   how to turn the catalog back on.
 - While actively typing a `/` filter, Bubbles' own filter input replaces the
-  overview.
+  overview. If the text matches nothing, Bubbles continues to own that transient
+  state: the filter input remains visible, no overview is added, and lookit does
+  not substitute its file-level empty message.
 - **When a filter is applied, the overview returns above the flat filtered
   results and its counts describe the matching rows only**, dropping any group
-  or classification the filter emptied (except when nothing matches at all —
-  see below):
+  or classification the filter emptied:
 
   ```text
   BOOKMARKS  1 │ CATALOG  3 communities
@@ -141,9 +142,13 @@ discoverable even when a long section's heading is on an earlier page.
   The overview always counts exactly the rows the list is showing. The status
   bar's `N entries` already counts visible items, so an unfiltered overview over
   a filtered list would put two disagreeing totals on screen at once. Clearing
-  the filter restores the assembled counts. If a filter matches nothing, the
-  overview shows every group at zero — `BOOKMARKS  0 │ CATALOG  0` — above
-  Bubbles' own `No entries.`, rather than vanishing.
+  the filter restores the assembled counts.
+
+  There is deliberately no applied zero-match variant. On Enter with no visible
+  matches, Bubbles clears the filter and returns to `Unfiltered`; the assembled
+  overview and full list return together. Esc keeps its stock cancel/clear
+  behavior. Lookit neither forces `FilterApplied` nor renders synthetic zero
+  counts in this path.
 
 ## Focus and Visual Hierarchy
 
@@ -155,7 +160,6 @@ and the pairing keeps the cue from being colour-only:
 - bookmark selected: `BOOKMARKS` is gold and bold;
 - community selected: the `communities` count is gold and bold;
 - service selected: the `services` count is gold and bold;
-- person selected, if that future section exists: the `people` count is;
 - target input focused: no segment is highlighted.
 
 Only the relevant text changes foreground colour and weight. It receives no
@@ -276,6 +280,30 @@ added: that would be a new command, outside this spec's scope.
 Bookmark toggles from reader, raw-reader, and user-list screens keep their
 current behavior; no startpage selection exists to restore there.
 
+### Toggling under an applied filter
+
+`b` remains available while a filter is applied. A toggle preserves the filter
+text and reapplies it to the rebuilt startpage when at least one matching row
+remains. Selection follows the same section-first rule, but its ordinal is
+measured among the **visible matching entries** in that section: the row that
+moves into the acted-on row's filtered slot is selected, falling back to that
+section's final visible row. If the section has no remaining matches, selection
+moves to the next matching section in display order, then the previous one.
+
+If rebuilding leaves no matches anywhere, the filter is cleared rather than
+manufacturing the applied zero-match state that native Bubbles never reaches.
+The unfiltered list returns, and selection uses the acted-on row's ordinal in
+its full assembled section with the ordinary section fallback rules above. This
+requires capturing both the filtered ordinal and the full-section ordinal before
+the save.
+
+For example, filtering to three services and bookmarking the second keeps the
+filter applied and selects the service that moves into the second filtered slot.
+If that was the filter's only match, the filter clears and the nearest
+unfiltered service remains selected. This makes a filter useful for a run of
+bookmark changes without letting state preservation override stock zero-match
+semantics.
+
 ## Charm-Native Boundaries
 
 The design stays Charm-native by retaining component ownership rather than
@@ -289,7 +317,8 @@ imitating every stock visual:
   `list.SetDelegate` calls `updatePagination()` itself, so no manual
   recalculation is needed;
 - `/` continues to use the list's real `FilterInput`, including Enter-to-apply
-  and Esc-to-cancel/clear;
+  and Esc-to-cancel/clear; Enter on zero matches remains the stock clear-and-
+  restore transition;
 - contextual help remains expressed through `key.Binding`, with `b bookmark`
   on catalog rows and `b remove` on bookmark rows.
 
@@ -314,9 +343,15 @@ const (
 	sectionBookmarks
 	sectionCommunities
 	sectionServices
-	sectionPeople
 )
 ```
+
+The existing catalog grammar still accepts `person`, and `buildSections`
+retains its dormant `kindPerson` handling; removing that compatibility is not a
+layout-polish concern. The shipped catalog deliberately contains no personal
+addresses, however, so this spec defines no `PEOPLE` section identity, overview
+segment, focus behavior, or test. Adding a user-visible people section later
+requires a separate decision instead of being promised speculatively here.
 
 `startSection` and each flattened `startItem` carry a `startSectionID`. A header
 row carries the ID of the section it opens; `sectionUnknown` remains the zero
@@ -331,6 +366,16 @@ current one- or two-row height plus existing notices before sizing the list.
 When Bubbles shows its live filter input, the overview contributes zero rows.
 Under an applied filter the counts are recomputed from `VisibleItems()` rather
 than from the assembled sections.
+
+Filter lifecycle transitions are layout events even when the terminal size has
+not changed. `startModel.update` compares the filter state before and after
+delegating to `list.Update`; whenever that state changes, it reruns the same
+sizing path used by `setSize`. Entering `Filtering` gives the list the row or
+rows released when the overview disappears; applying, cancelling, or accepting
+a zero-match filter takes them back, and clearing an already-applied filter goes
+through the same path while restoring assembled counts. The recalculation
+happens after Bubbles updates its own filter state, so `Paginator.PerPage` is
+based on the final chrome for that frame.
 
 `startDelegate` owns the responsive entry, header, and inactive-selection
 rendering. Its `Height()` returns one or two according to the width mode, and
@@ -348,10 +393,15 @@ focus onto `commonModel` and having the delegate read it through that shared
 pointer, as it already does for width and profile — makes the delegate
 stateless in this respect and removes the class of bug; it is preferred.
 
-Before a startpage bookmark toggle, `appModel` records the selected section ID
-and its selectable ordinal inside that section. After `reloadStart`, a
-`selectSectionPosition` helper applies the section-stable fallback rules. This
-replaces the existing restore-by-target behavior only for startpage toggles.
+Before a startpage bookmark toggle, `appModel` records the selected section ID,
+its selectable ordinal in the full section, and—when a filter is applied—the
+filter text plus its selectable ordinal among that section's visible matches.
+After `reloadStart`, it calls `SetFilterText` to synchronously rebuild the
+filtered items. If matches remain, a `selectSectionPosition` helper restores the
+filtered section position. If none remain, it calls `ResetFilter` and restores
+the full-section position. This replaces the existing restore-by-target behavior
+only for startpage toggles; it never leaves the programmatic `SetFilterText`
+zero-match state applied.
 
 No changes are made to:
 
@@ -390,8 +440,8 @@ Tests remain offline and use the existing injected bookmarks path.
 - counts reflect assembled sections after deduplication;
 - zero bookmarks uses `BOOKMARKS  none yet` without an empty section;
 - `catalog off` omits the catalog group;
-- future and emptied catalog classifications appear or disappear from the
-  overview with their assembled sections;
+- community and service classifications disappear from the overview when their
+  assembled sections empty;
 - wide delegates have height one and render target/description columns;
 - at 80 columns the longest catalog target renders untruncated;
 - narrow delegates have height two and render stacked content;
@@ -401,6 +451,11 @@ Tests remain offline and use the existing injected bookmarks path.
   filter, the overview's filtered counts, and a selectable row selected — this
   combines the delegate swap, the overview's height contribution, and
   `skipNonEntry`, which is where the existing code is most fragile;
+- entering live filtering gives the overview's released row or rows to the
+  list, while applying, cancelling, and accepting a zero-match filter reclaim
+  them without a terminal resize; clearing an applied filter reruns the same
+  layout path and restores assembled counts; paginator capacity follows every
+  filter-state transition;
 - header variants obey the active delegate height and width;
 - the startpage list contains no credit row in any state — catalog on, catalog
   off, with and without bookmarks — and its last row is a selectable entry;
@@ -422,8 +477,11 @@ Tests remain offline and use the existing injected bookmarks path.
 - applied-filter overview counts equal the visible rows and match the status
   bar's `N entries`, emptied classifications drop out, and clearing the filter
   restores the assembled counts;
-- zero-match filtering still uses Bubbles' `No entries.` state rather than the
-  file-level empty message, with every overview group at zero.
+- while typing a zero-match filter, Bubbles' filter UI remains visible with no
+  overview and no file-level empty message;
+- Enter on that zero-match filter clears it, restoring the unfiltered overview,
+  full list, and a selectable row rather than creating `FilterApplied` with
+  synthetic zero counts.
 
 ### Bookmark selection stability
 
@@ -433,6 +491,12 @@ Tests remain offline and use the existing injected bookmarks path.
 - removing the only bookmark falls forward into the first catalog section;
 - emptying the last catalog section falls to the previous surviving catalog
   section rather than jumping to bookmarks;
+- under an applied filter, adding and removing bookmarks preserves the filter
+  and the nearest filtered ordinal while any match remains;
+- if a filtered toggle empties its section, selection uses the next matching
+  section and then the previous one;
+- if a filtered toggle removes the final global match, it clears the filter and
+  restores the nearest unfiltered section position;
 - an entirely empty startpage focuses the target input;
 - reader, raw-reader, and user-list bookmark behavior is unchanged.
 

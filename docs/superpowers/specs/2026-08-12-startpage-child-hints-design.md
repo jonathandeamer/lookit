@@ -70,8 +70,13 @@ The other nine — `bonsai`, `dict`, `quake`, `urban`, `weather`, `sudoku:easy`,
 
 A child's prefix becomes three spaces, a connector, and a space: `   ├ ` for
 every child but the last of its group, `   └ ` for the last. Text lands at
-column 5 instead of column 2. The connector takes the dim palette colour, so it
-reads as rule-work rather than content.
+column 5 instead of column 2. The optional hint in the note column takes the dim
+palette colour, distinguishing it as a label rather than descriptive content.
+(The original design intended to dim the connector itself; colouring the connector
+separately would require splitting the target field into two styled spans and
+re-deriving the filter match offsets across them, which proved costlier than the
+visual benefit justified. This tradeoff was recorded as a deliberate call during
+implementation — see Task 5, step 6 in the implementation plan.)
 
 ```
 SERVICES ─────────────────────────────────────

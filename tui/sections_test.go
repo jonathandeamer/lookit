@@ -1,6 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"reflect"
+	"slices"
+	"testing"
+)
 
 func catalogFixture() []startEntry {
 	return []startEntry{
@@ -81,5 +85,196 @@ func TestBuildSectionsCatalogOff(t *testing.T) {
 func TestBuildSectionsEmpty(t *testing.T) {
 	if got := buildSections(nil, bookmarkFile{catalogHidden: true}); len(got) != 0 {
 		t.Fatalf("sections = %+v, want none", got)
+	}
+}
+
+func TestEntryHostAndToken(t *testing.T) {
+	tests := []struct {
+		target string
+		host   string
+		token  string
+	}{
+		{target: "@graph.no", host: "graph.no", token: ""},
+		{target: "dict@bbs.airandwave.net", host: "bbs.airandwave.net", token: "dict"},
+		{target: "wordsearch:today@bbs.airandwave.net", host: "bbs.airandwave.net", token: "wordsearch:today"},
+		{target: "ring@thebackupbox.net", host: "thebackupbox.net", token: "ring"},
+		{target: "1@happynetbox.com", host: "happynetbox.com", token: "1"},
+	}
+	for _, tt := range tests {
+		if got := entryHost(tt.target); got != tt.host {
+			t.Errorf("entryHost(%q) = %q, want %q", tt.target, got, tt.host)
+		}
+		if got := entryToken(tt.target); got != tt.token {
+			t.Errorf("entryToken(%q) = %q, want %q", tt.target, got, tt.token)
+		}
+	}
+}
+
+func sectionTargets(t *testing.T, sections []startSection, id startSectionID) []string {
+	t.Helper()
+	for _, s := range sections {
+		if s.id == id {
+			targets := make([]string, 0, len(s.entries))
+			for _, e := range s.entries {
+				targets = append(targets, e.target)
+			}
+			return targets
+		}
+	}
+	t.Fatalf("section %v not found", id)
+	return nil
+}
+
+func TestCommunitiesSortAlphabeticallyByHost(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	want := []string{
+		"@cosmic.voyage",
+		"@happynetbox.com",
+		"@plan.cat",
+		"ring@thebackupbox.net",
+		"@tilde.team",
+		"@zaibatsu.circumlunar.space",
+	}
+	if got := sectionTargets(t, sections, sectionCommunities); !reflect.DeepEqual(got, want) {
+		t.Fatalf("communities = %v, want %v", got, want)
+	}
+}
+
+// A queried community sorts on its host, but only service rows participate in
+// parent/child grouping — even if that host also has a root catalog entry.
+func TestQueriedCommunitySortsByHostButStaysFlat(t *testing.T) {
+	catalog := []startEntry{
+		{target: "ring@thebackupbox.net", kind: kindCommunity, note: "Ring", source: sourceCatalog},
+		{target: "@thebackupbox.net", kind: kindService, note: "Root", source: sourceCatalog},
+	}
+	sections := buildSections(catalog, bookmarkFile{})
+	for _, section := range sections {
+		if section.id != sectionCommunities {
+			continue
+		}
+		if got := section.entries[0]; got.child || got.structural {
+			t.Fatalf("queried community = %+v, want a plain sorted row", got)
+		}
+		return
+	}
+	t.Fatal("COMMUNITIES section not found")
+}
+
+func TestServicesGroupUnderHostRoots(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	want := []string{
+		"@bbs.airandwave.net",
+		"dict@bbs.airandwave.net",
+		"quake@bbs.airandwave.net",
+		"sudoku:easy@bbs.airandwave.net",
+		"urban@bbs.airandwave.net",
+		"weather@bbs.airandwave.net",
+		"wordsearch:today@bbs.airandwave.net",
+		"@flanigan.us",
+		"calendar@flanigan.us",
+		"@graph.no",
+		"@happynetbox.com",
+		"1@happynetbox.com",
+		"bot@happynetbox.com",
+		"browserversion@happynetbox.com",
+		"originsfinger@happynetbox.com",
+		"random@happynetbox.com",
+		"@typed-hole.org",
+		"cyoa@typed-hole.org",
+		"smog@typed-hole.org",
+		"textfile@typed-hole.org",
+	}
+	if got := sectionTargets(t, sections, sectionServices); !reflect.DeepEqual(got, want) {
+		t.Fatalf("services = %v, want %v", got, want)
+	}
+}
+
+// @graph.no has a root and no children, so it is a plain row: no indent.
+func TestRootWithoutChildrenIsNotAParent(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	found := false
+	for _, s := range sections {
+		for _, e := range s.entries {
+			if e.target != "@graph.no" {
+				continue
+			}
+			found = true
+			if e.child || e.structural {
+				t.Fatalf("@graph.no = %+v; want a plain row", e)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("@graph.no not found in any section")
+	}
+}
+
+// @happynetbox.com is a community listing AND the parent of its services, so
+// the services copy is structural: a duplicate that exists only as structure.
+func TestDualRoleHostAppearsInBothSections(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	communities := sectionTargets(t, sections, sectionCommunities)
+	if !slices.Contains(communities, "@happynetbox.com") {
+		t.Fatalf("communities = %v, want @happynetbox.com", communities)
+	}
+	foundServices := false
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		foundServices = true
+		if s.entries[10].target != "@happynetbox.com" || !s.entries[10].structural {
+			t.Fatalf("services[10] = %+v, want a structural @happynetbox.com", s.entries[10])
+		}
+		// @happynetbox.com is unpinned here, so its structural copy must not
+		// claim to be bookmarked — the b hint would read "remove" while
+		// pressing b would add it.
+		if s.entries[10].bookmarked {
+			t.Fatalf("services[10] = %+v, want an unpinned structural parent", s.entries[10])
+		}
+		if s.entries[11].target != "1@happynetbox.com" || !s.entries[11].child {
+			t.Fatalf("services[11] = %+v, want a child row", s.entries[11])
+		}
+	}
+	if !foundServices {
+		t.Fatal("SERVICES section not found")
+	}
+}
+
+// A pinned parent keeps heading its group — structure is not a listing — but it
+// must know it is bookmarked, or the b hint lies about what the key does.
+func TestPinnedParentKeepsHeadingItsGroupAndKnowsItIsPinned(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{targets: []string{"@bbs.airandwave.net"}})
+	services := sectionTargets(t, sections, sectionServices)
+	if services[0] != "@bbs.airandwave.net" {
+		t.Fatalf("services[0] = %q, want the parent retained", services[0])
+	}
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		if !s.entries[0].structural || !s.entries[0].bookmarked {
+			t.Fatalf("parent = %+v, want structural and bookmarked", s.entries[0])
+		}
+		if !s.entries[1].child || s.entries[1].target != "dict@bbs.airandwave.net" {
+			t.Fatalf("services[1] = %+v, want dict still a child", s.entries[1])
+		}
+	}
+}
+
+func TestBookmarkSectionEntriesAreMarkedBookmarked(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{targets: []string{"@tilde.team"}})
+	found := false
+	for _, s := range sections {
+		if s.id != sectionBookmarks {
+			continue
+		}
+		found = true
+		if !s.entries[0].bookmarked {
+			t.Fatalf("bookmark row = %+v, want bookmarked", s.entries[0])
+		}
+	}
+	if !found {
+		t.Fatal("BOOKMARKS section not found")
 	}
 }

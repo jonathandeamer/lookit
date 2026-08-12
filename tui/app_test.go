@@ -1508,7 +1508,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
 	oldBg := m.common.styles.palette.BaseBg
-	assertFullWidthStyledLine(t, "inactive start selection before restyle", lineContaining(t, m.start.View(), "@plan.cat"), m.start.list.Width(), m.common.styles.palette.SubtleBg)
+	assertFullWidthStyledLine(t, "inactive start selection before restyle", lineContaining(t, m.start.View(), "@cosmic.voyage"), m.start.list.Width(), m.common.styles.palette.SubtleBg)
 
 	next, _ := m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
 	got := next.(appModel)
@@ -1528,7 +1528,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	if !sameColor(got.input.Styles().Focused.Prompt.GetForeground(), got.common.styles.input.Focused.Prompt.GetForeground()) {
 		t.Fatal("input styles were not reapplied")
 	}
-	assertFullWidthStyledLine(t, "inactive start selection after restyle", lineContaining(t, got.start.View(), "@plan.cat"), got.start.list.Width(), got.common.styles.palette.SubtleBg)
+	assertFullWidthStyledLine(t, "inactive start selection after restyle", lineContaining(t, got.start.View(), "@cosmic.voyage"), got.start.list.Width(), got.common.styles.palette.SubtleBg)
 }
 
 func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {
@@ -2989,7 +2989,7 @@ func TestBookmarkingCatalogRowStaysAtSectionOrdinal(t *testing.T) {
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
 	selected, ok := m.start.selected()
-	if !ok || selected.target != "@happynetbox.com" {
+	if !ok || selected.target != "ring@thebackupbox.net" {
 		t.Fatalf("selected = %+v, %v; want next community at the same ordinal", selected, ok)
 	}
 	data, err := os.ReadFile(path)
@@ -3004,8 +3004,8 @@ func TestBookmarkingCatalogRowsStayAtSectionOrdinal(t *testing.T) {
 		target string
 		want   string
 	}{
-		{name: "middle", target: "@tilde.team", want: "@happynetbox.com"},
-		{name: "final", target: "@zaibatsu.circumlunar.space", want: "@cosmic.voyage"},
+		{name: "middle", target: "@tilde.team", want: "@zaibatsu.circumlunar.space"},
+		{name: "final", target: "@zaibatsu.circumlunar.space", want: "@tilde.team"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3049,7 +3049,7 @@ func TestRemovingBookmarksStaysAtSectionOrdinal(t *testing.T) {
 	}{
 		{name: "first", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@plan.cat", want: "@tilde.team"},
 		{name: "final", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@happynetbox.com", want: "@tilde.team"},
-		{name: "only", seed: "@tilde.team\n", pick: "@tilde.team", want: "@plan.cat"},
+		{name: "only", seed: "@tilde.team\n", pick: "@tilde.team", want: "@cosmic.voyage"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3116,7 +3116,11 @@ func TestBookmarkingOnlyFinalCatalogSectionRowFallsBackward(t *testing.T) {
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
 	selected, ok := m.start.selected()
-	if !ok || selected.target != "@plan.cat" {
+	// quake is the sole remaining service, but it sits at ordinal 1 within
+	// SERVICES: a structural @bbs.airandwave.net parent row occupies ordinal 0
+	// and is selectable() like any other row, so it counts toward ordinal
+	// arithmetic. The fallback lands on COMMUNITIES ordinal 1.
+	if !ok || selected.target != "@happynetbox.com" {
 		t.Fatalf("selected = %+v, %v; want nearest earlier catalog section", selected, ok)
 	}
 }
@@ -3518,5 +3522,154 @@ func TestBookmarkWriteThroughAppPreservesHandEdits(t *testing.T) {
 	// And the startpage now explains itself rather than looking broken.
 	if got := m.start.View(); !strings.Contains(got, "catalog off") {
 		t.Errorf("empty startpage does not name the directive to remove:\n%s", got)
+	}
+}
+
+// The b hint must describe what b will actually do on both forms of a parent:
+// its canonical service listing when unpinned and its retained structural copy
+// when pinned.
+func TestParentBookmarkHintAndActionAgree(t *testing.T) {
+	const target = "@bbs.airandwave.net"
+	tests := []struct {
+		name       string
+		seed       string
+		structural bool
+		wantHint   string
+		wantSaved  bool
+	}{
+		{name: "unpinned adds", wantHint: "bookmark", wantSaved: true},
+		{name: "pinned structural removes", seed: target + "\n", structural: true, wantHint: "remove"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var path string
+			if tt.seed == "" {
+				path = useTempBookmarks(t)
+			} else {
+				path = seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+
+			found := false
+			for i, item := range m.start.list.VisibleItems() {
+				it, ok := item.(startItem)
+				if ok && it.section == sectionServices && it.entry.target == target && it.entry.structural == tt.structural {
+					m.start.list.Select(i)
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("service parent %q (structural=%v) not found", target, tt.structural)
+			}
+			if got := m.startBookmarkAction(); got != tt.wantHint {
+				t.Fatalf("hint = %q, want %q", got, tt.wantHint)
+			}
+
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(string(data), target+"\n"); got != tt.wantSaved {
+				t.Fatalf("bookmark present = %v, want %v; file = %q", got, tt.wantSaved, data)
+			}
+		})
+	}
+}
+
+func TestFilteringShowsOneHappynetboxParentPinnedOrUnpinned(t *testing.T) {
+	tests := []struct {
+		name string
+		seed string
+	}{
+		{name: "unpinned"},
+		{name: "pinned", seed: "@happynetbox.com\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.seed == "" {
+				useTempBookmarks(t)
+			} else {
+				seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			m.start.list.SetFilterText("happynetbox.com")
+			var seen int
+			for _, item := range m.start.list.VisibleItems() {
+				if it, ok := item.(startItem); ok && it.entry.target == "@happynetbox.com" {
+					seen++
+				}
+			}
+			if seen != 1 {
+				t.Fatalf("@happynetbox.com appears %d times under a filter, want 1", seen)
+			}
+		})
+	}
+}
+
+func TestFilteringKeepsCanonicalServiceParents(t *testing.T) {
+	for _, target := range []string{
+		"@bbs.airandwave.net",
+		"@flanigan.us",
+		"@graph.no",
+		"@typed-hole.org",
+	} {
+		t.Run(target, func(t *testing.T) {
+			useTempBookmarks(t)
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			m.start.list.SetFilterText(target)
+			var roots []startEntry
+			for _, item := range m.start.list.VisibleItems() {
+				if it, ok := item.(startItem); ok && it.entry.target == target {
+					roots = append(roots, it.entry)
+				}
+			}
+			if len(roots) != 1 || roots[0].structural {
+				t.Fatalf("filtered roots = %+v, want one canonical parent", roots)
+			}
+		})
+	}
+}
+
+func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
+	tests := []struct {
+		name   string
+		seed   string
+		filter string
+		want   startOverviewCounts
+		total  int
+	}{
+		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 19}, total: 25},
+		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 18}, total: 25},
+		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 18}, total: 25},
+		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 19}, total: 26},
+		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},
+		{name: "filtered pinned parent", seed: "@happynetbox.com\n", filter: "happynetbox.com", want: startOverviewCounts{bookmarks: 1, services: 5}, total: 6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.seed == "" {
+				useTempBookmarks(t)
+			} else {
+				seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			if tt.filter != "" {
+				m.start.list.SetFilterText(tt.filter)
+			}
+			if got := m.start.overviewCounts(); got != tt.want {
+				t.Fatalf("overview counts = %+v, want %+v", got, tt.want)
+			}
+			bar := m.startBar(80, newStyles(true))
+			if got, want := bar.meta, fmt.Sprintf("%d entries", tt.total); got != want {
+				t.Fatalf("status meta = %q, want %q", got, want)
+			}
+		})
 	}
 }

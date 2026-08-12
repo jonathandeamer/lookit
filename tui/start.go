@@ -32,10 +32,22 @@ func (i startItem) selectable() bool {
 	return i.header == "" && i.entry.target != ""
 }
 
+// countsAsListing reports whether this row should count toward the overview
+// and status-bar totals: a selectable row that is not a structural parent
+// copy. startCounts and appModel.startBar each tally rows independently, and
+// both must call this rather than re-encode the rule, or the overview and the
+// status bar can silently disagree on screen.
+func (i startItem) countsAsListing() bool {
+	return i.selectable() && !i.entry.structural
+}
+
 // FilterValue drives "/". Non-entry rows return "" so they drop out while
 // filtering, which flattens the view to matches — the behaviour we want.
+// Structural rows return "" for a second reason: filtering removes the section
+// headers that distinguish a parent copy from the listing it duplicates, so
+// without this a filter would show two identical selectable rows.
 func (i startItem) FilterValue() string {
-	if !i.selectable() {
+	if !i.selectable() || i.entry.structural {
 		return ""
 	}
 	return i.entry.target + " " + i.entry.note
@@ -93,7 +105,7 @@ func startCounts(items []list.Item) startOverviewCounts {
 	var counts startOverviewCounts
 	for _, item := range items {
 		it, ok := item.(startItem)
-		if !ok || !it.selectable() {
+		if !ok || !it.countsAsListing() {
 			continue
 		}
 		switch it.section {
@@ -204,6 +216,11 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	isSelected := index == m.Index()
 	emptyFilter := m.FilterState() == list.Filtering && m.FilterValue() == ""
 	isFiltered := m.FilterState() == list.Filtering || m.FilterState() == list.FilterApplied
+	// Flattened means the view has actually collapsed: headers and structural
+	// rows are gone and a child has no parent above it to supply its host. That
+	// needs a non-empty query, not merely an active filter — pressing "/" alone
+	// leaves every group and header on screen, where a child is still a child.
+	flattened := isFiltered && !emptyFilter
 	showShelf := isSelected && m.FilterState() != list.Filtering
 
 	titleStyle, descStyle := d.st.listItem.NormalTitle, d.st.listItem.NormalDesc
@@ -225,15 +242,17 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	titleStyle = startStyleWithinWidth(titleStyle, m.Width())
 	descStyle = startStyleWithinWidth(descStyle, m.Width())
 
+	rowTarget := startRowTarget(item.entry, flattened)
+
 	var targetMatches, noteMatches []int
-	if isFiltered && !emptyFilter {
+	if flattened {
 		targetMatches, noteMatches = splitStartMatches(m.MatchesForItem(index), item.entry.target)
 	}
 
 	if d.Height() == 1 {
 		frame := titleStyle.GetHorizontalFrameSize()
 		targetWidth, noteWidth := startColumnWidths(m.Width(), frame)
-		target := renderStartField(item.entry.target, targetWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
+		target := renderStartField(rowTarget, targetWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
 		note := renderStartField(item.entry.note, noteWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
 		target = padStartField(target, targetWidth, startInlineStyle(titleStyle))
 		row := target + note
@@ -253,8 +272,12 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	if descWidth < 0 {
 		descWidth = 0
 	}
-	target := renderStartField(item.entry.target, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
-	note := renderStartField(item.entry.note, descWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
+	rowNote := item.entry.note
+	if item.entry.child && !flattened {
+		rowNote = "  " + rowNote
+	}
+	target := renderStartField(rowTarget, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
+	note := renderStartField(rowNote, descWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
 	if showShelf {
 		fmt.Fprintf(w, "%s\n%s", renderSelectedShelfLine(target, titleStyle, m.Width()), renderSelectedShelfLine(note, descStyle, m.Width())) //nolint:errcheck
 		return
@@ -269,6 +292,17 @@ func startColumnWidths(width, frame int) (int, int) {
 	}
 	target := available * startTargetColumnPct / 100
 	return target, available - target
+}
+
+// startRowTarget is the target column's text. A child shows only its query
+// token, indented, because the parent row above it states the host — but once
+// the view flattens, the parent may be off screen, so the full address returns.
+// Flattened is not the same as "a filter is active": see renderEntry.
+func startRowTarget(entry startEntry, flattened bool) string {
+	if entry.child && !flattened {
+		return "  " + entryToken(entry.target)
+	}
+	return entry.target
 }
 
 func splitStartMatches(matches []int, target string) (targetMatches, noteMatches []int) {

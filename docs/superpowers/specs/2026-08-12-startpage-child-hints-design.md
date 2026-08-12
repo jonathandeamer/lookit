@@ -138,11 +138,13 @@ returns every item and the section headers are still on screen, so the groups
 are intact and children must keep their tokens and connectors. Once a character
 is typed, headers and structural rows drop out and the view really is flat.
 
-This corrects behaviour inherited from the grouping branch, where
-`startRowTarget` keys off `isFiltered` alone and therefore expands every child
-to its full address the instant `/` is pressed, while the group it belongs to is
-still visibly around it. The predicate becomes "filtering or filter applied,
-**and** the query is non-empty", and both the target and the connector read it.
+The predicate already exists: reviewing this spec surfaced the same defect in
+the grouping work, where `startRowTarget` keyed off `isFiltered` alone and
+expanded every child the instant `/` was pressed. That was fixed there rather
+than here (`fix(startpage): flatten child rows only once a query is typed`), so
+`renderEntry` computes `flattened = (Filtering || FilterApplied) && query != ""`
+today. This spec adds one reader: the connector, which appears and disappears
+with the token it decorates.
 
 **In BOOKMARKS a child has no parent**, so it renders as a listing there too:
 full target, full note, no connector.
@@ -199,8 +201,10 @@ actions; ordering; community rows; the reader.
   showing full target and full note with no connector.
 - **The two filtering states:** with `/` pressed and the query empty, children
   keep their tokens and connectors and the headers stay; after one character is
-  typed, they become addresses with full notes and no connectors. This is the
-  test that would have caught the inherited `isFiltered` behaviour.
+  typed, they become addresses with full notes and no connectors. The token half
+  of this is already covered by
+  `TestEmptyFilterKeepsChildTokensAndQueryExpandsThem`; extend it to the
+  connector rather than writing a second test.
 - **Narrow layout:** the second line carries hint / full note / nothing, aligned
   to the token column.
 - **Filtering:** a word that appears only in a hint finds its child row; the

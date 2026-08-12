@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -199,6 +200,100 @@ func TestStartDelegatePreservesFilterMatches(t *testing.T) {
 				t.Fatalf("filtering row has a selected shelf:\n%q", line)
 			}
 		})
+	}
+}
+
+func TestStartDelegateMatchesUTF8NoteByByteOffset(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	sections := []startSection{{
+		id: sectionServices, title: "SERVICES",
+		entries: []startEntry{{
+			target: "date@example.com",
+			note:   "Today’s date, across the years",
+			source: sourceCatalog,
+		}},
+	}}
+	m := newStart(common, sections, "", "")
+	m.list.SetFilterText("years")
+	m.list.SetFilterState(list.Filtering)
+
+	view := m.View()
+	plain := stripANSIForLandingTest(view)
+	lineIndex := lineIndexContaining(t, plain, "date@example.com")
+	line := strings.Split(view, "\n")[lineIndex]
+	if got := underlinedText(line); got != "years" {
+		t.Fatalf("underlined text = %q, want %q\n%q", got, "years", line)
+	}
+}
+
+func underlinedText(s string) string {
+	var out strings.Builder
+	underlined := false
+	for len(s) > 0 {
+		if strings.HasPrefix(s, "\x1b[") {
+			end := strings.IndexByte(s, 'm')
+			if end >= 0 {
+				params := strings.Split(s[2:end], ";")
+				if len(params) == 1 && params[0] == "" {
+					underlined = false
+				}
+				for _, param := range params {
+					switch param {
+					case "0", "24":
+						underlined = false
+					case "4":
+						underlined = true
+					}
+				}
+				s = s[end+1:]
+				continue
+			}
+		}
+		r, size := utf8.DecodeRuneInString(s)
+		if underlined {
+			out.WriteRune(r)
+		}
+		s = s[size:]
+	}
+	return out.String()
+}
+
+func TestStartDelegateFrameStarvedWidthsNeverOverflow(t *testing.T) {
+	for _, width := range []int{1, 2} {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			common := testCommon()
+			common.width = width
+
+			t.Run("unselected", func(t *testing.T) {
+				m := newStart(common, twoSections(), "", "")
+				assertStartDelegateItemFits(t, m, 3, m.list.Items()[3])
+			})
+
+			t.Run("filtering_empty", func(t *testing.T) {
+				m := newStart(common, twoSections(), "", "")
+				m.list.SetFilterState(list.Filtering)
+				assertStartDelegateItemFits(t, m, 3, m.list.Items()[3])
+			})
+
+			t.Run("filtering_text", func(t *testing.T) {
+				m := newStart(common, twoSections(), "", "")
+				m.list.SetFilterText("plan")
+				m.list.SetFilterState(list.Filtering)
+				assertStartDelegateItemFits(t, m, 0, m.list.VisibleItems()[0])
+			})
+		})
+	}
+}
+
+func assertStartDelegateItemFits(t *testing.T, m startModel, index int, item list.Item) {
+	t.Helper()
+	var rendered strings.Builder
+	newStartDelegate(m.common, m.common.ensureStyles()).Render(&rendered, m.list, index, item)
+	for lineIndex, line := range strings.Split(rendered.String(), "\n") {
+		if got := lipgloss.Width(line); got > m.list.Width() {
+			t.Fatalf("line %d width = %d, list width = %d: %q", lineIndex, got, m.list.Width(), line)
+		}
 	}
 }
 

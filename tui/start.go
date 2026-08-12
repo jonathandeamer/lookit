@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -155,6 +156,8 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	} else if isSelected && m.FilterState() != list.Filtering {
 		titleStyle, descStyle = d.st.listItem.SelectedTitle, d.st.listItem.SelectedDesc
 	}
+	titleStyle = startStyleWithinWidth(titleStyle, m.Width())
+	descStyle = startStyleWithinWidth(descStyle, m.Width())
 
 	var targetMatches, noteMatches []int
 	if isFiltered && !emptyFilter {
@@ -203,7 +206,7 @@ func startColumnWidths(width, frame int) (int, int) {
 }
 
 func splitStartMatches(matches []int, target string) (targetMatches, noteMatches []int) {
-	noteOffset := len([]rune(target)) + 1
+	noteOffset := len(target) + 1
 	for _, match := range matches {
 		if match < noteOffset-1 {
 			targetMatches = append(targetMatches, match)
@@ -212,6 +215,18 @@ func splitStartMatches(matches []int, target string) (targetMatches, noteMatches
 		}
 	}
 	return targetMatches, noteMatches
+}
+
+func startStyleWithinWidth(st lipgloss.Style, width int) lipgloss.Style {
+	overflow := st.GetHorizontalFrameSize() - width
+	if overflow <= 0 {
+		return st
+	}
+	left := st.GetPaddingLeft()
+	if overflow > left {
+		overflow = left
+	}
+	return st.PaddingLeft(left - overflow)
 }
 
 func renderStartField(value string, width int, matches []int, base, match lipgloss.Style) string {
@@ -224,9 +239,13 @@ func renderStartField(value string, width int, matches []int, base, match lipglo
 		limit-- // the ellipsis is not one of the original field's matched runes
 	}
 	kept := make([]int, 0, len(matches))
-	for _, index := range matches {
-		if index >= 0 && index < limit {
-			kept = append(kept, index)
+	for _, byteIndex := range matches {
+		if byteIndex < 0 || byteIndex >= len(value) || !utf8.RuneStart(value[byteIndex]) {
+			continue
+		}
+		runeIndex := utf8.RuneCountInString(value[:byteIndex])
+		if runeIndex < limit {
+			kept = append(kept, runeIndex)
 		}
 	}
 	unmatched := startInlineStyle(base).Inline(true)

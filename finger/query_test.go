@@ -198,6 +198,21 @@ func TestParseTarget(t *testing.T) {
 			wantErr: "target contains control characters",
 		},
 		{
+			name:    "Unicode format control in host",
+			input:   "alice@\u202eexample.org",
+			wantErr: "target contains control characters",
+		},
+		{
+			name:    "Unicode line separator in user",
+			input:   "ali\u2028ce@example.org",
+			wantErr: "target contains control characters",
+		},
+		{
+			name:    "Unicode paragraph separator in host",
+			input:   "alice@example\u2029.org",
+			wantErr: "target contains control characters",
+		},
+		{
 			name:    "multiple forwarding relays rejected",
 			input:   "alice@h1@h2@relay",
 			wantErr: "forwarding through multiple relays is not supported yet",
@@ -310,6 +325,21 @@ func TestParseTargetPinned(t *testing.T) {
 		{
 			name:    "control char still rejected",
 			input:   "a\r\nb@host",
+			wantErr: "target contains control characters",
+		},
+		{
+			name:    "Unicode format control still rejected",
+			input:   "alice@\u202eexample.org",
+			wantErr: "target contains control characters",
+		},
+		{
+			name:    "Unicode line separator still rejected",
+			input:   "ali\u2028ce@example.org",
+			wantErr: "target contains control characters",
+		},
+		{
+			name:    "Unicode paragraph separator still rejected",
+			input:   "alice@example\u2029.org",
 			wantErr: "target contains control characters",
 		},
 		{

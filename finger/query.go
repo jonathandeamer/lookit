@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Target identifies a finger query and the host:port endpoint that receives it.
@@ -176,11 +177,12 @@ func validateForwardQuery(query string) error {
 }
 
 // hasControl reports whether s contains an ASCII C0 control (< 0x20, including
-// CR and LF) or DEL (0x7f). Such bytes in a query token would let a hostile or
-// malformed target smuggle extra RFC 1288 query lines onto the wire.
+// CR and LF), DEL (0x7f), or a non-printing Unicode control in Cf/Zl/Zp. ASCII
+// controls could smuggle extra RFC 1288 query lines onto the wire; Unicode
+// controls could make a displayed target appear different from the one sent.
 func hasControl(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] == 0x7f {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return true
 		}
 	}

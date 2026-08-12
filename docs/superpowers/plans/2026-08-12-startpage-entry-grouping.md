@@ -26,9 +26,10 @@
 ### Task 1: Host/token helpers and the root invariant
 
 The grouping rule needs to split a target into host and query token, and the
-catalog must guarantee that every host with children also ships a root entry —
-otherwise a group would be headed by a phantom. Both new catalog roots were
-probed live on 2026-08-12; their notes come from the servers' own words.
+catalog must guarantee that every host with non-root services also ships a root
+entry — otherwise a service group would be headed by a phantom. Queried
+communities are sorted by host but remain plain rows. Both new catalog roots
+were probed live on 2026-08-12; their notes come from the servers' own words.
 
 **Files:**
 - Modify: `tui/sections.go` (add two helpers at the bottom)
@@ -121,7 +122,9 @@ func TestCatalogHasRootForEveryGroupedHost(t *testing.T) {
 		}
 	}
 	for _, e := range entries {
-		if entryToken(e.target) == "" {
+		// Only services are grouped under parents. A queried community such as
+		// ring@thebackupbox.net sorts by host but remains a plain row.
+		if e.kind != kindService || entryToken(e.target) == "" {
 			continue
 		}
 		if !roots[entryHost(e.target)] {
@@ -152,10 +155,15 @@ service @flanigan.us Four fingers: bonsai, ping, wisdom, calendar
 - [ ] **Step 8: Run the catalog tests**
 
 Run: `go test ./tui/ -run TestCatalog -count=1 -v`
-Expected: PASS, including `TestCatalogIsWellFormed` (24 → 26 entries, still
+Expected: PASS, including `TestCatalogIsWellFormed` (23 → 25 entries, still
 above its floor of 20) and the new invariant test.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Run the full gate**
+
+Run: `make check`
+Expected: all four gates pass.
+
+- [ ] **Step 10: Commit**
 
 ```bash
 git add tui/sections.go tui/sections_test.go tui/catalog.txt tui/catalog_test.go
@@ -167,7 +175,7 @@ git commit -m "feat(startpage): add host/token helpers and root invariant"
 ### Task 2: Computed ordering and host grouping
 
 **Files:**
-- Modify: `tui/bookmarks.go:49-54` (three new `startEntry` fields)
+- Modify: `tui/bookmarks.go:38-54` (correct `entrySource`'s comment and add three `startEntry` fields)
 - Modify: `tui/sections.go:29-78` (`buildSections`, plus a new `groupByHost`)
 - Modify: `tui/app_test.go` (existing tests encode today's file order)
 - Test: `tui/sections_test.go`
@@ -209,6 +217,26 @@ func TestCommunitiesSortAlphabeticallyByHost(t *testing.T) {
 	if got := sectionTargets(t, sections, sectionCommunities); !reflect.DeepEqual(got, want) {
 		t.Fatalf("communities = %v, want %v", got, want)
 	}
+}
+
+// A queried community sorts on its host, but only service rows participate in
+// parent/child grouping — even if that host also has a root catalog entry.
+func TestQueriedCommunitySortsByHostButStaysFlat(t *testing.T) {
+	catalog := []startEntry{
+		{target: "ring@thebackupbox.net", kind: kindCommunity, note: "Ring", source: sourceCatalog},
+		{target: "@thebackupbox.net", kind: kindService, note: "Root", source: sourceCatalog},
+	}
+	sections := buildSections(catalog, bookmarkFile{})
+	for _, section := range sections {
+		if section.id != sectionCommunities {
+			continue
+		}
+		if got := section.entries[0]; got.child || got.structural {
+			t.Fatalf("queried community = %+v, want a plain sorted row", got)
+		}
+		return
+	}
+	t.Fatal("COMMUNITIES section not found")
 }
 
 func TestServicesGroupUnderHostRoots(t *testing.T) {
@@ -278,12 +306,21 @@ Add `"reflect"` and `"slices"` to the test file's imports if absent.
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `go test ./tui/ -run 'TestCommunitiesSort|TestServicesGroup|TestRootWithout|TestDualRole' -count=1`
+Run: `go test ./tui/ -run 'TestCommunitiesSort|TestQueriedCommunity|TestServicesGroup|TestRootWithout|TestDualRole' -count=1`
 Expected: FAIL — `e.child undefined` and order mismatches.
 
 - [ ] **Step 3: Add the three display fields**
 
-In `tui/bookmarks.go`, replace the `startEntry` struct (lines 49-54):
+In `tui/bookmarks.go`, first replace the stale `entrySource` comment — source
+continues to select the rendering section, but no longer decides what `b` does:
+
+```go
+// entrySource records whether an entry is rendered from BOOKMARKS or from the
+// catalog. Bookmark state is separate because a retained catalog parent can
+// represent a target that is also bookmarked.
+```
+
+Then replace the `startEntry` struct (lines 49-54):
 
 ```go
 // startEntry is one startpage row. target/kind/note/source come from the two
@@ -332,19 +369,31 @@ block, lines 58-76) with:
 		if len(listed) == 0 {
 			continue
 		}
-		sections = append(sections, startSection{id: group.id, title: group.title, entries: groupByHost(listed, roots)})
+		if group.kind == kindService {
+			listed = groupByHost(listed, roots, pinned)
+		} else {
+			sort.SliceStable(listed, func(i, j int) bool {
+				leftHost, rightHost := entryHost(listed[i].target), entryHost(listed[j].target)
+				if leftHost != rightHost {
+					return leftHost < rightHost
+				}
+				return entryToken(listed[i].target) < entryToken(listed[j].target)
+			})
+		}
+		sections = append(sections, startSection{id: group.id, title: group.title, entries: listed})
 	}
 	return sections
 }
 
-// groupByHost orders rows by host, then by query token within each host, with
-// the host's root row first. Display order is therefore computed, not inherited
-// from catalog.txt: a new catalog line can be added anywhere.
+// groupByHost orders service rows by host, then by query token within each host,
+// with the host's root row first. Display order is therefore computed, not
+// inherited from catalog.txt: a new catalog line can be added anywhere.
 //
-// A host with children whose root is not itself a listed row — because the root
-// is classified differently (@happynetbox.com is a community) or because it is
-// pinned — gets a structural copy of that root as its parent. Structure is not a
-// listing: structural rows are not counted and vanish while filtering.
+// A host with service children whose root is not itself a listed service row —
+// because the root is classified differently (@happynetbox.com is a community)
+// or because it is pinned — gets a structural copy of that root as its parent.
+// Structure is not a listing: structural rows are not counted and vanish while
+// filtering.
 func groupByHost(listed []startEntry, roots map[string]startEntry, pinned map[string]bool) []startEntry {
 	byHost := make(map[string][]startEntry, len(listed))
 	var hosts []string
@@ -405,7 +454,7 @@ imports.
 
 - [ ] **Step 5: Run the new tests**
 
-Run: `go test ./tui/ -run 'TestCommunitiesSort|TestServicesGroup|TestRootWithout|TestDualRole' -count=1 -v`
+Run: `go test ./tui/ -run 'TestCommunitiesSort|TestQueriedCommunity|TestServicesGroup|TestRootWithout|TestDualRole' -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 6: Reconcile the existing order-dependent tests**
@@ -455,8 +504,9 @@ advertises `b bookmark` and then *removes* the bookmark.
 - Test: `tui/sections_test.go`, `tui/app_test.go`
 
 **Interfaces:**
-- Consumes: `startEntry.bookmarked` declared in Task 2; `groupByHost` from Task 2 (its signature gains a `pinned` parameter here).
-- Produces: `groupByHost(listed []startEntry, roots map[string]startEntry, pinned map[string]bool) []startEntry`.
+- Consumes: `startEntry.bookmarked` and the three-argument `groupByHost` declared in Task 2.
+- Produces: populated `startEntry.bookmarked` state on bookmark rows and retained
+  parents; `startBookmarkAction` reads that state instead of `source`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -500,36 +550,65 @@ func TestBookmarkSectionEntriesAreMarkedBookmarked(t *testing.T) {
 Add to `tui/app_test.go`:
 
 ```go
-// The b hint must describe what b will do. A pinned parent is rendered from the
-// catalog, so source alone would say "bookmark" while the key removes.
-func TestBookmarkHintFollowsBookmarkStateNotSource(t *testing.T) {
-	seedBookmarks(t, "@bbs.airandwave.net\n")
-	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	m.blurInput()
-	if !m.start.selectTarget("@bbs.airandwave.net") {
-		t.Fatal("@bbs.airandwave.net not found")
+// The b hint must describe what b will actually do on both forms of a parent:
+// its canonical service listing when unpinned and its retained structural copy
+// when pinned.
+func TestParentBookmarkHintAndActionAgree(t *testing.T) {
+	const target = "@bbs.airandwave.net"
+	tests := []struct {
+		name       string
+		seed       string
+		structural bool
+		wantHint   string
+		wantSaved  bool
+	}{
+		{name: "unpinned adds", wantHint: "bookmark", wantSaved: true},
+		{name: "pinned structural removes", seed: target + "\n", structural: true, wantHint: "remove"},
 	}
-	// Selection lands on the BOOKMARKS copy; walk to the SERVICES parent copy.
-	for range len(m.start.list.VisibleItems()) {
-		if entry, ok := m.start.selected(); ok && entry.target == "@bbs.airandwave.net" && entry.structural {
-			break
-		}
-		next, _ := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-		m = next.(appModel)
-	}
-	entry, ok := m.start.selected()
-	if !ok || !entry.structural {
-		t.Fatalf("selected = %+v, %v; want the structural parent copy", entry, ok)
-	}
-	if got := m.startBookmarkAction(); got != "remove" {
-		t.Fatalf("hint = %q, want %q", got, "remove")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var path string
+			if tt.seed == "" {
+				path = useTempBookmarks(t)
+			} else {
+				path = seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+
+			found := false
+			for i, item := range m.start.list.VisibleItems() {
+				it, ok := item.(startItem)
+				if ok && it.section == sectionServices && it.entry.target == target && it.entry.structural == tt.structural {
+					m.start.list.Select(i)
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("service parent %q (structural=%v) not found", target, tt.structural)
+			}
+			if got := m.startBookmarkAction(); got != tt.wantHint {
+				t.Fatalf("hint = %q, want %q", got, tt.wantHint)
+			}
+
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(string(data), target+"\n"); got != tt.wantSaved {
+				t.Fatalf("bookmark present = %v, want %v; file = %q", got, tt.wantSaved, data)
+			}
+		})
 	}
 }
 ```
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `go test ./tui/ -run 'TestPinnedParent|TestBookmarkSectionEntries|TestBookmarkHintFollows' -count=1`
+Run: `go test ./tui/ -run 'TestPinnedParent|TestBookmarkSectionEntries|TestParentBookmarkHintAndAction' -count=1`
 Expected: FAIL — parent not marked bookmarked; hint returns `"bookmark"`.
 
 - [ ] **Step 3: Populate `bookmarked`**
@@ -581,7 +660,7 @@ func (m appModel) startBookmarkAction() string {
 
 - [ ] **Step 5: Run the tests**
 
-Run: `go test ./tui/ -run 'TestPinnedParent|TestBookmarkSectionEntries|TestBookmarkHintFollows' -count=1 -v`
+Run: `go test ./tui/ -run 'TestPinnedParent|TestBookmarkSectionEntries|TestParentBookmarkHintAndAction' -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 6: Run the full gate**
@@ -598,11 +677,11 @@ git commit -m "fix(startpage): derive the bookmark hint from bookmark state"
 
 ---
 
-### Task 4: Render children indented, and flatten to one row per target
+### Task 4: Render children indented and suppress structural filter duplicates
 
 **Files:**
-- Modify: `tui/start.go:37-56` (`FilterValue`, `Title`), `tui/start.go:203-263` (`renderEntry`)
-- Test: `tui/start_test.go` (create if absent), `tui/app_test.go`
+- Modify: `tui/start.go:37-47` (`FilterValue`), `tui/start.go:203-263` (`renderEntry` and `startRowTarget`)
+- Test: `tui/start_test.go`, `tui/app_test.go`
 
 **Interfaces:**
 - Consumes: `startEntry.child`, `startEntry.structural` from Task 2.
@@ -632,7 +711,8 @@ func TestStartRowTargetShortensChildrenUnlessFiltered(t *testing.T) {
 // In the narrow two-line layout the note sits under the target, so an
 // unindented note would hang left of its own row.
 func TestNarrowChildRowIndentsBothLines(t *testing.T) {
-	common := &commonModel{width: 40}
+	common := testCommon()
+	common.width = 40
 	st := common.ensureStyles()
 	d := newStartDelegate(common, st)
 	if d.Height() != 2 {
@@ -640,16 +720,48 @@ func TestNarrowChildRowIndentsBothLines(t *testing.T) {
 	}
 	l := list.New([]list.Item{
 		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", child: true}, section: sectionServices},
+		startItem{entry: startEntry{target: "other@example.com", note: "Other row"}, section: sectionServices},
 	}, d, 40, 4)
+	// Render the child unselected so the selection shelf's border and padding do
+	// not get mistaken for the child's own two-space indent.
+	l.Select(1)
 	var buf strings.Builder
 	d.Render(&buf, l, 0, l.Items()[0])
-	for _, line := range strings.Split(buf.String(), "\n") {
+	for _, line := range strings.Split(ansi.Strip(buf.String()), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		if !strings.HasPrefix(line, "  ") {
 			t.Errorf("line %q is not indented; both lines of a child row must be", line)
 		}
+	}
+}
+
+func TestFilteredChildRendersFullTargetWithMatchHighlight(t *testing.T) {
+	for _, query := range []string{"dict", "airandwave"} {
+		t.Run(query, func(t *testing.T) {
+			common := testCommon()
+			common.width = 80
+			sections := []startSection{{
+				id: sectionServices, title: "SERVICES",
+				entries: []startEntry{{
+					target: "dict@bbs.airandwave.net", note: "Dictionary lookup",
+					source: sourceCatalog, child: true,
+				}},
+			}}
+			m := newStart(common, sections, "", "")
+			m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+			m = typeStartFilter(t, m, query)
+			m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+			view := m.View()
+			plain := ansi.Strip(view)
+			lineIndex := lineIndexContaining(t, plain, "dict@bbs.airandwave.net")
+			line := strings.Split(view, "\n")[lineIndex]
+			if got := underlinedText(line); got != query {
+				t.Fatalf("underlined text = %q, want %q\n%q", got, query, line)
+			}
+		})
 	}
 }
 
@@ -670,27 +782,67 @@ func TestStructuralRowsDoNotMatchFilters(t *testing.T) {
 Add to `tui/app_test.go`:
 
 ```go
-func TestFilteringShowsOneRowPerTarget(t *testing.T) {
-	useTempBookmarks(t)
-	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	m.blurInput()
-	m.start.list.SetFilterText("happynetbox.com")
-	var seen int
-	for _, item := range m.start.list.VisibleItems() {
-		if it, ok := item.(startItem); ok && it.entry.target == "@happynetbox.com" {
-			seen++
-		}
+func TestFilteringShowsOneHappynetboxParentPinnedOrUnpinned(t *testing.T) {
+	tests := []struct {
+		name string
+		seed string
+	}{
+		{name: "unpinned"},
+		{name: "pinned", seed: "@happynetbox.com\n"},
 	}
-	if seen != 1 {
-		t.Fatalf("@happynetbox.com appears %d times under a filter, want 1", seen)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.seed == "" {
+				useTempBookmarks(t)
+			} else {
+				seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			m.start.list.SetFilterText("happynetbox.com")
+			var seen int
+			for _, item := range m.start.list.VisibleItems() {
+				if it, ok := item.(startItem); ok && it.entry.target == "@happynetbox.com" {
+					seen++
+				}
+			}
+			if seen != 1 {
+				t.Fatalf("@happynetbox.com appears %d times under a filter, want 1", seen)
+			}
+		})
+	}
+}
+
+func TestFilteringKeepsCanonicalServiceParents(t *testing.T) {
+	for _, target := range []string{
+		"@bbs.airandwave.net",
+		"@flanigan.us",
+		"@graph.no",
+		"@typed-hole.org",
+	} {
+		t.Run(target, func(t *testing.T) {
+			useTempBookmarks(t)
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			m.start.list.SetFilterText(target)
+			var roots []startEntry
+			for _, item := range m.start.list.VisibleItems() {
+				if it, ok := item.(startItem); ok && it.entry.target == target {
+					roots = append(roots, it.entry)
+				}
+			}
+			if len(roots) != 1 || roots[0].structural {
+				t.Fatalf("filtered roots = %+v, want one canonical parent", roots)
+			}
+		})
 	}
 }
 ```
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `go test ./tui/ -run 'TestStartRowTarget|TestStructuralRows|TestFilteringShowsOne' -count=1`
-Expected: FAIL — `undefined: startRowTarget`; two rows seen.
+Run: `go test ./tui/ -run 'TestStartRowTarget|TestNarrowChild|TestFilteredChild|TestStructuralRows|TestFilteringShowsOne|TestFilteringKeepsCanonical' -count=1`
+Expected: FAIL — `undefined: startRowTarget`; structural duplicates remain visible.
 
 - [ ] **Step 3: Suppress structural rows while filtering**
 
@@ -759,7 +911,7 @@ sits in its own column, already offset from the target.
 
 - [ ] **Step 5: Run the tests**
 
-Run: `go test ./tui/ -run 'TestStartRowTarget|TestStructuralRows|TestFilteringShowsOne' -count=1 -v`
+Run: `go test ./tui/ -run 'TestStartRowTarget|TestNarrowChild|TestFilteredChild|TestStructuralRows|TestFilteringShowsOne|TestFilteringKeepsCanonical' -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 6: Run the full gate**
@@ -777,7 +929,7 @@ git commit -m "feat(startpage): indent child rows and flatten duplicates when fi
 
 ---
 
-### Task 5: Count distinct targets in both totals
+### Task 5: Exclude structural copies from both totals
 
 **Files:**
 - Modify: `tui/start.go:92-109` (`startCounts`)
@@ -793,9 +945,9 @@ git commit -m "feat(startpage): indent child rows and flatten duplicates when fi
 Add to `tui/start_test.go`:
 
 ```go
-// The layout-polish spec fixes the rule: counts describe assembled rows after
-// dedup, and no target is counted twice. A structural parent copy is a second
-// copy of a counted target, so it must not raise either total.
+// Counts describe displayed listings after bookmark/catalog suppression. A
+// structural parent is navigation structure, not another listing, so it must
+// not raise either total.
 func TestCountsIgnoreStructuralRows(t *testing.T) {
 	items := []list.Item{
 		startItem{header: "SERVICES", section: sectionServices},
@@ -811,28 +963,50 @@ func TestCountsIgnoreStructuralRows(t *testing.T) {
 Add to `tui/app_test.go`:
 
 ```go
-func TestStatusBarCountMatchesOverview(t *testing.T) {
-	useTempBookmarks(t)
-	m := newApp(stubFetch(t), colorprofile.NoTTY)
-	m.blurInput()
-	counts := m.start.overviewCounts()
-	want := counts.bookmarks + counts.communities + counts.services
-	var got int
-	for _, item := range m.start.list.VisibleItems() {
-		if it, ok := item.(startItem); ok && it.selectable() && !it.entry.structural {
-			got++
-		}
+func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
+	tests := []struct {
+		name   string
+		seed   string
+		filter string
+		want   startOverviewCounts
+		total  int
+	}{
+		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 19}, total: 25},
+		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 18}, total: 25},
+		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 18}, total: 25},
+		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 19}, total: 26},
+		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},
+		{name: "filtered pinned parent", seed: "@happynetbox.com\n", filter: "happynetbox.com", want: startOverviewCounts{bookmarks: 1, services: 5}, total: 6},
 	}
-	if got != want {
-		t.Fatalf("status bar would count %d rows, overview totals %d", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.seed == "" {
+				useTempBookmarks(t)
+			} else {
+				seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+			if tt.filter != "" {
+				m.start.list.SetFilterText(tt.filter)
+			}
+			if got := m.start.overviewCounts(); got != tt.want {
+				t.Fatalf("overview counts = %+v, want %+v", got, tt.want)
+			}
+			bar := m.startBar(80, newStyles(true))
+			if got, want := bar.meta, fmt.Sprintf("%d entries", tt.total); got != want {
+				t.Fatalf("status meta = %q, want %q", got, want)
+			}
+		})
 	}
 }
 ```
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `go test ./tui/ -run 'TestCountsIgnoreStructural|TestStatusBarCountMatches' -count=1`
-Expected: FAIL — services = 2; bar counts one higher than the overview.
+Run: `go test ./tui/ -run 'TestCountsIgnoreStructural|TestOverviewAndStatusCounts' -count=1`
+Expected: FAIL — services = 2 in the focused unit test; unfiltered overview and
+status counts are both 26 rather than 25.
 
 - [ ] **Step 3: Skip structural rows in `startCounts`**
 
@@ -843,8 +1017,7 @@ func startCounts(items []list.Item) startOverviewCounts {
 	var counts startOverviewCounts
 	for _, item := range items {
 		it, ok := item.(startItem)
-		// A structural parent copy duplicates a target counted elsewhere.
-		// Counting it would break the invariant that no target is counted twice.
+		// A structural parent is navigation structure, not another listing.
 		if !ok || !it.selectable() || it.entry.structural {
 			continue
 		}
@@ -878,7 +1051,7 @@ In `tui/app.go`, in the startpage bar branch:
 
 - [ ] **Step 5: Run the tests**
 
-Run: `go test ./tui/ -run 'TestCountsIgnoreStructural|TestStatusBarCountMatches' -count=1 -v`
+Run: `go test ./tui/ -run 'TestCountsIgnoreStructural|TestOverviewAndStatusCounts' -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 6: Run the full gate**
@@ -890,7 +1063,7 @@ Expected: pass.
 
 ```bash
 git add tui/start.go tui/start_test.go tui/app.go tui/app_test.go
-git commit -m "fix(startpage): count distinct targets in the overview and bar"
+git commit -m "fix(startpage): exclude structural rows from entry counts"
 ```
 
 ---
@@ -913,12 +1086,14 @@ existing `catalog off` sentence:
 Startpage order is **computed, not file order**: `buildSections` sorts
 communities alphabetically by host and groups services under their host root
 (parent first, children indented and showing only their query token), so a new
-`catalog.txt` line can be added anywhere. A host with children must ship a root
-entry — `TestCatalogHasRootForEveryGroupedHost` fails the build otherwise. A
-root that heads a group but is listed elsewhere (`@happynetbox.com`, a
-community) or is pinned is marked `structural`: it renders as the parent, is
-excluded from both the overview and status-bar counts, and drops out while
-filtering so no target ever appears twice in a flattened view.
+`catalog.txt` line can be added anywhere. A host with non-root service entries
+must ship a root entry — `TestCatalogHasRootForEveryGroupedHost` fails the build
+otherwise. A root that heads a group but is listed elsewhere
+(`@happynetbox.com`, a community) or is pinned is marked `structural`: it
+renders as the parent, is excluded from both the overview and status-bar
+counts, and drops out while filtering so grouping never adds a duplicate to a
+flattened view. Repeated user-authored bookmark lines retain their existing
+row and count semantics.
 ```
 
 - [ ] **Step 2: Run the full gate one last time**
@@ -933,7 +1108,7 @@ Run: `make build && ./lookit`
 Confirm by eye: communities alphabetical; services grouped with indented
 children; `@happynetbox.com` heading its services and also listed under
 COMMUNITIES; the overview and the status-bar count agreeing; `/happynetbox`
-showing one row per target; `b` on a pinned parent reading `remove`.
+suppressing the structural duplicate; `b` on a pinned parent reading `remove`.
 
 - [ ] **Step 4: Commit**
 
@@ -946,8 +1121,9 @@ git commit -m "docs: describe the computed startpage order"
 
 ## Notes for the implementer
 
-- **`tui/start_test.go` may not exist.** Create it with `package tui` and the
-  imports each test needs (`testing`, `charm.land/bubbles/v2/list`).
+- **`tui/start_test.go` already exists.** Its current imports include the list,
+  Bubble Tea, ANSI, string, and testing helpers used by Task 4; add no duplicate
+  imports.
 - **Do not reorder `catalog.txt` to match the display.** File order is now
   irrelevant to rendering, and keeping the file grouped by host is what makes it
   editable by hand.

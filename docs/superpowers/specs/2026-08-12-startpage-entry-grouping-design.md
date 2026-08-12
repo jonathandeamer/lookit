@@ -92,9 +92,12 @@ reclaims roughly twenty characters of target column per child row.
 
 ### The catalog gains two roots, and an invariant
 
-**Invariant: any host with children must carry a root entry.** No group may be
-headed by a phantom. `TestCatalogIsWellFormed` enforces it, so an orphaned child
-fails the build gate rather than shipping compiled into a binary.
+**Invariant: any host with non-root service entries must carry a root entry.**
+No service group may be headed by a phantom.
+`TestCatalogHasRootForEveryGroupedHost` enforces it, so an orphaned service
+fails the build gate rather than shipping compiled into a binary. Queried
+community rows such as `ring@thebackupbox.net` are sorted by host but are not
+service children and do not require a root.
 
 Two entries satisfy it today. Both were probed on 2026-08-12 and both serve a
 real menu:
@@ -137,32 +140,45 @@ already drops non-selectable rows and flattens the view to matches, so a bare
 unchanged — still `target + " " + note` — so typing `airandwave` still matches
 every child, and match highlighting is unaffected.
 
-**Every flattened view shows a target once.** While a filter is active the
-structural parent copy is dropped, keeping only the canonical listing row. This
-matters because filtering removes the section headers that distinguish the two
-`@happynetbox.com` copies: without the rule, a `happynetbox` filter would show
-two adjacent, identical, both-selectable rows with identical `FilterValue()`,
-and a pinned parent would show a third. Unfiltered, the copies stay — their
-headers supply the context that filtering removes.
+**A flattened view with a non-empty query suppresses catalog-generated
+duplicate rows.** `startItem.FilterValue()` returns `""` for a structural row,
+so once the typed query is non-empty bubbles' matcher never selects it,
+dropping the structural parent copy and keeping only the canonical listing
+row. This matters because filtering removes the section headers that
+distinguish the two `@happynetbox.com` copies: without the rule, a
+`happynetbox` filter would show two adjacent, identical, both-selectable rows
+with identical `FilterValue()`, and a pinned parent would show a third.
+Unfiltered, the copies stay — their headers supply the context that filtering
+removes.
+
+One state in between is imprecise to skip: pressing `/` alone puts the list in
+`FilterState() == Filtering` with an empty query, and bubbles' matcher returns
+every item against an empty query — including both `@happynetbox.com` rows.
+They are briefly on screen together before the first keystroke, though the
+section headers are still present at that point, so nothing is ambiguous. The
+structural copy disappears as soon as the query becomes non-empty.
 
 Concretely: a parent copy is dropped from a flattened view when the same target
 already appears as a listing row (its own catalog section, or BOOKMARKS).
 Parents that *are* their section's listing — `@bbs.airandwave.net`,
 `@graph.no`, `@typed-hole.org`, `@flanigan.us` — are canonical and always
-survive.
+survive. Repeated lines in the user's bookmarks file remain repeated listing
+rows in file order, as they do today; this rule removes structural catalog
+copies, not user-authored bookmark records.
 
-**Counting is by distinct target, and the status bar agrees.** The layout-polish
-spec already fixes the rule: counts "describe the assembled rows after
-bookmark/catalog deduplication… no target is counted twice"
-(`2026-08-12-startpage-layout-polish-design.md`). A structural duplicate must
-not weaken that, so both totals count **distinct selectable targets**:
+**Structural copies do not count, and the status bar agrees.** The layout-polish
+spec fixes the rule that counts describe assembled rows after a catalog listing
+moves into BOOKMARKS. A retained structural parent is navigation structure,
+not another listing, so both totals count selectable listing rows and ignore
+structural copies. Repeated bookmark records remain separate displayed rows and
+therefore remain separately counted:
 
 | Situation | Overview | Status bar |
 |---|---|---|
-| Unfiltered | `CATALOG 6 communities · 19 services` — the second `@happynetbox.com` row is not counted again | distinct targets, so the duplicate row is not counted |
+| Unfiltered | `CATALOG 6 communities · 19 services` — the structural `@happynetbox.com` parent is not counted again | selectable listings, so the structural row is not counted |
 | A child is pinned | BOOKMARKS rises, its classification falls, exactly as today | unchanged in total |
 | A parent is pinned | BOOKMARKS rises, its classification falls; the retained parent copy adds nothing | unchanged in total |
-| Filter applied | counts describe the visible rows, which by the rule above hold no duplicates | same |
+| Filter applied | counts describe the visible listing rows, with structural copies removed | same |
 
 This changes `startCounts` (`tui/start.go:92`), which counts displayed items by
 section today, and the status-bar tally (`tui/app.go:1496-1503`), which counts
@@ -210,13 +226,24 @@ It is suppressed from its group as today.
 section is the user's own list in their own order, and `b` appends. Sorting it
 would overrule them.
 
+**Structural rows are excluded from the entry counts but still count toward
+section ordinals.** `startCounts` and the status-bar tally skip a structural
+row entirely, but `captureTogglePosition`/`selectSectionPosition`
+(`tui/start.go`) count it like any other selectable row when restoring cursor
+position after a toggle. This is a deliberate asymmetry, not an oversight: it
+is what keeps the cursor on the same target when pinning a parent — the
+structural copy that replaces the listing row occupies the same ordinal the
+listing row held — at the cost of shifting the ordinal of any row after it by
+one on a cross-section fallback.
+
 ## Testing
 
 - `buildSections`: parent-first assembly, alphabetical hosts and children, a
   root with no children rendering as a lone row, the dual-role duplicate
   appearing in both sections, and the dedup exemption in both directions.
-- `TestCatalogIsWellFormed`: the orphan check — a child whose host has no root
-  entry fails the build.
+- `TestCatalogHasRootForEveryGroupedHost`: the orphan check — a non-root service
+  whose host has no root entry fails the build, while queried communities are
+  outside the invariant.
 - Delegate: a child renders its bare token unfiltered and its full target under
   an applied filter, with match highlighting intact in both.
 - Flattening: a `happynetbox` filter yields exactly one `@happynetbox.com` row,
@@ -226,8 +253,9 @@ would overrule them.
 - Bookmark hint: `b` on a parent reads "bookmark" when unpinned and "remove"
   when pinned, and the key does what the hint says in both states — the
   regression this design would otherwise introduce.
-- Counts: the duplicated row does not inflate `CATALOG` **or** the status-bar
-  tally, and the two agree in every row of the table above.
+- Counts: a structural row does not inflate `CATALOG` **or** the status-bar
+  tally, repeated bookmark records keep their existing row semantics, and the
+  two totals agree in every row of the table above.
 - Existing startpage tests encode today's flat order and will need updating —
   `TestBookmarkingCatalogRowsStayAtSectionOrdinal` and its neighbours assert
   section ordinals against the current file order.

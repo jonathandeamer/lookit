@@ -36,8 +36,11 @@ and a typo cannot be fixed without a release:
 - `|` may not appear inside a note. This is the treatment `#` already gets: the
   parser would eat the rest of the line, so the grammar forbids the character
   rather than growing an escape.
-- A hint on a **root** entry fails the build. Only children render as tokens, so
-  a hint anywhere else is dead text that would silently never appear.
+- A hint is valid only where a token is actually rendered:
+  `kind == kindService && entryToken(target) != ""`. "Not a root" is too loose —
+  a queried community such as `ring@thebackupbox.net` is non-root but is never
+  grouped, and neither is a future `person` entry, so a hint on either is dead
+  text that would silently never appear.
 
 **Authoring rule.** A hint exists to rescue a token that does not say what it
 is. It is lowercase, two or three words, and written for its slot — not the
@@ -120,14 +123,26 @@ The note column by row state:
 | Child, unselected, with a hint | the hint, dimmed |
 | Child, unselected, no hint | empty |
 | Child, selected | its full note, normal weight |
-| Child under an applied filter | full note |
+| Child in a flattened view (filter active, query non-empty) | full note |
 | Bookmarked child in BOOKMARKS | full note |
 
-**Under an applied filter the connectors go away.** A filtered child already
-renders its full target because its parent may be off screen; it now also drops
-the connector and shows its full note, because it is a listing again rather than
-a member of a visible group. The three states stay consistent: inside a group a
-child is a token, in a flattened view it is an address.
+**In a flattened view the connectors go away.** A flattened child drops its
+connector and shows its full target and full note, because it is a listing again
+rather than a member of a visible group. Inside a group a child is a token; in a
+flattened view it is an address.
+
+**Flattened means an active filter with a non-empty query** — not merely
+`FilterState() != Unfiltered`. Bubble Tea has two filtering states, and only one
+of them flattens anything: with `/` pressed and the query still empty, the list
+returns every item and the section headers are still on screen, so the groups
+are intact and children must keep their tokens and connectors. Once a character
+is typed, headers and structural rows drop out and the view really is flat.
+
+This corrects behaviour inherited from the grouping branch, where
+`startRowTarget` keys off `isFiltered` alone and therefore expands every child
+to its full address the instant `/` is pressed, while the group it belongs to is
+still visibly around it. The predicate becomes "filtering or filter applied,
+**and** the query is non-empty", and both the target and the connector read it.
 
 **In BOOKMARKS a child has no parent**, so it renders as a listing there too:
 full target, full note, no connector.
@@ -144,9 +159,20 @@ token width.
 
 ## Filtering
 
-`FilterValue` becomes `target + " " + note + " " + hint` when a hint exists, so
-everything visible on screen is matchable: typing `gemzine` finds `smog` whether
-the word reaches the eye through the hint or through the note.
+`FilterValue` appends the hint — `target + " " + note + " " + hint` — **only on a
+child row**, so a row can only be matched by text that row can display.
+
+The gate matters because a bookmarked child is built from the same catalog
+entry: `buildSections` copies the entry into BOOKMARKS, where it is not a child
+and renders its full target and full note. Without the gate, a bookmarked
+`cyoa@typed-hole.org` would match `pick-a-path` — text that appears nowhere on
+its row — which would change bookmark behaviour this spec claims to leave alone.
+
+One case survives deliberately: typing a hint word matches a child that, once
+the filter is applied, shows its full note instead of the hint. That is the
+behaviour worth having — the user is typing what they read a moment earlier, and
+a hint whose words appear nowhere in the note (`pick-a-path` against "Choose
+your own adventure") would otherwise be unsearchable.
 
 Match highlighting keeps its existing split against target and note. A match
 index landing past the note region — inside the appended hint — is **dropped**
@@ -164,16 +190,22 @@ actions; ordering; community rows; the reader.
 - **Parser:** ` | ` splits note from hint; an entry with no hint parses with an
   empty hint; `|` inside a note fails `TestCatalogIsWellFormed`; a hint on a
   root entry fails it too.
-- **Assembly:** `lastChild` is true on exactly the final child of each group and
-  false elsewhere, including the single-child group (`calendar@flanigan.us`
-  takes `└`).
+- **Assembly:** `lastChild` is true for the final child of every group,
+  including a single-child group — `calendar@flanigan.us` is the only child of
+  `@flanigan.us` and takes `└`. It is false on non-final children and on every
+  row that is not a child, including host roots and structural parents.
 - **Delegate, one case per row state** in the table above: token-only child;
-  hinted child, dimmed; selected child showing its full note; filtered child
+  hinted child, dimmed; selected child showing its full note; flattened child
   showing full target and full note with no connector.
+- **The two filtering states:** with `/` pressed and the query empty, children
+  keep their tokens and connectors and the headers stay; after one character is
+  typed, they become addresses with full notes and no connectors. This is the
+  test that would have caught the inherited `isFiltered` behaviour.
 - **Narrow layout:** the second line carries hint / full note / nothing, aligned
   to the token column.
-- **Filtering:** a word that appears only in a hint finds its row, and highlight
-  offsets stay within the target and note.
+- **Filtering:** a word that appears only in a hint finds its child row; the
+  same word does **not** match that target's BOOKMARKS copy, which displays no
+  hint; and highlight offsets stay within the target and note.
 - **Existing test to update:** the child-indent differential test hardened in
   the grouping branch asserts child = sibling + 2 leading spaces. It becomes an
   assertion about the connector prefix — and stays differential, so it cannot

@@ -271,9 +271,10 @@ For example the `smog` line becomes:
 service smog@typed-hole.org Saturday Morning Gemzine — back issues | gemzine back issues
 ```
 
-Leave `dict`, `quake`, `urban`, `weather`, `sudoku:easy`, `wordsearch:today`,
-`calendar` and `browserversion` without hints: their tokens say what they are,
-and a hint on every child rebuilds the wall this work removes.
+Leave the other nine children — `bonsai`, `dict`, `quake`, `urban`, `weather`,
+`sudoku:easy`, `wordsearch:today`, `calendar` and `browserversion` — without
+hints: their tokens say what they are, and a hint on every child rebuilds the
+wall this work removes.
 
 - [ ] **Step 2: Verify the guards now have something to protect**
 
@@ -325,7 +326,8 @@ func TestLastChildMarksTheFinalChildOfEveryGroup(t *testing.T) {
 	want := map[string]bool{
 		"wordsearch:today@bbs.airandwave.net": true,  // final child of a six-child group
 		"dict@bbs.airandwave.net":             false, // first child of the same group
-		"calendar@flanigan.us":                true,  // only child of its group
+		"calendar@flanigan.us":                true,  // final child of a two-child group
+		"bonsai@flanigan.us":                  false, // its non-final sibling
 		"textfile@typed-hole.org":             true,
 		"cyoa@typed-hole.org":                 false,
 		"random@happynetbox.com":              true,
@@ -353,11 +355,38 @@ func TestLastChildMarksTheFinalChildOfEveryGroup(t *testing.T) {
 		}
 	}
 }
+
+// No service host in the shipped catalog has exactly one child any more —
+// @flanigan.us gained bonsai — but the rule must still hold for one, so this
+// case is built rather than found.
+func TestLastChildMarksTheOnlyChildOfASingleChildGroup(t *testing.T) {
+	catalog := []startEntry{
+		{target: "@example.com", kind: kindService, note: "Root", source: sourceCatalog},
+		{target: "only@example.com", kind: kindService, note: "Only child", source: sourceCatalog},
+	}
+	sections := buildSections(catalog, bookmarkFile{})
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		if len(s.entries) != 2 {
+			t.Fatalf("entries = %+v, want a root and one child", s.entries)
+		}
+		if s.entries[0].lastChild {
+			t.Errorf("root = %+v, want lastChild false", s.entries[0])
+		}
+		if !s.entries[1].child || !s.entries[1].lastChild {
+			t.Errorf("only child = %+v, want child and lastChild true", s.entries[1])
+		}
+		return
+	}
+	t.Fatal("SERVICES section not found")
+}
 ```
 
-- [ ] **Step 2: Run it to make sure it fails**
+- [ ] **Step 2: Run them to make sure they fail**
 
-Run: `go test ./tui/ -run TestLastChildMarksTheFinalChildOfEveryGroup -count=1`
+Run: `go test ./tui/ -run TestLastChildMarks -count=1`
 Expected: FAIL — `e.lastChild undefined`.
 
 - [ ] **Step 3: Add the field**
@@ -382,7 +411,7 @@ In `tui/sections.go`, replace the child loop at the end of `groupByHost`:
 
 - [ ] **Step 5: Run the test**
 
-Run: `go test ./tui/ -run TestLastChildMarksTheFinalChildOfEveryGroup -count=1 -v`
+Run: `go test ./tui/ -run TestLastChildMarks -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 6: Run the full gate**

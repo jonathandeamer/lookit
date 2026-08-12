@@ -47,9 +47,11 @@ is. It is lowercase, two or three words, and written for its slot — not the
 first clause of the note. If a token is self-evident, it gets no hint; a hint
 on every child would rebuild the wall this spec removes.
 
-Of the nineteen service entries, four are host roots and fifteen are children.
-By that rule seven of those fifteen earn a hint today, each traceable to the
-entry's existing note:
+Of the twenty service entries, four are host roots and sixteen are children.
+(The rendered SERVICES section is twenty-one rows: the structural copy of the
+dual-role `@happynetbox.com` community entry heads its group.) By that rule
+seven of those sixteen earn a hint today, each traceable to the entry's existing
+note:
 
 | Entry | Hint |
 |---|---|
@@ -61,7 +63,7 @@ entry's existing note:
 | `random@happynetbox.com` | a random profile |
 | `originsfinger@happynetbox.com` | how finger began |
 
-The other eight — `dict`, `quake`, `urban`, `weather`, `sudoku:easy`,
+The other nine — `bonsai`, `dict`, `quake`, `urban`, `weather`, `sudoku:easy`,
 `wordsearch:today`, `calendar` and `browserversion` — say what they are.
 
 ### Children are drawn with connectors, not indentation alone
@@ -81,6 +83,7 @@ SERVICES ───────────────────────�
    ├ weather
    └ wordsearch:today
 @flanigan.us          Four fingers: bonsai, p…
+   ├ bonsai
    └ calendar
 @graph.no             Weather worldwide by pl…
 @typed-hole.org       A small menu of fingers…
@@ -192,10 +195,12 @@ actions; ordering; community rows; the reader.
 - **Parser:** ` | ` splits note from hint; an entry with no hint parses with an
   empty hint; `|` inside a note fails `TestCatalogIsWellFormed`; a hint on a
   root entry fails it too.
-- **Assembly:** `lastChild` is true for the final child of every group,
-  including a single-child group — `calendar@flanigan.us` is the only child of
-  `@flanigan.us` and takes `└`. It is false on non-final children and on every
-  row that is not a child, including host roots and structural parents.
+- **Assembly:** `lastChild` is true for the final child of every group and false
+  on non-final children and on every row that is not a child, including host
+  roots and structural parents. Against the real catalog, `bonsai@flanigan.us`
+  is non-final and `calendar@flanigan.us` is final. The single-child case needs
+  a **synthetic catalog fixture**: adding `bonsai` left no real service group
+  with one child, and the rule must still hold for one.
 - **Delegate, one case per row state** in the table above: token-only child;
   hinted child, dimmed; selected child showing its full note; flattened child
   showing full target and full note with no connector.

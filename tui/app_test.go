@@ -3118,8 +3118,8 @@ func TestBookmarkingOnlyFinalCatalogSectionRowFallsBackward(t *testing.T) {
 	selected, ok := m.start.selected()
 	// quake is the sole remaining service, but it sits at ordinal 1 within
 	// SERVICES: a structural @bbs.airandwave.net parent row occupies ordinal 0
-	// (structural rows are still selectable until Task 5 excludes them from
-	// counting). The fallback lands on COMMUNITIES ordinal 1.
+	// and is selectable() like any other row, so it counts toward ordinal
+	// arithmetic. The fallback lands on COMMUNITIES ordinal 1.
 	if !ok || selected.target != "@happynetbox.com" {
 		t.Fatalf("selected = %+v, %v; want nearest earlier catalog section", selected, ok)
 	}

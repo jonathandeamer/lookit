@@ -70,11 +70,20 @@ changelog:
 # reviewable draft to publish by hand rather than going public automatically.
 release:
   draft: true
+  # 'auto' marks the release as a prerelease when the tag carries a SemVer
+  # prerelease suffix (i.e. contains a '-', e.g. v1.2.3-rc.1), so a release
+  # candidate never claims "Latest release" or the /releases/latest redirect.
+  # A plain vX.Y.Z tag has no hyphen and is unaffected.
+  prerelease: auto
 
 # Automatically publish/update Homebrew cask in jonathandeamer/homebrew-tap
 # upon a tagged release.
 homebrew_casks:
   - name: lookit
+    # 'auto' skips the cask push for prerelease tags, so tagging a release
+    # candidate can't hand every `brew upgrade` an untested build. Stable tags
+    # publish as before.
+    skip_upload: auto
     repository:
       owner: jonathandeamer
       name: homebrew-tap

@@ -471,3 +471,52 @@ func TestShortenHomePath(t *testing.T) {
 		})
 	}
 }
+
+func TestParseCatalogLineSplitsHintFromNote(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		note string
+		hint string
+	}{
+		{
+			name: "hint present",
+			line: "service smog@typed-hole.org Saturday Morning Gemzine — back issues | gemzine back issues",
+			note: "Saturday Morning Gemzine — back issues",
+			hint: "gemzine back issues",
+		},
+		{
+			name: "no hint",
+			line: "service quake@bbs.airandwave.net Latest earthquakes, M2.5+ past day",
+			note: "Latest earthquakes, M2.5+ past day",
+			hint: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entry, err := parseCatalogLine(tt.line)
+			if err != nil {
+				t.Fatalf("parseCatalogLine(%q) = %v", tt.line, err)
+			}
+			if entry.note != tt.note {
+				t.Errorf("note = %q, want %q", entry.note, tt.note)
+			}
+			if entry.hint != tt.hint {
+				t.Errorf("hint = %q, want %q", entry.hint, tt.hint)
+			}
+		})
+	}
+}
+
+// An empty half either side of the delimiter is a typo in a file that ships
+// compiled in, so it is refused rather than rendered as a blank column.
+func TestParseCatalogLineRejectsEmptyHintHalves(t *testing.T) {
+	for _, line := range []string{
+		"service smog@typed-hole.org Saturday Morning Gemzine |",
+		"service smog@typed-hole.org  | gemzine back issues",
+	} {
+		if _, err := parseCatalogLine(line); err == nil {
+			t.Errorf("parseCatalogLine(%q) = nil error, want a refusal", line)
+		}
+	}
+}

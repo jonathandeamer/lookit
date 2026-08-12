@@ -52,6 +52,7 @@ type startEntry struct {
 	target string
 	kind   entryKind
 	note   string
+	hint   string // short label a child row shows in place of its note; "" when absent
 	source entrySource
 
 	child      bool // indented under its host's parent row; renders its token only
@@ -180,7 +181,28 @@ func parseCatalogLine(line string) (startEntry, error) {
 	if err := validateTarget(target); err != nil {
 		return startEntry{}, err
 	}
-	return startEntry{target: target, kind: kind, note: fields[2], source: sourceCatalog}, nil
+	note, hint, err := splitCatalogNote(fields[2])
+	if err != nil {
+		return startEntry{}, err
+	}
+	return startEntry{target: target, kind: kind, note: note, hint: hint, source: sourceCatalog}, nil
+}
+
+// splitCatalogNote separates a note from its optional short hint at " | ". The
+// hint is what a child row displays; the note stays authoritative and feeds
+// filtering, the selected row, and every context where the child renders as a
+// listing. An empty half is a typo in a file that ships compiled in, so it is
+// refused rather than rendered as a blank column.
+func splitCatalogNote(field string) (note, hint string, err error) {
+	before, after, found := strings.Cut(field, "|")
+	if !found {
+		return field, "", nil
+	}
+	note, hint = strings.TrimSpace(before), strings.TrimSpace(after)
+	if note == "" || hint == "" {
+		return "", "", fmt.Errorf("note and hint must both be non-empty, got %q", field)
+	}
+	return note, hint, nil
 }
 
 // validateTarget screens a target from a config file. finger.ParseTarget rejects

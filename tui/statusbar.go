@@ -61,11 +61,6 @@ func (s priorityStatus) render(width int) string {
 	return ansi.Truncate(s.prefix, width-suffixWidth, "…") + s.suffix
 }
 
-// landingBar is the bar shown before anything is fetched.
-func landingBar(width int, st styles) statusBar {
-	return statusBar{hints: "type a target and press ↵ · ? help", width: width, styles: st}
-}
-
 func (b statusBar) render() string {
 	if b.width <= 0 {
 		return ""

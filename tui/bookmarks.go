@@ -322,12 +322,22 @@ func bookmarkWritePath(path string) (string, error) {
 // shortenHome renders a path with ~ for display without making it wrong.
 func shortenHome(path string) string {
 	home, err := os.UserHomeDir()
-	if err != nil || home == "" || !strings.HasPrefix(path, home) {
+	if err != nil {
 		return path
 	}
-	remainder := strings.TrimPrefix(path, home)
-	if remainder != "" && !os.IsPathSeparator(remainder[0]) {
+	return shortenHomePath(path, home)
+}
+
+func shortenHomePath(path, home string) string {
+	if home == "" {
 		return path
 	}
-	return "~" + remainder
+	rel, err := filepath.Rel(filepath.Clean(home), filepath.Clean(path))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return path
+	}
+	if rel == "." {
+		return "~"
+	}
+	return filepath.Join("~", rel)
 }

@@ -243,18 +243,31 @@ func TestLoadBookmarksMissingFileIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestShortenHome(t *testing.T) {
-	t.Setenv("HOME", "/tmp/home-example")
-	if got, want := shortenHome("/tmp/home-example"), "~"; got != want {
-		t.Errorf("shortenHome exact home = %q, want %q", got, want)
+func TestShortenHomePath(t *testing.T) {
+	root := string(os.PathSeparator)
+	home := filepath.Join(root, "users", "alice")
+	descendant := filepath.Join(home, ".config", "lookit", "bookmarks")
+	sibling := filepath.Join(root, "users", "alice-backup", "lookit", "bookmarks")
+	rootDescendant := filepath.Join(root, "var", "lib", "lookit", "bookmarks")
+
+	tests := []struct {
+		name string
+		path string
+		home string
+		want string
+	}{
+		{name: "exact home", path: home, home: home, want: "~"},
+		{name: "descendant", path: descendant, home: home, want: filepath.Join("~", ".config", "lookit", "bookmarks")},
+		{name: "sibling prefix", path: sibling, home: home, want: sibling},
+		{name: "root home", path: rootDescendant, home: root, want: filepath.Join("~", "var", "lib", "lookit", "bookmarks")},
+		{name: "separator-suffixed home", path: descendant, home: home + root, want: filepath.Join("~", ".config", "lookit", "bookmarks")},
 	}
-	if got, want := shortenHome("/tmp/home-example/.config/lookit/bookmarks"), "~/.config/lookit/bookmarks"; got != want {
-		t.Errorf("shortenHome = %q, want %q", got, want)
-	}
-	if got, want := shortenHome("/tmp/home-example-backup/lookit/bookmarks"), "/tmp/home-example-backup/lookit/bookmarks"; got != want {
-		t.Errorf("shortenHome sibling = %q, want %q unchanged", got, want)
-	}
-	if got, want := shortenHome("/tmp/xdg/lookit/bookmarks"), "/tmp/xdg/lookit/bookmarks"; got != want {
-		t.Errorf("shortenHome = %q, want %q unchanged", got, want)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shortenHomePath(tt.path, tt.home); got != tt.want {
+				t.Fatalf("shortenHomePath(%q, %q) = %q, want %q", tt.path, tt.home, got, tt.want)
+			}
+		})
 	}
 }

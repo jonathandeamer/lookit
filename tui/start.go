@@ -186,12 +186,23 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	isSelected := index == m.Index()
 	emptyFilter := m.FilterState() == list.Filtering && m.FilterValue() == ""
 	isFiltered := m.FilterState() == list.Filtering || m.FilterState() == list.FilterApplied
+	showShelf := isSelected && m.FilterState() != list.Filtering
 
 	titleStyle, descStyle := d.st.listItem.NormalTitle, d.st.listItem.NormalDesc
 	if emptyFilter {
 		titleStyle, descStyle = d.st.listItem.DimmedTitle, d.st.listItem.DimmedDesc
-	} else if isSelected && m.FilterState() != list.Filtering {
-		titleStyle, descStyle = d.st.listItem.SelectedTitle, d.st.listItem.SelectedDesc
+	} else if showShelf {
+		if d.common.contentFocused {
+			titleStyle, descStyle = d.st.listItem.SelectedTitle, d.st.listItem.SelectedDesc
+		} else {
+			inactiveShelf := lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder(), false, false, false, true).
+				BorderForeground(d.st.palette.Rule).
+				Background(d.st.palette.SubtleBg).
+				Padding(0, 0, 0, 1)
+			titleStyle = inactiveShelf.Foreground(d.st.palette.Text)
+			descStyle = inactiveShelf.Foreground(d.st.palette.Dim)
+		}
 	}
 	titleStyle = startStyleWithinWidth(titleStyle, m.Width())
 	descStyle = startStyleWithinWidth(descStyle, m.Width())
@@ -208,7 +219,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 		note := renderStartField(item.entry.note, noteWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
 		target = padStartField(target, targetWidth, startInlineStyle(titleStyle))
 		row := target + note
-		if isSelected && m.FilterState() != list.Filtering {
+		if showShelf {
 			fmt.Fprint(w, renderSelectedShelfLine(row, titleStyle, m.Width())) //nolint:errcheck
 			return
 		}
@@ -226,7 +237,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	}
 	target := renderStartField(item.entry.target, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
 	note := renderStartField(item.entry.note, descWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
-	if isSelected && m.FilterState() != list.Filtering {
+	if showShelf {
 		fmt.Fprintf(w, "%s\n%s", renderSelectedShelfLine(target, titleStyle, m.Width()), renderSelectedShelfLine(note, descStyle, m.Width())) //nolint:errcheck
 		return
 	}
@@ -302,9 +313,13 @@ func padStartField(field string, width int, fill lipgloss.Style) string {
 }
 
 func (m startModel) update(msg tea.Msg) (startModel, tea.Cmd) {
-	before := m.list.Index()
+	beforeState := m.list.FilterState()
+	beforeIndex := m.list.Index()
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
+	if m.list.FilterState() != beforeState {
+		m.setSize(m.common.width, m.common.bodyHeight())
+	}
 	if _, ok := msg.(list.FilterMatchesMsg); ok {
 		// Filtering removes headers. The unfiltered cursor starts
 		// at 1 to skip the leading header, so reset it to the first filtered row.
@@ -316,7 +331,7 @@ func (m startModel) update(msg tea.Msg) (startModel, tea.Cmd) {
 	// index moved: clearing a zero-match filter resets to index 0 — the leading
 	// header — without changing the index at all.
 	dir := 1
-	if after := m.list.Index(); after < before {
+	if after := m.list.Index(); after < beforeIndex {
 		dir = -1
 	}
 	if _, ok := m.selected(); !ok {

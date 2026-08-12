@@ -411,6 +411,146 @@ func TestStartDelegateResponsiveHeight(t *testing.T) {
 	}
 }
 
+func TestStartSelectionShelfFollowsContentFocus(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, twoSections(), "", "")
+
+	common.contentFocused = true
+	active := lineContaining(t, m.View(), "@tilde.team")
+	assertFullWidthStyledLine(t, "active start selection", active, m.list.Width(), common.styles.palette.SelectionBg)
+
+	common.contentFocused = false
+	inactive := lineContaining(t, m.View(), "@tilde.team")
+	assertFullWidthStyledLine(t, "inactive start selection", inactive, m.list.Width(), common.styles.palette.SubtleBg)
+}
+
+func TestStartFilterTransitionsReclaimOverviewHeight(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*testing.T, startModel, int)
+	}{
+		{
+			name: "enter and apply",
+			run: func(t *testing.T, m startModel, unfilteredHeight int) {
+				m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+				if got, want := m.list.Height(), unfilteredHeight+2; got != want {
+					t.Fatalf("filtering list height = %d, want %d", got, want)
+				}
+
+				m = typeStartFilter(t, m, "plan")
+				m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+				wantHeight := m.common.bodyHeight() - startChromeRows - m.noticeHeight() - m.overviewHeight()
+				if m.list.FilterState() != list.FilterApplied || m.list.Height() != wantHeight {
+					t.Fatalf("applied state=%v height=%d, want applied/%d", m.list.FilterState(), m.list.Height(), wantHeight)
+				}
+			},
+		},
+		{
+			name: "cancel live filter",
+			run: func(t *testing.T, m startModel, unfilteredHeight int) {
+				m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+				m = typeStartFilter(t, m, "plan")
+				m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEsc})
+				assertStartFilterRestored(t, m, unfilteredHeight)
+			},
+		},
+		{
+			name: "clear applied filter",
+			run: func(t *testing.T, m startModel, unfilteredHeight int) {
+				m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+				m = typeStartFilter(t, m, "plan")
+				m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+				m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEsc})
+				assertStartFilterRestored(t, m, unfilteredHeight)
+			},
+		},
+		{
+			name: "accept zero matches",
+			run: func(t *testing.T, m startModel, unfilteredHeight int) {
+				m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+				m = typeStartFilter(t, m, "zzzz-no-match")
+				m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+				assertStartFilterRestored(t, m, unfilteredHeight)
+				if _, ok := m.selected(); !ok {
+					t.Fatal("zero-match clear did not leave a selectable row")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			common := testCommon()
+			common.width = 40
+			m := newStart(common, threeSections(), "", "")
+			if got := m.overviewHeight(); got != 2 {
+				t.Fatalf("narrow overview height = %d, want 2", got)
+			}
+			tt.run(t, m, m.list.Height())
+		})
+	}
+}
+
+func assertStartFilterRestored(t *testing.T, m startModel, wantHeight int) {
+	t.Helper()
+	if m.list.FilterState() != list.Unfiltered || m.list.FilterValue() != "" || m.list.Height() != wantHeight {
+		t.Fatalf("restored state=%v filter=%q height=%d, want unfiltered/empty/%d", m.list.FilterState(), m.list.FilterValue(), m.list.Height(), wantHeight)
+	}
+}
+
+func TestStartAppliedFilterSurvivesResponsiveResize(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, threeSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typeStartFilter(t, m, "plan")
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	wantFilter := m.list.FilterValue()
+	wantCounts := m.overviewCounts()
+	wantSelected, ok := m.selected()
+	if !ok {
+		t.Fatal("applied filter has no selected entry")
+	}
+	widePerPage := m.list.Paginator.PerPage
+	if got := newStartDelegate(common, common.ensureStyles()).Height(); got != 1 {
+		t.Fatalf("wide delegate height = %d, want 1", got)
+	}
+
+	m.setSize(71, common.bodyHeight())
+	assertStartAppliedFilterState(t, m, wantFilter, wantCounts, wantSelected.target)
+	if got := newStartDelegate(common, common.ensureStyles()).Height(); got != 2 {
+		t.Fatalf("narrow delegate height = %d, want 2", got)
+	}
+	if got := m.list.Paginator.PerPage; got >= widePerPage {
+		t.Fatalf("narrow PerPage = %d, want less than wide %d", got, widePerPage)
+	}
+
+	m.setSize(72, common.bodyHeight())
+	assertStartAppliedFilterState(t, m, wantFilter, wantCounts, wantSelected.target)
+	if got := newStartDelegate(common, common.ensureStyles()).Height(); got != 1 {
+		t.Fatalf("restored wide delegate height = %d, want 1", got)
+	}
+	if got := m.list.Paginator.PerPage; got != widePerPage {
+		t.Fatalf("restored wide PerPage = %d, want %d", got, widePerPage)
+	}
+}
+
+func assertStartAppliedFilterState(t *testing.T, m startModel, wantFilter string, wantCounts startOverviewCounts, wantTarget string) {
+	t.Helper()
+	if m.list.FilterState() != list.FilterApplied || m.list.FilterValue() != wantFilter {
+		t.Fatalf("filter state=%v value=%q, want applied/%q", m.list.FilterState(), m.list.FilterValue(), wantFilter)
+	}
+	if got := m.overviewCounts(); got != wantCounts {
+		t.Fatalf("filtered counts = %#v, want %#v", got, wantCounts)
+	}
+	selected, ok := m.selected()
+	if !ok || selected.target != wantTarget {
+		t.Fatalf("selected = %+v, %v; want %q", selected, ok, wantTarget)
+	}
+}
+
 func TestStartWideRowKeepsLongestCatalogTarget(t *testing.T) {
 	common := testCommon()
 	common.width = 80
@@ -443,6 +583,7 @@ func TestStartDelegateWidthVariants(t *testing.T) {
 		t.Run(fmt.Sprintf("width_%d", tt.width), func(t *testing.T) {
 			common := testCommon()
 			common.width = tt.width
+			common.contentFocused = true
 			m := newStart(common, twoSections(), "", "")
 			view := m.View()
 			plain := stripANSIForLandingTest(view)
@@ -690,6 +831,20 @@ func findFilterMatches(cmd tea.Cmd) (tea.Msg, bool) {
 		}
 	}
 	return nil, false
+}
+
+func typeStartFilter(t *testing.T, m startModel, filter string) startModel {
+	t.Helper()
+	for _, r := range filter {
+		var cmd tea.Cmd
+		m, cmd = m.update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		msg, ok := findFilterMatches(cmd)
+		if !ok {
+			t.Fatalf("typing %q produced no list.FilterMatchesMsg", r)
+		}
+		m, _ = m.update(msg)
+	}
+	return m
 }
 
 func TestStartEmptyStateHasNoSelection(t *testing.T) {

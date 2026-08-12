@@ -1503,8 +1503,12 @@ func TestLoadingShowsSpinnerTarget(t *testing.T) {
 }
 
 func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
+	useTempBookmarks(t)
 	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
 	oldBg := m.common.styles.palette.BaseBg
+	assertFullWidthStyledLine(t, "inactive start selection before restyle", lineContaining(t, m.start.View(), "@plan.cat"), m.start.list.Width(), m.common.styles.palette.SubtleBg)
 
 	next, _ := m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
 	got := next.(appModel)
@@ -1524,6 +1528,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	if !sameColor(got.input.Styles().Focused.Prompt.GetForeground(), got.common.styles.input.Focused.Prompt.GetForeground()) {
 		t.Fatal("input styles were not reapplied")
 	}
+	assertFullWidthStyledLine(t, "inactive start selection after restyle", lineContaining(t, got.start.View(), "@plan.cat"), got.start.list.Width(), got.common.styles.palette.SubtleBg)
 }
 
 func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {

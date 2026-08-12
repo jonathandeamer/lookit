@@ -56,7 +56,7 @@ type startEntry struct {
 
 	child      bool // indented under its host's parent row; renders its token only
 	structural bool // a parent copy of a target listed elsewhere; not counted, hidden while filtering
-	bookmarked bool //nolint:unused // the target is in the bookmarks file, whatever section rendered this row; populated in Task 3
+	bookmarked bool // the target is in the bookmarks file, whatever section rendered this row
 }
 
 // parseProblem is a line we refused, surfaced to the user rather than swallowed.

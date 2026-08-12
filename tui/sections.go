@@ -47,6 +47,7 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 				e = catalogEntry
 				e.source = sourceBookmark
 			}
+			e.bookmarked = true
 			bookmarked = append(bookmarked, e)
 		}
 		sections = append(sections, startSection{id: sectionBookmarks, title: "BOOKMARKS", entries: bookmarked})
@@ -153,6 +154,7 @@ func groupByHost(listed []startEntry, roots map[string]startEntry, pinned map[st
 		} else {
 			parent := root
 			parent.structural = true
+			parent.bookmarked = pinned[root.target]
 			out = append(out, parent)
 		}
 		for _, e := range rows {

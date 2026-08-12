@@ -221,3 +221,36 @@ func TestDualRoleHostAppearsInBothSections(t *testing.T) {
 		}
 	}
 }
+
+// A pinned parent keeps heading its group — structure is not a listing — but it
+// must know it is bookmarked, or the b hint lies about what the key does.
+func TestPinnedParentKeepsHeadingItsGroupAndKnowsItIsPinned(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{targets: []string{"@bbs.airandwave.net"}})
+	services := sectionTargets(t, sections, sectionServices)
+	if services[0] != "@bbs.airandwave.net" {
+		t.Fatalf("services[0] = %q, want the parent retained", services[0])
+	}
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		if !s.entries[0].structural || !s.entries[0].bookmarked {
+			t.Fatalf("parent = %+v, want structural and bookmarked", s.entries[0])
+		}
+		if !s.entries[1].child || s.entries[1].target != "dict@bbs.airandwave.net" {
+			t.Fatalf("services[1] = %+v, want dict still a child", s.entries[1])
+		}
+	}
+}
+
+func TestBookmarkSectionEntriesAreMarkedBookmarked(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{targets: []string{"@tilde.team"}})
+	for _, s := range sections {
+		if s.id != sectionBookmarks {
+			continue
+		}
+		if !s.entries[0].bookmarked {
+			t.Fatalf("bookmark row = %+v, want bookmarked", s.entries[0])
+		}
+	}
+}

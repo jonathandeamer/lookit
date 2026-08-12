@@ -3524,3 +3524,58 @@ func TestBookmarkWriteThroughAppPreservesHandEdits(t *testing.T) {
 		t.Errorf("empty startpage does not name the directive to remove:\n%s", got)
 	}
 }
+
+// The b hint must describe what b will actually do on both forms of a parent:
+// its canonical service listing when unpinned and its retained structural copy
+// when pinned.
+func TestParentBookmarkHintAndActionAgree(t *testing.T) {
+	const target = "@bbs.airandwave.net"
+	tests := []struct {
+		name       string
+		seed       string
+		structural bool
+		wantHint   string
+		wantSaved  bool
+	}{
+		{name: "unpinned adds", wantHint: "bookmark", wantSaved: true},
+		{name: "pinned structural removes", seed: target + "\n", structural: true, wantHint: "remove"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var path string
+			if tt.seed == "" {
+				path = useTempBookmarks(t)
+			} else {
+				path = seedBookmarks(t, tt.seed)
+			}
+			m := newApp(stubFetch(t), colorprofile.NoTTY)
+			m.blurInput()
+
+			found := false
+			for i, item := range m.start.list.VisibleItems() {
+				it, ok := item.(startItem)
+				if ok && it.section == sectionServices && it.entry.target == target && it.entry.structural == tt.structural {
+					m.start.list.Select(i)
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("service parent %q (structural=%v) not found", target, tt.structural)
+			}
+			if got := m.startBookmarkAction(); got != tt.wantHint {
+				t.Fatalf("hint = %q, want %q", got, tt.wantHint)
+			}
+
+			next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+			m = next.(appModel)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(string(data), target+"\n"); got != tt.wantSaved {
+				t.Fatalf("bookmark present = %v, want %v; file = %q", got, tt.wantSaved, data)
+			}
+		})
+	}
+}

@@ -1,10 +1,11 @@
 # Adding bonsai@flanigan.us to the catalog
 
-Adding `@flanigan.us` as a host root
-(`2026-08-12-startpage-child-hints-design.md` required one for any host with
-grouped children) surfaced three services the catalog does not carry: the root's
-own note reads *"Four fingers: bonsai, ping, wisdom, calendar"* and only
-`calendar` was catalogued. That spec deferred surveying them. This one closes it.
+Adding `@flanigan.us` as a host root for service grouping
+([the entry-grouping design](./2026-08-12-startpage-entry-grouping-design.md))
+surfaced three services the catalog does not carry: the root's own note reads
+*"Four fingers: bonsai, ping, wisdom, calendar"* and only `calendar` was
+catalogued. The grouping design deliberately deferred surveying them. This one
+closes that work.
 
 All three were probed live on **2026-08-12**.
 
@@ -74,23 +75,48 @@ The one-line change moves numbers that several tests pin. These are the work:
   so the list becomes 21 entries with `bonsai` inserted directly after
   `@flanigan.us`.
 - `TestOverviewAndStatusCountsExcludeStructuralCopies` (`tui/app_test.go`) pins
-  `services: 19` and totals of 25 across its scenarios; each rises by one. The
-  `filtered` scenarios keyed to `happynetbox.com` are unaffected.
+  counts across four unfiltered scenarios. Their service/total pairs become
+  **20/26** unfiltered, **19/26** with a child bookmark pinned, **19/26** with a
+  parent bookmark pinned, and **20/27** with repeated bookmarks. The `filtered`
+  scenarios keyed to `happynetbox.com` are unaffected.
+- `TestDualRoleHostAppearsInBothSections` (`tui/sections_test.go`) locates the
+  structural `@happynetbox.com` service copy and its child with hard-coded
+  indices. The inserted row shifts both. Refactor the test to find the
+  structural parent by target and then assert that `1@happynetbox.com` follows
+  it; merely incrementing the indices would leave this semantic test coupled to
+  unrelated catalog growth.
 - `@flanigan.us` **stops being a single-child group.** `calendar` keeps
-  `lastChild` because `bonsai` sorts first, so no rendering changes — but the
-  child-hints plan
-  (`docs/superpowers/plans/2026-08-12-startpage-child-hints.md`, Task 4) uses
-  `calendar@flanigan.us` as its "only child of its group" fixture, and that
-  comment becomes false. Correct the plan before executing it, or pick another
-  single-child group — there will not be one, so the case should be dropped or
-  built from a synthetic catalog.
+  `lastChild` because `bonsai` sorts first, while `bonsai` is a non-final child.
 
-No code changes. No grammar changes. Nothing in `finger/`.
+### Ordering with the child-hints work
+
+The child-hints design and plan live on the separate
+`feat/startpage-child-hints` branch; they are not on `main` or on this branch.
+Land the bonsai catalog change first. Then rebase the child-hints branch onto the
+new `main` and correct both documents before executing or merging that work:
+
+- In `docs/superpowers/specs/2026-08-12-startpage-child-hints-design.md`, update
+  the inventory to **20 raw services**, four roots, and **16 children**. The
+  rendered Services section has **21 rows** because it also contains the
+  structural copy of the dual-role `@happynetbox.com` entry.
+- Update that design's unhinted-child inventory from eight to **nine**, including
+  `bonsai`, and show `bonsai` before `calendar` in the rendering example with
+  `├ bonsai` and `└ calendar` connectors.
+- In `docs/superpowers/plans/2026-08-12-startpage-child-hints.md`, update Task 3's
+  unhinted-child inventory to the same nine children, including `bonsai`.
+- Replace Task 4's claim that `calendar@flanigan.us` is the group's only child.
+  Keep real-catalog assertions that `bonsai` is non-final and `calendar` is
+  final, and preserve explicit single-child coverage with a synthetic catalog
+  fixture; no real single-child service group remains.
+
+No production Go code changes. No grammar changes. Nothing in `finger/`.
 
 ## Testing
 
-- Update the two pinned fixtures above to the new counts and ordering.
+- Update the ordering and count fixtures above, and make the dual-role-host test
+  locate its targets semantically rather than by absolute index.
 - `TestCatalogIsWellFormed` and `TestCatalogHasRootForEveryGroupedHost` already
   cover the new line: it is a service child whose host ships a root.
-- No new test is warranted. The entry is data, and the data guards already
-  exist.
+- No new catalog-specific test is warranted. The entry is data, and the data
+  guards already exist; the synthetic single-child fixture belongs to the later
+  child-hints implementation.

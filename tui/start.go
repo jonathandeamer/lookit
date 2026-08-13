@@ -20,12 +20,14 @@ const (
 	startTargetColumnPct = 50
 )
 
-// startItem is one row: an entry or section header. Non-entry rows occupy
-// normal item slots so the list's uniform-height pagination holds.
+// startItem is one row: an entry, section header, or wide-layout spacer.
+// Non-entry rows occupy normal item slots so the list's uniform-height
+// pagination holds.
 type startItem struct {
 	entry   startEntry
 	header  string // non-empty => this row is a section heading
 	section startSectionID
+	spacer  bool // one blank row before SERVICES in the one-line layout
 }
 
 func (i startItem) selectable() bool {
@@ -72,6 +74,7 @@ func (i startItem) Description() string {
 type startModel struct {
 	common          *commonModel
 	list            list.Model
+	sections        []startSection
 	assembledCounts startOverviewCounts
 	height          int
 	notice          string // parse problems, surfaced rather than swallowed
@@ -131,14 +134,30 @@ func startCountLabel(n int, singular, plural string) string {
 	return fmt.Sprintf("%d %s", n, plural)
 }
 
-func newStart(common *commonModel, sections []startSection, notice, empty string) startModel {
+func startItems(sections []startSection, width int) []list.Item {
+	hasCommunities := false
+	for _, section := range sections {
+		if section.id == sectionCommunities && len(section.entries) > 0 {
+			hasCommunities = true
+			break
+		}
+	}
+
 	var items []list.Item
 	for _, s := range sections {
+		if width >= startWideMinWidth && hasCommunities && s.id == sectionServices && len(s.entries) > 0 {
+			items = append(items, startItem{spacer: true})
+		}
 		items = append(items, startItem{header: s.title, section: s.id})
 		for _, e := range s.entries {
 			items = append(items, startItem{entry: e, section: s.id})
 		}
 	}
+	return items
+}
+
+func newStart(common *commonModel, sections []startSection, notice, empty string) startModel {
+	items := startItems(sections, common.width)
 
 	st := common.ensureStyles()
 	height := common.bodyHeight() - startChromeRows
@@ -159,7 +178,7 @@ func newStart(common *commonModel, sections []startSection, notice, empty string
 	// Matches the noun our own bar uses, instead of the default "No items.".
 	l.SetStatusBarItemName("entry", "entries")
 
-	m := startModel{common: common, list: l, assembledCounts: startCounts(items), notice: notice, empty: empty}
+	m := startModel{common: common, list: l, sections: sections, assembledCounts: startCounts(items), notice: notice, empty: empty}
 	m.skipNonEntry(1) // never rest on the leading header
 	m.setSize(common.width, common.bodyHeight())
 	return m
@@ -188,6 +207,9 @@ func (d startDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
 func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	it, ok := item.(startItem)
 	if !ok || m.Width() <= 0 {
+		return
+	}
+	if it.spacer {
 		return
 	}
 	if it.header != "" {
@@ -463,6 +485,13 @@ func (m *startModel) setSize(width, height int) {
 		height = 1
 	}
 	m.height = height
+	if m.list.FilterState() == list.Unfiltered {
+		position, hasSelection := m.captureTogglePosition()
+		m.list.SetItems(startItems(m.sections, width))
+		if hasSelection {
+			m.selectSectionPosition(position.full)
+		}
+	}
 	h := height - startChromeRows - m.noticeHeight() - m.overviewHeight()
 	if h < 1 {
 		h = 1

@@ -27,7 +27,7 @@ type startItem struct {
 	entry   startEntry
 	header  string // non-empty => this row is a section heading
 	section startSectionID
-	spacer  bool // one blank row before SERVICES in the one-line layout
+	spacer  bool // one blank row above a section header, in the one-line layout
 }
 
 func (i startItem) selectable() bool {
@@ -135,20 +135,15 @@ func startCountLabel(n int, singular, plural string) string {
 }
 
 func startItems(sections []startSection, width int) []list.Item {
-	hasCommunities := false
-	for _, section := range sections {
-		if section.id == sectionCommunities && len(section.entries) > 0 {
-			hasCommunities = true
-			break
-		}
-	}
-
 	var items []list.Item
-	if len(sections) > 0 {
-		items = append(items, startItem{spacer: true})
-	}
 	for _, s := range sections {
-		if width >= startWideMinWidth && hasCommunities && s.id == sectionServices && len(s.entries) > 0 {
+		// Exactly one blank row above every section header. The wide one-row
+		// layout needs a spacer item to produce it — except above the first
+		// header, where bubbles' reserved filter row (rendered whenever
+		// filtering is enabled, even with SetShowTitle(false)) already
+		// supplies one. The narrow two-row layout needs no spacer at any
+		// boundary, because renderHeader spends its first row on a blank.
+		if width >= startWideMinWidth && len(items) > 0 {
 			items = append(items, startItem{spacer: true})
 		}
 		items = append(items, startItem{header: s.title, section: s.id})

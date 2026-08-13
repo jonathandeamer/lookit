@@ -956,102 +956,111 @@ func TestStartApplyStylesKeepsSectionHeaders(t *testing.T) {
 	}
 }
 
-// In the narrow two-line layout the note sits under the target, so an
-// unindented note would hang left of its own row.
-func TestNarrowChildRowIndentsBothLines(t *testing.T) {
+func TestNarrowChildRowAlignsSelectedNoteUnderToken(t *testing.T) {
 	common := testCommon()
 	common.width = 40
+	common.contentFocused = true
 	st := common.ensureStyles()
 	d := newStartDelegate(common, st)
 	if d.Height() != 2 {
 		t.Fatalf("delegate height = %d at width 40, want the two-line layout", d.Height())
 	}
-	l := list.New([]list.Item{
-		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", hint: "dictionary lookup", child: true}, section: sectionServices},
-		startItem{entry: startEntry{target: "other@example.com", note: "Other row"}, section: sectionServices},
-		startItem{entry: startEntry{target: "third@example.com", note: "Third row"}, section: sectionServices},
-	}, d, 40, 4)
-	// Render both rows unselected so the selection shelf's border and padding do
-	// not get mistaken for the child's own indent. The base list style already
-	// left-pads every row by two spaces (tui/styles.go NormalTitle/NormalDesc),
-	// so asserting a bare "starts with two spaces" would pass even if the
-	// child-specific indent were dropped entirely. Compare the child's
-	// leading-space count against its non-child sibling's instead, so only the
-	// feature under test — the extra indent — can satisfy the assertion. The
-	// target line gains 3 (the connector "├"/"└" is not itself a space) and the
-	// note line gains 5 (aligned under the token at column 5, not the
-	// connector).
-	l.Select(2) // a third row, so neither rendered row below carries the selection shelf
-	var childBuf, siblingBuf strings.Builder
-	d.Render(&childBuf, l, 0, l.Items()[0])
-	d.Render(&siblingBuf, l, 1, l.Items()[1])
-	childLines := strings.Split(ansi.Strip(childBuf.String()), "\n")
-	siblingLines := strings.Split(ansi.Strip(siblingBuf.String()), "\n")
-	if len(childLines) != len(siblingLines) {
-		t.Fatalf("child rendered %d lines, sibling %d; want equal", len(childLines), len(siblingLines))
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "dict@bbs.airandwave.net", note: "Dictionary lookup",
+			child: true, lastChild: true,
+		}, section: sectionServices},
 	}
-	wantExtra := []int{3, 5}
-	for i := range childLines {
-		childIndent := len(childLines[i]) - len(strings.TrimLeft(childLines[i], " "))
-		siblingIndent := len(siblingLines[i]) - len(strings.TrimLeft(siblingLines[i], " "))
-		if got, want := childIndent, siblingIndent+wantExtra[i]; got != want {
-			t.Errorf("line %d indent = %d, want %d (sibling %d + %d): child %q, sibling %q",
-				i, got, want, siblingIndent, wantExtra[i], childLines[i], siblingLines[i])
-		}
+	l := list.New(items, d, 40, 4)
+	l.Select(0)
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	lines := strings.Split(ansi.Strip(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("selected child rendered %d lines, want 2: %q", len(lines), lines)
+	}
+	targetByte := strings.Index(lines[0], "dict")
+	noteByte := strings.Index(lines[1], "Dictionary lookup")
+	if targetByte < 0 || noteByte < 0 {
+		t.Fatalf("rendered lines = %q, want token and note", lines)
+	}
+	targetColumn := lipgloss.Width(lines[0][:targetByte])
+	noteColumn := lipgloss.Width(lines[1][:noteByte])
+	if noteColumn != targetColumn {
+		t.Fatalf("note column = %d, token column = %d: %q", noteColumn, targetColumn, lines)
 	}
 }
 
-// The wide (>=72 column) single-line layout is the primary rendering path for
-// a hinted child, but it was untested at the rendered-output level: reverting
-// the delegate from rowNote back to item.entry.note left every existing test
-// green. Assert on the rendered, ansi-stripped row rather than the pure
-// startRowNote function, so a regression here is caught the way it would
-// actually ship.
-func TestWideChildRowShowsHintNoteOrFullNote(t *testing.T) {
+// The wide single-line layout is the macOS default and was once revertible with
+// the suite still green, so it is asserted on rendered output rather than on
+// startRowNote alone.
+func TestWideChildRowShowsItsNoteOnlyWhenSelected(t *testing.T) {
+	const (
+		note       = "Latest earthquakes, M2.5+ past day"
+		legacyHint = "earthquake feed"
+	)
 	common := testCommon()
-	common.width = 80
+	common.width = 100
 	st := common.ensureStyles()
 	d := newStartDelegate(common, st)
 	if d.Height() != 1 {
-		t.Fatalf("delegate height = %d at width 80, want the wide single-line layout", d.Height())
+		t.Fatalf("delegate height = %d at width 100, want the one-line layout", d.Height())
 	}
-
-	const (
-		hintedNote = "Quick dictionary lookup service"
-		hintedHint = "dict lookup"
-		bareNote   = "Full weather description text field"
-	)
 	items := []list.Item{
-		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: hintedNote, hint: hintedHint, child: true}, section: sectionServices},
-		startItem{entry: startEntry{target: "weather@bbs.airandwave.net", note: bareNote, child: true}, section: sectionServices},
-		startItem{entry: startEntry{target: "urban@bbs.airandwave.net", note: hintedNote, hint: hintedHint, child: true, lastChild: true}, section: sectionServices},
+		startItem{entry: startEntry{
+			target: "quake@bbs.airandwave.net", note: note,
+			hint: legacyHint, child: true,
+		}, section: sectionServices},
+		startItem{entry: startEntry{
+			target: "urban@bbs.airandwave.net", note: note,
+			child: true, lastChild: true,
+		}, section: sectionServices},
 	}
-	l := list.New(items, d, 80, 4)
-	l.Select(2) // urban is selected; dict and weather render unselected
+	l := list.New(items, d, 100, 6)
 
-	var hintedBuf, bareBuf, selectedBuf strings.Builder
-	d.Render(&hintedBuf, l, 0, items[0])
-	d.Render(&bareBuf, l, 1, items[1])
-	d.Render(&selectedBuf, l, 2, items[2])
-
-	hintedLine := ansi.Strip(hintedBuf.String())
-	bareLine := ansi.Strip(bareBuf.String())
-	selectedLine := ansi.Strip(selectedBuf.String())
-
-	if !strings.Contains(hintedLine, hintedHint) {
-		t.Errorf("hinted unselected child row = %q, want it to contain hint %q", hintedLine, hintedHint)
+	l.Select(1) // row 0 unselected
+	var unselected strings.Builder
+	d.Render(&unselected, l, 0, items[0])
+	unselectedLine := ansi.Strip(unselected.String())
+	if strings.Contains(unselectedLine, note) || strings.Contains(unselectedLine, legacyHint) {
+		t.Errorf("unselected child row = %q, want an empty note column", unselectedLine)
 	}
-	if strings.Contains(hintedLine, hintedNote) {
-		t.Errorf("hinted unselected child row = %q, want the full note absent (only the hint shows)", hintedLine)
-	}
-
-	targetEnd := strings.LastIndex(bareLine, "weather") + len("weather")
-	if noteRegion := strings.TrimSpace(bareLine[targetEnd:]); noteRegion != "" {
-		t.Errorf("unhinted unselected child row = %q, want an empty note column, got remainder %q", bareLine, noteRegion)
+	if !strings.Contains(unselectedLine, "quake") {
+		t.Errorf("unselected child row = %q, want its token", unselectedLine)
 	}
 
-	if !strings.Contains(selectedLine, hintedNote) {
-		t.Errorf("selected child row = %q, want it to contain the full note %q", selectedLine, hintedNote)
+	l.Select(0) // row 0 selected
+	var selected strings.Builder
+	d.Render(&selected, l, 0, items[0])
+	if got := ansi.Strip(selected.String()); !strings.Contains(got, note) {
+		t.Errorf("selected child row = %q, want its full note", got)
+	}
+}
+
+// Selection is the cursor's row, not which pane takes keys. A selected child
+// keeps its note while the target input is focused and the inactive shelf is
+// drawn — otherwise the note would blink out every time focus moved.
+func TestSelectedChildKeepsItsNoteWithoutContentFocus(t *testing.T) {
+	const note = "Latest earthquakes, M2.5+ past day"
+	common := testCommon()
+	common.width = 100
+	common.contentFocused = false
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "quake@bbs.airandwave.net", note: note,
+			child: true, lastChild: true,
+		}, section: sectionServices},
+	}
+	l := list.New(items, d, 100, 4)
+	l.Select(0)
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	if got := ansi.Strip(buf.String()); !strings.Contains(got, note) {
+		t.Fatalf("selected child without content focus = %q, want its full note", got)
 	}
 }
 
@@ -1175,8 +1184,11 @@ func TestStartRowTargetDrawsConnectors(t *testing.T) {
 }
 
 func TestStartRowNotePerState(t *testing.T) {
-	hinted := startEntry{target: "smog@typed-hole.org", note: "Saturday Morning Gemzine — back issues", hint: "gemzine back issues", child: true}
-	bare := startEntry{target: "quake@bbs.airandwave.net", note: "Latest earthquakes, M2.5+ past day", child: true}
+	const note = "Saturday Morning Gemzine — back issues"
+	child := startEntry{
+		target: "smog@typed-hole.org", note: note,
+		hint: "gemzine back issues", child: true,
+	}
 	root := startEntry{target: "@typed-hole.org", note: "A small menu of fingers, from lobste.rs to smog"}
 
 	tests := []struct {
@@ -1186,12 +1198,11 @@ func TestStartRowNotePerState(t *testing.T) {
 		flattened bool
 		want      string
 	}{
-		{name: "hinted child shows its hint", entry: hinted, want: "gemzine back issues"},
-		{name: "child without a hint shows nothing", entry: bare, want: ""},
-		{name: "selected child shows its full note", entry: hinted, selected: true, want: "Saturday Morning Gemzine — back issues"},
-		{name: "selected child without a hint also shows it", entry: bare, selected: true, want: "Latest earthquakes, M2.5+ past day"},
-		{name: "flattened child shows its full note", entry: hinted, flattened: true, want: "Saturday Morning Gemzine — back issues"},
-		{name: "root keeps its note", entry: root, want: "A small menu of fingers, from lobste.rs to smog"},
+		{name: "unselected child shows nothing", entry: child, want: ""},
+		{name: "selected child shows its note", entry: child, selected: true, want: note},
+		{name: "flattened child shows its note", entry: child, flattened: true, want: note},
+		{name: "root always shows its note", entry: root, want: root.note},
+		{name: "selected root is unchanged", entry: root, selected: true, want: root.note},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

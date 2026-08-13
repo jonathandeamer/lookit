@@ -319,16 +319,15 @@ func startRowTarget(entry startEntry, flattened bool) string {
 	return "   " + connector + " " + entryToken(entry.target)
 }
 
-// startRowNote is the note column's text. A child is quiet by default — its
-// hint, or nothing — so the section reads as a list of tokens rather than a
-// wall of prose. The full note returns exactly where it is wanted: on the row
-// the cursor is on, and wherever the child renders as a listing rather than as
-// a member of a visible group.
+// startRowNote is the note column's text. A child is silent by default, so the
+// section reads as a list of tokens rather than a wall of prose; its note
+// returns on the row the cursor is on, and wherever the child renders as a
+// listing rather than a member of a visible group.
 func startRowNote(entry startEntry, selected, flattened bool) string {
 	if !entry.child || selected || flattened {
 		return entry.note
 	}
-	return entry.hint
+	return ""
 }
 
 // splitStartMatches maps filter-match offsets in FilterValue onto the target

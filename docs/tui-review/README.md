@@ -24,11 +24,11 @@ make review-tui
 
 That builds `./lookit` and the loopback fingerd, starts the fingerd, and
 records every `chrome-*.tape` and `responses-*.tape` into
-`docs/tui-review/frames/<tape>/` — eight directories. Or record one tape:
+`out/tui-review/<tape>/` — eight directories. Or record one tape:
 
 ```
 make build review-fingerd
-mkdir -p docs/tui-review/frames
+mkdir -p out/tui-review
 vhs docs/tui-review/chrome-80-dark.tape
 ```
 
@@ -37,14 +37,16 @@ A `responses-*.tape` recorded by hand starts the fingerd itself; it needs
 already holding 2479/2480 (`fingerd -ping` checks the fixture bodies, not just
 that something answers).
 
-Each recording starts from an empty `frames/` root and must produce exactly as
-many stills as its tour has `Screenshot` lines, so a failed tape can't leave
-frames behind for the next one to file under its own name. Every directory is
-then checked by `verify-frames.sh` (blank stills, duplicate stills — see
-"Why the tapes sleep before every Screenshot").
+Each recording starts from an empty `out/tui-review/` root and must produce
+exactly as many stills as its tour has `Screenshot` lines, so a failed tape
+can't leave frames behind for the next one to file under its own name. Every
+directory is then checked by `verify-frames.sh` (blank stills, duplicate
+stills — see "Why the tapes sleep before every Screenshot").
 
-A full run takes about 3½ minutes. Frames are gitignored. Re-record when
-chrome changes; do not commit PNGs.
+A full run takes about 3½ minutes. Everything it writes lands in `out/`, which
+is gitignored wholesale — nothing generated is ever interleaved with the tapes
+and fixtures here, and `make clean` removes all of it. Re-record when chrome
+changes; do not commit PNGs.
 
 ## Why the tapes sleep before every Screenshot
 
@@ -66,7 +68,8 @@ blank still, and two stills identical to each other — but it cannot catch a
 still that is a real screen one step behind. That one is on the sleeps, and on
 you looking at the frames.
 
-Tapes copy `fixtures/xdg/` to `frames/xdg/` and point `XDG_CONFIG_HOME` there,
+Tapes copy `fixtures/xdg/` to `out/tui-review/xdg/` and point `XDG_CONFIG_HOME`
+there,
 so a developer's real bookmarks never appear in a frame *and* the stills that
 write to the bookmarks file (`bookmark.png`, `catalog-off.png`) cannot dirty
 the tracked fixture. The fixture ships one bookmark (`jonathan@tilde.team`) so
@@ -143,7 +146,7 @@ tape and hunt collisions, not just whether the screen rendered.
 
 ## Contact sheets
 
-`make review-tui` finishes by writing one `frames/<tape>-sheet.png` per
+`make review-tui` finishes by writing one `out/tui-review/<tape>-sheet.png` per
 directory: every still of that tape, half size, tiled four across. `make
 review-sheet` alone rebuilds them from frames already on disk. Cells are in
 filename order and the target prints the manifest for each sheet as it goes.

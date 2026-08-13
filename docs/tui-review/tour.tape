@@ -1,8 +1,8 @@
 # Shared walkthrough for the chrome review tapes. No Set/Output here —
 # each chrome-*.tape applies size and theme first, then Sources this file.
 #
-# Screenshots land in docs/tui-review/frames/ with stable names; `make review-tui`
-# moves them under frames/<tape-name>/ after each recording.
+# Screenshots land in out/tui-review/ with stable names; `make review-tui`
+# moves them under out/tui-review/<tape-name>/ after each recording.
 #
 # CAPTURE ORDER MATTERS. Every still is Wait (the state is on screen) then
 # Sleep (VHS's frame pipeline catches up) then Screenshot. A Screenshot taken
@@ -13,11 +13,11 @@
 
 Hide
 # lookit writes to the bookmarks file (the `b` still below), so each recording
-# gets a throwaway copy under the gitignored frames/ tree. The fixture in
+# gets a throwaway copy under the gitignored out/ tree. The fixture in
 # fixtures/xdg/ stays pristine and every run starts from the same state.
-Type "rm -rf docs/tui-review/frames/xdg && cp -R docs/tui-review/fixtures/xdg docs/tui-review/frames/xdg"
+Type "rm -rf out/tui-review/xdg && cp -R docs/tui-review/fixtures/xdg out/tui-review/xdg"
 Enter
-Type "export XDG_CONFIG_HOME=$PWD/docs/tui-review/frames/xdg"
+Type "export XDG_CONFIG_HOME=$PWD/out/tui-review/xdg"
 Enter
 Type "export PS1='$ '"
 Enter
@@ -32,13 +32,13 @@ Type "./lookit"
 Enter
 Wait+Screen /COMMUNITIES/
 Sleep 1500ms
-Screenshot docs/tui-review/frames/start-input.png
+Screenshot out/tui-review/start-input.png
 Sleep 250ms
 
 # ↓ leaves the target input and selects the first startpage row.
 Down
 Sleep 1500ms
-Screenshot docs/tui-review/frames/start-list.png
+Screenshot out/tui-review/start-list.png
 Sleep 250ms
 
 # Bookmark + 6 communities + bbs parent → first service child (dict).
@@ -46,14 +46,14 @@ Sleep 250ms
 Down 8
 Wait+Screen /Dictionary lookup/
 Sleep 1500ms
-Screenshot docs/tui-review/frames/start-child.png
+Screenshot out/tui-review/start-child.png
 Sleep 250ms
 
 Type "/"
 Sleep 200ms
 Type "plan"
 Sleep 1500ms
-Screenshot docs/tui-review/frames/start-filter.png
+Screenshot out/tui-review/start-filter.png
 Sleep 250ms
 
 Escape
@@ -61,13 +61,13 @@ Sleep 200ms
 Type "?"
 Wait+Screen /about lookit/
 Sleep 1500ms
-Screenshot docs/tui-review/frames/help.png
+Screenshot out/tui-review/help.png
 Sleep 250ms
 
 Type "a"
 Wait+Screen /modern TUI browser/
 Sleep 1500ms
-Screenshot docs/tui-review/frames/about.png
+Screenshot out/tui-review/about.png
 Sleep 250ms
 
 Escape
@@ -89,7 +89,7 @@ Wait+Screen /Collaborative science fiction/
 Type "b"
 Wait+Screen /bookmarked/
 Sleep 1500ms
-Screenshot docs/tui-review/frames/bookmark.png
+Screenshot out/tui-review/bookmark.png
 Sleep 250ms
 
 # The flash clears after 2s; quit once it has gone so the next launch is clean.
@@ -99,7 +99,7 @@ Sleep 500ms
 
 # `catalog off` hides the built-in catalog: BOOKMARKS is then the whole page.
 Hide
-Type "echo 'catalog off' >> docs/tui-review/frames/xdg/lookit/bookmarks"
+Type "echo 'catalog off' >> out/tui-review/xdg/lookit/bookmarks"
 Enter
 Type "clear"
 Enter
@@ -108,7 +108,7 @@ Type "./lookit"
 Enter
 Wait+Screen /BOOKMARKS/
 Sleep 1500ms
-Screenshot docs/tui-review/frames/catalog-off.png
+Screenshot out/tui-review/catalog-off.png
 Sleep 250ms
 
 Type "q"

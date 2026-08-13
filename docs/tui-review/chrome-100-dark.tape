@@ -7,7 +7,7 @@
 
 Require vhs
 
-Output docs/tui-review/frames/_render.txt
+Output out/tui-review/_render.txt
 
 Set Width 1132
 Set Height 645

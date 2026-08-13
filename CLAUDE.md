@@ -15,7 +15,7 @@ make vuln                                    # govulncheck dependency scan
 make release-snapshot                        # local snapshot build into dist/ (no publish)
 make release-check                           # validate the GoReleaser config
 make notices                                 # regenerate THIRD_PARTY_NOTICES.md after dep changes
-make review-tui                              # record the TUI visual-review stills into docs/tui-review/frames/ (~3½ min, not part of check)
+make review-tui                              # record the TUI visual-review stills into out/tui-review/ (~3½ min, not part of check)
 make review-sheet                            # rebuild the per-tape contact sheets from frames already on disk
 go test ./tui/ -run TestEnterInListDrills -count=1 -v   # single test
 ```

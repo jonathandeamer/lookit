@@ -21,7 +21,7 @@ REVIEW_RESPONSES_TAPES := \
 	docs/tui-review/responses-60-dark.tape \
 	docs/tui-review/responses-80-light.tape
 
-REVIEW_FINGERD := docs/tui-review/fixtures/fingerd/fingerd
+REVIEW_FINGERD := out/fingerd
 
 .PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean \
 	notices release-check release-snapshot release review-tui review-fingerd \
@@ -59,15 +59,16 @@ vuln: ## scan dependencies for known vulnerabilities
 check: vet fmt-check lint race ## run the full CI gate set
 
 review-fingerd: ## build the loopback finger server used by responses tapes
+	@mkdir -p $(dir $(REVIEW_FINGERD))
 	go build -o $(REVIEW_FINGERD) ./docs/tui-review/fixtures/fingerd
 
-review-tui: build review-fingerd ## record docs/tui-review stills (not part of check)
+review-tui: build review-fingerd ## record the visual-review stills into out/ (not part of check)
 	@command -v vhs >/dev/null || { echo "vhs not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
 	@command -v ttyd >/dev/null || { echo "ttyd not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
 	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
-	@mkdir -p docs/tui-review/frames
-	@$(REVIEW_FINGERD) & echo $$! > docs/tui-review/frames/fingerd.pid
-	@trap 'kill $$(cat docs/tui-review/frames/fingerd.pid) 2>/dev/null; rm -f docs/tui-review/frames/fingerd.pid' EXIT; \
+	@mkdir -p out/tui-review
+	@$(REVIEW_FINGERD) & echo $$! > out/tui-review/fingerd.pid
+	@trap 'kill $$(cat out/tui-review/fingerd.pid) 2>/dev/null; rm -f out/tui-review/fingerd.pid' EXIT; \
 	ready=0; \
 	i=0; while [ $$i -lt 50 ]; do \
 		if $(REVIEW_FINGERD) -ping >/dev/null 2>&1; then ready=1; break; fi; \
@@ -83,27 +84,27 @@ review-tui: build review-fingerd ## record docs/tui-review stills (not part of c
 		tour=$$(awk '/^Source /{print $$2}' "$$tape"); \
 		want=$$(grep -c '^Screenshot ' "$$tour"); \
 		echo "recording $$name ($$want stills)"; \
-		rm -f docs/tui-review/frames/*.png docs/tui-review/frames/_render.txt; \
+		rm -f out/tui-review/*.png out/tui-review/_render.txt; \
 		vhs "$$tape" || exit 1; \
-		got=$$(ls docs/tui-review/frames/*.png 2>/dev/null | wc -l | tr -d ' '); \
+		got=$$(ls out/tui-review/*.png 2>/dev/null | wc -l | tr -d ' '); \
 		if [ "$$got" != "$$want" ]; then \
 			echo "$$name: recorded $$got stills, $$tour asks for $$want"; \
 			echo "(a Screenshot with no following Sleep writes nothing)"; \
 			exit 1; \
 		fi; \
-		dest=docs/tui-review/frames/$$name; \
+		dest=out/tui-review/$$name; \
 		mkdir -p "$$dest"; \
 		rm -f "$$dest"/*.png; \
-		mv docs/tui-review/frames/*.png "$$dest/"; \
-		rm -f docs/tui-review/frames/_render.txt; \
+		mv out/tui-review/*.png "$$dest/"; \
+		rm -f out/tui-review/_render.txt; \
 		sh docs/tui-review/verify-frames.sh "$$dest" || exit 1; \
 	done
 	@$(MAKE) --no-print-directory review-sheet
-	@echo "wrote docs/tui-review/frames/{chrome,responses}-{80-dark,100-dark,60-dark,80-light}/"
+	@echo "wrote out/tui-review/{chrome,responses}-{80-dark,100-dark,60-dark,80-light}/"
 
 review-sheet: ## tile each recorded directory into one contact sheet
 	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install ffmpeg)"; exit 1; }
-	@for dir in docs/tui-review/frames/*/; do \
+	@for dir in out/tui-review/*/; do \
 		name=$$(basename "$$dir"); \
 		case "$$name" in xdg) continue ;; esac; \
 		n=$$(ls "$$dir"*.png 2>/dev/null | wc -l | tr -d ' '); \
@@ -111,7 +112,7 @@ review-sheet: ## tile each recorded directory into one contact sheet
 		rows=$$(( ($$n + 3) / 4 )); \
 		ffmpeg -y -loglevel error -pattern_type glob -i "$$dir*.png" \
 			-filter_complex "scale=iw/2:ih/2,tile=4x$$rows:padding=6:margin=6:color=0x101014" \
-			-frames:v 1 "docs/tui-review/frames/$$name-sheet.png" || exit 1; \
+			-frames:v 1 "out/tui-review/$$name-sheet.png" || exit 1; \
 		echo "$$name-sheet.png: $$(ls "$$dir" | tr '\n' ' ')"; \
 	done
 
@@ -123,8 +124,8 @@ tidy: ## tidy go.mod/go.sum
 	go mod tidy
 
 clean: ## remove build artifacts
-	rm -f $(BINARY) $(REVIEW_FINGERD)
-	rm -rf dist
+	rm -f $(BINARY)
+	rm -rf dist out
 
 notices: ## regenerate THIRD_PARTY_NOTICES.md from dependency licenses (rerun after dep changes)
 	@tmp=$$(mktemp -d); \

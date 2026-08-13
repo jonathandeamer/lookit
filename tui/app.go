@@ -1461,12 +1461,13 @@ func (m appModel) buildStatusBar() statusBar {
 		}
 	default: // stateReader
 		if node.entry.failed() {
-			// No response landed. A byte count would present the failure as an
-			// empty-but-successful response — an outcome lookit is careful to
-			// distinguish elsewhere ("partial (truncated)", "auto-detected") —
-			// and there is nothing to scroll. Dropping both is also what makes
-			// "r retry", the only useful action here, fit a narrow bar; no
-			// priority rule is needed.
+			// No bytes landed, so a byte count and a scroll hint would both be
+			// false. A "partial (truncated)" flag would be false for the same
+			// reason: "partial" claims part of a response arrived, and here
+			// nothing did — even though a read deadline that delivered nothing
+			// does set Meta.Truncated (see finger.queryWith), so this case is
+			// real, not hypothetical. The error line plus "r retry" already
+			// tell the whole story.
 			bar.hints = joinHints([]string{m.refreshHint()}, bar.escTarget)
 			return bar
 		}

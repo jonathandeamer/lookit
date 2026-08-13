@@ -383,3 +383,31 @@ func TestStatusBarErroredResponseWithBodyKeepsBytes(t *testing.T) {
 		t.Errorf("flags = %v, want the partial (truncated) flag", bar.flags)
 	}
 }
+
+// A read deadline can set Meta.Truncated even when nothing was ever read
+// (see finger.queryWith / TestQuery_ReadDeadline): the server accepted the
+// connection, then sent nothing before the timeout fired. That still counts
+// as a failed entry (no bytes), so it gets the plain-failure treatment, not
+// the "partial (truncated)" flag — "partial" claims part of a response
+// arrived, and here none did.
+func TestStatusBarTruncatedWithNoBodyIsAPlainFailure(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "nobody@127.0.0.1:1"),
+		Meta:   finger.Meta{Truncated: true},
+		Err:    errors.New("127.0.0.1:1 stopped responding after 30s"),
+	})
+	bar := m.buildStatusBar()
+
+	if bar.meta != "" {
+		t.Errorf("meta = %q, want empty: no bytes landed", bar.meta)
+	}
+	if bar.scroll != "" {
+		t.Errorf("scroll = %q, want empty: there is nothing to scroll", bar.scroll)
+	}
+	if slices.Contains(bar.flags, "partial (truncated)") {
+		t.Errorf("flags = %v, want no partial (truncated) flag: nothing partial arrived", bar.flags)
+	}
+	if !strings.Contains(bar.hints, "r retry") {
+		t.Errorf("hints = %q, want them to include \"r retry\"", bar.hints)
+	}
+}

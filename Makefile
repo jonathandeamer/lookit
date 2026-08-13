@@ -9,14 +9,22 @@ GORELEASER_VERSION := v2.16.0
 GO_LICENSES_VERSION := v1.6.0
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
-REVIEW_TAPES := \
+REVIEW_CHROME_TAPES := \
 	docs/tui-review/chrome-80-dark.tape \
 	docs/tui-review/chrome-100-dark.tape \
 	docs/tui-review/chrome-60-dark.tape \
 	docs/tui-review/chrome-80-light.tape
 
+REVIEW_RESPONSES_TAPES := \
+	docs/tui-review/responses-80-dark.tape \
+	docs/tui-review/responses-100-dark.tape \
+	docs/tui-review/responses-60-dark.tape \
+	docs/tui-review/responses-80-light.tape
+
+REVIEW_FINGERD := docs/tui-review/fixtures/fingerd/fingerd
+
 .PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean \
-	notices release-check release-snapshot release review-tui
+	notices release-check release-snapshot release review-tui review-fingerd
 
 build: ## build the binary
 	go build -o $(BINARY) .
@@ -49,12 +57,18 @@ vuln: ## scan dependencies for known vulnerabilities
 
 check: vet fmt-check lint race ## run the full CI gate set
 
-review-tui: build ## record docs/tui-review chrome stills (not part of check)
+review-fingerd: ## build the loopback finger server used by responses tapes
+	go build -o $(REVIEW_FINGERD) ./docs/tui-review/fixtures/fingerd
+
+review-tui: build review-fingerd ## record docs/tui-review stills (not part of check)
 	@command -v vhs >/dev/null || { echo "vhs not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
 	@command -v ttyd >/dev/null || { echo "ttyd not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
 	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
 	@mkdir -p docs/tui-review/frames
-	@for tape in $(REVIEW_TAPES); do \
+	@$(REVIEW_FINGERD) & echo $$! > docs/tui-review/frames/fingerd.pid
+	@sleep 0.2
+	@trap 'kill $$(cat docs/tui-review/frames/fingerd.pid) 2>/dev/null; rm -f docs/tui-review/frames/fingerd.pid' EXIT; \
+	for tape in $(REVIEW_CHROME_TAPES); do \
 		name=$$(basename "$$tape" .tape); \
 		echo "recording $$name"; \
 		vhs "$$tape"; \
@@ -69,8 +83,24 @@ review-tui: build ## record docs/tui-review chrome stills (not part of check)
 			mv "$$src" "$$dest/"; \
 		done; \
 		rm -f docs/tui-review/frames/_render.gif; \
+	done; \
+	for tape in $(REVIEW_RESPONSES_TAPES); do \
+		name=$$(basename "$$tape" .tape); \
+		echo "recording $$name"; \
+		vhs "$$tape"; \
+		dest=docs/tui-review/frames/$$name; \
+		mkdir -p "$$dest"; \
+		for scene in list reader error; do \
+			src=docs/tui-review/frames/$$scene.png; \
+			if [ ! -f "$$src" ]; then \
+				echo "missing $$src (responses-tour.tape Screenshot after a Sleep?)"; \
+				exit 1; \
+			fi; \
+			mv "$$src" "$$dest/"; \
+		done; \
+		rm -f docs/tui-review/frames/_render.gif; \
 	done
-	@echo "wrote docs/tui-review/frames/{chrome-80-dark,chrome-100-dark,chrome-60-dark,chrome-80-light}/"
+	@echo "wrote docs/tui-review/frames/{chrome,responses}-{80-dark,100-dark,60-dark,80-light}/"
 
 hooks: ## install git hooks (commit-msg: Conventional Commits); run once per clone
 	git config core.hooksPath .githooks
@@ -80,7 +110,7 @@ tidy: ## tidy go.mod/go.sum
 	go mod tidy
 
 clean: ## remove build artifacts
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(REVIEW_FINGERD)
 	rm -rf dist
 
 notices: ## regenerate THIRD_PARTY_NOTICES.md from dependency licenses (rerun after dep changes)

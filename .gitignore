@@ -15,3 +15,4 @@
 
 # VHS review frames (regenerate with `make review-tui`)
 docs/tui-review/frames/
+docs/tui-review/fixtures/fingerd/fingerd

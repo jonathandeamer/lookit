@@ -31,8 +31,10 @@ to `docs/wordmark-design/`.
 - Dark 80×24, dark 100×30, dark 60×20 (narrow layout), light 80×24.
 - Generated frames are gitignored. `make review-tui` records; `make check`
   does not.
-- A Go scene book that dumps `View()` is deferred. It belongs next to `tui/`
-  if and when reader/list/error scenes need stubbed bodies without a PTY.
+- Reader, list, and error stills use a loopback fingerd
+  (`docs/tui-review/fixtures/fingerd`, `127.0.0.1:2479`) plus a closed-port
+  dial. No product fetch seam and no live hosts. A Go scene book that dumps
+  `View()` stays deferred.
 
 ## Non-goals
 

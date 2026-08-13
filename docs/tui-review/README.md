@@ -8,7 +8,9 @@ timings. These tapes are the opposite — no card, no network, `Wait` not
 `Sleep`, a fixture bookmarks file, and one PNG per landed screen.
 
 `make check` does not run this. Contrast and `View()` assertions stay in the
-Go tests; this pass is "does this look wrong."
+Go tests; this pass is "does this look wrong." List/reader stills come from a
+loopback fingerd (`127.0.0.1:2479`); error stills dial a closed port. Nothing
+here leaves the machine.
 
 ## Record
 
@@ -50,7 +52,7 @@ font size changes.
 
 ## Scenes
 
-`tour.tape` is the walkthrough every chrome tape Sources. It never fetches.
+`tour.tape` is the chrome walkthrough. It never fetches.
 
 | File | State |
 |---|---|
@@ -60,9 +62,13 @@ font size changes.
 | `help.png` | `?` panel on the startpage |
 | `about.png` | About (`a` from the open help panel) |
 
-Reader, list, links, loading, and error are not in this kit yet: they need a
-stubbed fetch or a live host, and this first cut stays offline. Add them as
-their own tour when that path exists.
+`responses-tour.tape` fingers the loopback fixture, then a closed port.
+
+| File | State |
+|---|---|
+| `list.png` | host listing at `@127.0.0.1:2479` (alice, bob) |
+| `reader.png` | alice's .plan after Enter |
+| `error.png` | `nobody@127.0.0.1:1` — dial refused, `r retry` (Wait matches `connect:` so 60-col wrap still lands) |
 
 ## Rubric
 

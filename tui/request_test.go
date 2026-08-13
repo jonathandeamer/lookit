@@ -681,7 +681,7 @@ func TestMainContentRefreshStatus(t *testing.T) {
 		t.Fatalf("reader hints = %q, want %q", got, want)
 	}
 	failed := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Err: errors.New("dial failed")})
-	if got, want := failed.buildStatusBar().hints, "↑↓ scroll · r retry · esc back · ? help"; got != want {
+	if got, want := failed.buildStatusBar().hints, "r retry · esc back · ? help"; got != want {
 		t.Fatalf("error hints = %q, want %q", got, want)
 	}
 	listed := settledList(t)

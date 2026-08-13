@@ -1460,6 +1460,16 @@ func (m appModel) buildStatusBar() statusBar {
 			bar.page = fmt.Sprintf("page %d/%d", m.list.list.Paginator.Page+1, tp)
 		}
 	default: // stateReader
+		if node.entry.failed() {
+			// No response landed. A byte count would present the failure as an
+			// empty-but-successful response — an outcome lookit is careful to
+			// distinguish elsewhere ("partial (truncated)", "auto-detected") —
+			// and there is nothing to scroll. Dropping both is also what makes
+			// "r retry", the only useful action here, fit a narrow bar; no
+			// priority rule is needed.
+			bar.hints = joinHints([]string{m.refreshHint()}, bar.escTarget)
+			return bar
+		}
 		bar.meta = formatBytes(len(node.entry.Body))
 		// The render footer (which carried the truncation notice) is suppressed
 		// in the TUI. The error message still renders in the viewport via the

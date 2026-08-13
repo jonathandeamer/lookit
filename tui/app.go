@@ -1081,8 +1081,7 @@ func (m appModel) shouldRetry() bool {
 	if m.pos < 0 || m.pos >= len(m.history) {
 		return false
 	}
-	entry := m.history[m.pos].entry
-	return entry.Err != nil && len(entry.Body) == 0
+	return m.history[m.pos].entry.failed()
 }
 
 func (m appModel) refreshHelp() key.Help {

@@ -14,6 +14,17 @@ type Entry struct {
 	Err    error
 }
 
+// failed reports a request that produced no response at all. It is the
+// difference between "the server said nothing" and "the server said nothing
+// useful": an errored response that still carries bytes is a partial success,
+// with a body to scroll and a byte count worth reporting.
+//
+// The status bar and the retry keybinding both key off this, so they cannot
+// disagree about whether a response landed.
+func (e Entry) failed() bool {
+	return e.Err != nil && len(e.Body) == 0
+}
+
 type FetchFunc func(context.Context, finger.Target) ([]byte, finger.Meta, error)
 
 type fetchResultMsg struct {

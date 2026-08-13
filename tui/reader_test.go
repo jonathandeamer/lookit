@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
@@ -73,6 +74,94 @@ func TestReaderSetSize(t *testing.T) {
 	// chromeRows == 0: the reader is viewport-only, so viewport height == height passed.
 	if m.viewport.Height() != 30 {
 		t.Fatalf("viewport height = %d, want 30 (chromeRows==0, full height to viewport)", m.viewport.Height())
+	}
+}
+
+// dialErrText is the real net error from a refused connection: at 60 columns
+// the reason ("refused") used to be clipped off the right edge unreachably.
+const dialErrText = "dial 127.0.0.1:1: dial tcp 127.0.0.1:1: connect: connection refused"
+
+func TestReaderWrapsErrorAtViewportWidth(t *testing.T) {
+	m := newReader(colorprofile.NoTTY)
+	target, err := finger.ParseTarget("nobody@127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.setSize(60, 10)
+	m.setEntry(Entry{Target: target, Err: errors.New(dialErrText)})
+
+	got := ansi.Strip(m.viewport.View())
+	if !strings.Contains(got, "refused") {
+		t.Fatalf("reader clipped the error reason at width 60:\n%q", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if w := ansi.StringWidth(strings.TrimRight(line, " ")); w > 60 {
+			t.Errorf("reader line exceeds width 60 (%d cells): %q", w, line)
+		}
+	}
+}
+
+func TestReaderRewrapsErrorOnResize(t *testing.T) {
+	m := newReader(colorprofile.NoTTY)
+	target, err := finger.ParseTarget("nobody@127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.setSize(100, 10)
+	m.setEntry(Entry{Target: target, Err: errors.New(dialErrText)})
+	m.setSize(40, 10)
+
+	got := ansi.Strip(m.viewport.View())
+	if !strings.Contains(got, "refused") {
+		t.Fatalf("error reason lost after resize:\n%q", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if w := ansi.StringWidth(strings.TrimRight(line, " ")); w > 40 {
+			t.Errorf("line not re-wrapped after resize to 40 (%d cells): %q", w, line)
+		}
+	}
+}
+
+func TestReaderDoesNotWrapBody(t *testing.T) {
+	m := newReader(colorprofile.NoTTY)
+	target, err := finger.ParseTarget("alice@plan.cat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("ab", 60) // 120 cells with no break opportunity
+	m.setSize(40, 10)
+	m.setEntry(Entry{Target: target, Body: []byte(long + "\n")})
+
+	// The viewport clips horizontally, so the visible first line is 40 cells
+	// either way. What distinguishes wrap from clip is line 2: a soft-wrapped
+	// body would continue there.
+	lines := strings.Split(ansi.Strip(m.viewport.View()), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected a padded viewport, got %q", m.viewport.View())
+	}
+	if strings.TrimRight(lines[1], " ") != "" {
+		t.Fatalf("body line was reflowed at width 40, continuation on line 2: %q", lines[1])
+	}
+}
+
+// The issue's repro: `lookit nobody@127.0.0.1:1` in a 60-column terminal.
+// Drives the whole app so the wrap survives the app -> reader wiring.
+func TestDialFailureStaysReadableAt60Columns(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	target, err := finger.ParseTarget("nobody@127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	landed := deliverNavigation(sized.(appModel), Entry{
+		Target: target,
+		Meta:   finger.Meta{Addr: target.HostPort},
+		Err:    errors.New(dialErrText),
+	})
+
+	got := ansi.Strip(landed.View().Content)
+	if !strings.Contains(got, "refused") {
+		t.Fatalf("dial reason clipped at 60 columns:\n%s", got)
 	}
 }
 

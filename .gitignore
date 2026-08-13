@@ -4,11 +4,19 @@
 # Build artifacts
 /dist/
 
-# Local worktrees
+# Local worktrees. Only the worktrees dir under .claude/ — not .claude/
+# itself, which should stay free for shared project settings.
 .worktrees/
+.claude/worktrees/
 
 # OS junk
 .DS_Store
 
 # Visual brainstorm companion artifacts
 .superpowers/
+
+# Generated, disposable output: anything a tool writes and `make clean` can
+# delete. Keep new tooling pointed here rather than beside its sources, so
+# `git status` stays quiet and "delete the generated stuff" is always a safe
+# `rm -rf out`. (VHS review frames and the review fingerd live here.)
+/out/

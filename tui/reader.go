@@ -58,27 +58,37 @@ func (m *readerModel) setSize(width, height int) {
 		vh = 1
 	}
 	m.viewport.SetHeight(vh)
+	// Error lines wrap at the viewport width, so a resize must re-render.
+	if m.current != nil {
+		m.viewport.SetContent(m.render(*m.current))
+	}
+}
+
+// render renders one entry at the reader's current width, so a long error line
+// wraps instead of being clipped off the right edge.
+func (m readerModel) render(entry Entry) string {
+	return render.RenderWithWidth(entry.Target, entry.Body, entry.Err, m.profile, m.darkBackground, m.width)
 }
 
 // setProfile updates the color profile and re-renders the current entry.
 func (m *readerModel) setProfile(p colorprofile.Profile) {
 	m.profile = p
 	if m.current != nil {
-		m.viewport.SetContent(render.RenderWithBackground(m.current.Target, m.current.Body, m.current.Err, m.profile, m.darkBackground))
+		m.viewport.SetContent(m.render(*m.current))
 	}
 }
 
 func (m *readerModel) setBackground(dark bool) {
 	m.darkBackground = dark
 	if m.current != nil {
-		m.viewport.SetContent(render.RenderWithBackground(m.current.Target, m.current.Body, m.current.Err, m.profile, m.darkBackground))
+		m.viewport.SetContent(m.render(*m.current))
 	}
 }
 
 // setEntry displays a fetched result.
 func (m *readerModel) setEntry(entry Entry) {
 	m.current = &entry
-	m.viewport.SetContent(renderEntry(m.profile, m.darkBackground, entry))
+	m.viewport.SetContent(m.render(entry))
 }
 
 // setEntryWithLinks displays a fetched result and applies the link overlay
@@ -88,7 +98,7 @@ func (m *readerModel) setEntry(entry Entry) {
 func (m *readerModel) setEntryWithLinks(entry Entry, links []Link) {
 	m.current = &entry
 	m.links = links
-	rendered := render.RenderWithBackground(entry.Target, entry.Body, entry.Err, m.profile, m.darkBackground)
+	rendered := m.render(entry)
 	rendered = applyLinkOverlay(rendered, links, m.focusedLink, m.styles)
 	m.viewport.SetContent(rendered)
 	m.scrollToFocusedLink(links)
@@ -143,8 +153,4 @@ func (m *readerModel) prevLink(count int) {
 // bypassing render's field highlighting and error treatment.
 func (m *readerModel) setRaw(body []byte) {
 	m.viewport.SetContent(string(body))
-}
-
-func renderEntry(profile colorprofile.Profile, darkBackground bool, entry Entry) string {
-	return render.RenderWithBackground(entry.Target, entry.Body, entry.Err, profile, darkBackground)
 }

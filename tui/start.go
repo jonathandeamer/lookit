@@ -144,6 +144,9 @@ func startItems(sections []startSection, width int) []list.Item {
 	}
 
 	var items []list.Item
+	if len(sections) > 0 {
+		items = append(items, startItem{spacer: true})
+	}
 	for _, s := range sections {
 		if width >= startWideMinWidth && hasCommunities && s.id == sectionServices && len(s.entries) > 0 {
 			items = append(items, startItem{spacer: true})

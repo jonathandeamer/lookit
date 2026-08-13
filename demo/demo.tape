@@ -1,4 +1,5 @@
 # demo.tape - VHS script for the README hero gif (demo/demo.gif).
+# Visual review of chrome belongs in docs/tui-review/, not here.
 #
 # Record from the repo root:  vhs demo/demo.tape
 # Needs vhs, ttyd, and ffmpeg on PATH:  brew install vhs ffmpeg ttyd

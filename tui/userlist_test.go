@@ -117,6 +117,20 @@ func TestParseMarkerHappyNetBox(t *testing.T) {
 	}
 }
 
+func TestParseGenericReviewFixture(t *testing.T) {
+	// Must stay in lockstep with docs/tui-review/fixtures/fingerd genericBody.
+	parsed, ok := parseUserList([]byte("carol  Carol Review\ndave  Dave Review\n"), "")
+	if !ok {
+		t.Fatal("parseUserList ok = false, want a generic list")
+	}
+	if !parsed.generic {
+		t.Fatal("generic = false, want true (no named-format cue)")
+	}
+	if got, want := logins(parsed.users), []string{"carol", "dave"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("logins = %v, want %v", got, want)
+	}
+}
+
 func TestParseTypedHoleAvailableFingers(t *testing.T) {
 	body := []byte("Welcome to the Typed Hole\n" +
 		"Users currently logged in: probably julien\n\n" +

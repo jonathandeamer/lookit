@@ -130,9 +130,16 @@ two words from that quotation and keeps it traceable.
 `weather@bbs.airandwave.net` goes rather than shrinks: `@graph.no` already
 serves weather worldwide, and the catalog has settled this case before —
 `david@netbros.com` was dropped as a duplicate of `david@collantes.us`, and four
-`weather:ZIP` services collapsed into one entry. Nothing is hidden by the
-removal: `@bbs.airandwave.net`'s own response advertises `weather` in its menu,
-and its note still reads "Over two dozen services, from news to sudoku".
+`weather:ZIP` services collapsed into one entry. The service remains discoverable:
+`@bbs.airandwave.net`'s own response advertises `weather` in its menu, and its
+note still reads "Over two dozen services, from news to sudoku".
+
+One local consequence is accepted explicitly. Bookmarks store targets only and
+borrow notes and classifications from an exact catalog match. An existing
+`weather@bbs.airandwave.net` bookmark therefore remains present and usable after
+the catalog entry is removed, but becomes an ordinary unclassified bookmark
+with a blank note. No migration or hidden metadata registry is added for one
+retired catalog description.
 
 Both rewrites drop an inline usage example (`finger oslo@graph.no`,
 `weather:city@…`). That is a deliberate trade: the syntax is in each service's
@@ -145,18 +152,38 @@ that produced this list measured **every** note by display width, which is how
 `@tilde.team` surfaced after an earlier pass over service children alone missed
 it. Re-run that audit, not a spot check, when adding copy.
 
+### Two services are added
+
+The same catalog edit adds one child under each of two existing service hosts:
+
+| Target | Note | Basis |
+|---|---|---|
+| `wiki@bbs.airandwave.net` | **Wikipedia lookup** | the service is a Wikipedia lookup; the maintainer approved this direct description |
+| `lobsters@typed-hole.org` | **The latest posts from lobste.rs** | the live response is a list of current Lobste.rs posts; the host menu describes it as Lobste.rs stories |
+
+Both notes are below 48 cells. They are ordinary children: no hint field, no
+special ordering rule, and no change to grouping. Computed alphabetical order
+puts `wiki` before `wordsearch:today` under `bbs.airandwave.net`, and `lobsters`
+between `cyoa` and `smog` under `typed-hole.org`. The existing final children
+therefore remain `wordsearch:today` and `textfile`.
+
 ## Consequences
 
-- The catalog holds **19 services and 25 entries** (from 20 and 26), four
-  service roots and **15 children**. The rendered SERVICES section is **20
+- The catalog holds **21 services and 27 entries** (from 20 and 26), four
+  service roots and **17 children**. The rendered SERVICES section is **22
   rows**, including the structural `@happynetbox.com` copy.
-- `bbs.airandwave.net` drops to five children — `dict`, `quake`, `sudoku:easy`,
-  `urban`, `wordsearch:today`. `wordsearch:today` is still the last child, so no
-  connector changes.
+- `bbs.airandwave.net` keeps six children after replacing `weather` with `wiki`
+  — `dict`, `quake`, `sudoku:easy`, `urban`, `wiki`, `wordsearch:today`.
+  `wordsearch:today` is still the last child, so its connector does not change.
+- `typed-hole.org` grows to four children — `cyoa`, `lobsters`, `smog`,
+  `textfile`. `textfile` remains the last child.
+- An existing `weather@bbs.airandwave.net` bookmark remains in BOOKMARKS as a
+  target-only row, with `kindUnknown` and a blank note because its catalog match
+  no longer exists.
 - Fixtures that move: the ordering list in `TestServicesGroupUnderHostRoots`;
   the four unfiltered scenarios in
-  `TestOverviewAndStatusCountsExcludeStructuralCopies`, which become 19/25,
-  18/25, 18/25 and 19/26; and any test naming a removed hint.
+  `TestOverviewAndStatusCountsExcludeStructuralCopies`, which become 21/27,
+  20/27, 20/27 and 21/28; and any test naming a removed hint.
 - `TestWideChildRowShowsHintNoteOrFullNote` (added by the final review's fix
   wave) is rewritten: its hinted-child case becomes an unselected child with an
   **empty** note column, keeping the selected-child case that proves the wide
@@ -182,16 +209,21 @@ it. Re-run that audit, not a spot check, when adding copy.
   case.
 - **Removal:** no catalog line contains `|`; `startEntry` has no `hint` field;
   `FilterValue` on a child equals `target + " " + note`.
-- **Counts and ordering:** the fixtures above, at their new values.
+- **Counts and ordering:** the fixtures above, at their new values; `wiki` and
+  `lobsters` appear under their existing roots while the same final children
+  retain `lastChild`.
+- **Removed-entry bookmark:** a bookmarked `weather@bbs.airandwave.net` target
+  survives catalog removal, stays marked bookmarked, and carries no borrowed
+  note or classification.
 
 ## Out of scope
 
 - **Narrowing the target column**, per the reasoning above.
 - **Any new visual treatment for the note column.** The distinction now comes
   from focus, not colour.
-- **Surveying `@bbs.airandwave.net`'s other services.** Removing `weather`
-  leaves five catalogued; the host advertises far more, and choosing among them
-  is separate work.
+- **Surveying `@bbs.airandwave.net`'s services beyond `wiki`.** Replacing
+  `weather` with `wiki` leaves six catalogued; the host advertises far more, and
+  choosing among the rest is separate work.
 
 ## Branching
 

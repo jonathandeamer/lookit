@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the catalog hint feature entirely, leave a service child's note column empty until its row is selected, and cap every catalog note at 48 terminal cells.
+**Goal:** Remove the catalog hint feature entirely, leave a service child's note column empty until its row is selected, cap every catalog note at 48 terminal cells, and add the `wiki` and `lobsters` services under their existing hosts.
 
-**Architecture:** This is mostly subtraction. The ` | <hint>` grammar, its parser, its two build-gate guards and the `hint` field all come out; `startRowNote` collapses to "a child shows its note only when selected or flattened"; `FilterValue` and `splitStartMatches` return to their pre-hint shapes. What stays is the connector work: `├`/`└`, `lastChild`, and the column-5 indent. A new width gate replaces the deleted guards.
+**Architecture:** This is mostly subtraction. The ` | <hint>` grammar, its parser, its two build-gate guards and the `hint` field all come out; `startRowNote` collapses to "a child shows its note only when selected or flattened"; `FilterValue` and `splitStartMatches` return to their pre-hint shapes. The catalog simultaneously removes one redundant weather service and adds `wiki` and `lobsters`; computed grouping places them under existing roots. What stays is the connector work: `├`/`└`, `lastChild`, and the column-5 indent. A new width gate replaces the deleted guards.
 
 **Tech Stack:** Go 1.26 toolchain, Bubble Tea v2 (`charm.land/bubbletea/v2`), `charm.land/bubbles/v2/list`, `charm.land/lipgloss/v2`, `github.com/charmbracelet/x/ansi`. Tests are standard `go test` — no network, no TTY.
 
@@ -24,14 +24,16 @@
 
 ---
 
-### Task 1: Cap catalog notes at 48 cells
+### Task 1: Cap catalog notes and refresh the service set
 
 Do this first: it is the only task that adds a guarantee rather than removing
 code, and its rewrites are what let the gate pass.
 
 **Files:**
-- Modify: `tui/catalog.txt` (three notes rewritten, one entry removed)
+- Modify: `tui/catalog.txt` (three notes rewritten, one entry removed, two
+  service children added)
 - Test: `tui/catalog_test.go`
+- Test: `tui/sections_test.go`
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -92,9 +94,30 @@ func TestCatalogNotesFitTheNoteColumn(t *testing.T) {
 
 Add `"github.com/charmbracelet/x/ansi"` to the file's imports.
 
+Add this regression test to `tui/sections_test.go`. It records the deliberate
+effect on an existing bookmark instead of letting the catalog edit change it
+silently:
+
+```go
+func TestRemovedWeatherServiceBookmarkStaysTargetOnly(t *testing.T) {
+	const target = "weather@bbs.airandwave.net"
+	got := buildSections(loadCatalog(), bookmarkFile{targets: []string{target}})
+	if len(got) == 0 || got[0].id != sectionBookmarks || len(got[0].entries) != 1 {
+		t.Fatalf("sections = %+v, want one BOOKMARKS entry", got)
+	}
+	entry := got[0].entries[0]
+	if entry.target != target || !entry.bookmarked {
+		t.Fatalf("bookmark = %+v, want retained target %q marked bookmarked", entry, target)
+	}
+	if entry.note != "" || entry.kind != kindUnknown {
+		t.Fatalf("bookmark = %+v, want blank note and kindUnknown after catalog removal", entry)
+	}
+}
+```
+
 - [ ] **Step 2: Run them and read the failures**
 
-Run: `go test ./tui/ -run 'TestCatalogNote' -count=1`
+Run: `go test ./tui/ -run 'TestCatalogNote|TestRemovedWeatherServiceBookmarkStaysTargetOnly' -count=1`
 Expected: `TestCatalogNoteWidthMeasuresCellsNotRunes` PASSES.
 `TestCatalogNotesFitTheNoteColumn` FAILS naming **ten** entries, in two groups:
 
@@ -105,12 +128,16 @@ Expected: `TestCatalogNoteWidthMeasuresCellsNotRunes` PASSES.
   still there: `smog@` (60), `bot@` (69), `1@` (68), `textfile@` (53),
   `originsfinger@` (53), `random@` (52). (`cyoa@` lands at 47 and slips under.)
 
+`TestRemovedWeatherServiceBookmarkStaysTargetOnly` also FAILS because the
+current catalog match still supplies the bookmark's weather note and
+`kindService` classification.
+
 The second group is not a copy problem — it is the hint grammar, which step 3
 strips as part of this task. The hints must go now rather than in Task 4: leave
 them and this gate stays red for a reason that has nothing to do with note
 length.
 
-- [ ] **Step 3: Strip the seven hints, rewrite three notes, remove one entry**
+- [ ] **Step 3: Strip the seven hints, rewrite three notes, replace one service, and add another**
 
 First delete the ` | <hint>` suffix from all seven lines that carry one —
 `cyoa@typed-hole.org`, `smog@typed-hole.org`, `textfile@typed-hole.org`,
@@ -118,8 +145,8 @@ First delete the ` | <hint>` suffix from all seven lines that carry one —
 `originsfinger@happynetbox.com` — leaving each note exactly as it reads before
 the ` | `. Nothing else on those lines changes.
 
-Then make exactly these four changes. Do not touch any other line, and do not
-reorder anything:
+Then make exactly these three rewrites. Do not alter any other existing line or
+reorder the existing records:
 
 ```
 community ring@thebackupbox.net A webring, for finger
@@ -133,33 +160,54 @@ and **delete** the line:
 service weather@bbs.airandwave.net Current weather and a 7-day forecast — weather:city@…
 ```
 
+Add these two service records alongside the other records for their respective
+hosts. File order does not control display order, but keeping host records
+together makes the catalog reviewable:
+
+```
+service wiki@bbs.airandwave.net Wikipedia lookup
+service lobsters@typed-hole.org The latest posts from lobste.rs
+```
+
 `weather@bbs.airandwave.net` goes rather than shrinks because `@graph.no`
 already serves weather worldwide; `@bbs.airandwave.net`'s own response still
 advertises `weather` in its menu.
 
 - [ ] **Step 4: Run the catalog tests**
 
-Run: `go test ./tui/ -run TestCatalog -count=1 -v`
-Expected: PASS. Note `TestCatalogIsWellFormed` requires at least 20 entries; the
-catalog now holds 25, so it still passes.
+Run: `go test ./tui/ -run 'TestCatalog|TestRemovedWeatherServiceBookmarkStaysTargetOnly' -count=1 -v`
+Expected: PASS. The weather bookmark remains as a target-only BOOKMARKS row,
+now with a blank note and `kindUnknown`. Note `TestCatalogIsWellFormed` requires
+at least 20 entries; the catalog now holds 27, so it still passes. Both new
+notes also pass the 48-cell gate.
 
 - [ ] **Step 5: Fix the count and ordering fixtures**
 
 Run: `go test ./tui/ -count=1`
 
-Two fixtures pin numbers the removal moves:
+Three fixtures pin ordering, connector shape, or counts moved by the service
+set change:
 
 - `TestServicesGroupUnderHostRoots` (`tui/sections_test.go`) lists every service
-  row in order — remove `"weather@bbs.airandwave.net"` from that slice.
+  row in order. Under `@bbs.airandwave.net`, replace
+  `"weather@bbs.airandwave.net"` with `"wiki@bbs.airandwave.net"` immediately
+  before `"wordsearch:today@bbs.airandwave.net"`. Under `@typed-hole.org`, add
+  `"lobsters@typed-hole.org"` between `"cyoa@typed-hole.org"` and
+  `"smog@typed-hole.org"`.
+- `TestLastChildMarksTheFinalChildOfEveryGroup` (`tui/sections_test.go`) — add
+  `"wiki@bbs.airandwave.net": false` and
+  `"lobsters@typed-hole.org": false` to its `want` map. Keep
+  `wordsearch:today@bbs.airandwave.net` and `textfile@typed-hole.org` true; the
+  new alphabetic children do not become the end of either group.
 - `TestOverviewAndStatusCountsExcludeStructuralCopies` (`tui/app_test.go`) — its
-  four unfiltered scenarios each drop one service. They become, in order:
+  four unfiltered scenarios gain one net service. They become, in order:
 
   | Scenario | Counts | Total |
   |---|---|---|
-  | unfiltered | `{communities: 6, services: 19}` | 25 |
-  | child pinned | `{bookmarks: 1, communities: 6, services: 18}` | 25 |
-  | parent pinned | `{bookmarks: 1, communities: 6, services: 18}` | 25 |
-  | repeated bookmarks | `{bookmarks: 2, communities: 5, services: 19}` | 26 |
+  | unfiltered | `{communities: 6, services: 21}` | 27 |
+  | child pinned | `{bookmarks: 1, communities: 6, services: 20}` | 27 |
+  | parent pinned | `{bookmarks: 1, communities: 6, services: 20}` | 27 |
+  | repeated bookmarks | `{bookmarks: 2, communities: 5, services: 21}` | 28 |
 
   The two `happynetbox.com` filtered scenarios are unaffected.
 
@@ -174,7 +222,7 @@ Expected: pass.
 
 ```bash
 git add tui/catalog.txt tui/catalog_test.go tui/sections_test.go tui/app_test.go
-git commit -m "feat(catalog): cap notes at the width of their column"
+git commit -m "feat(catalog): refresh services and cap note widths"
 ```
 
 ---
@@ -183,21 +231,27 @@ git commit -m "feat(catalog): cap notes at the width of their column"
 
 **Files:**
 - Modify: `tui/start.go` (`startRowNote`, around line 320)
-- Test: `tui/start_test.go`
+- Test: `tui/start_test.go` (`TestStartRowNotePerState`, the narrow child-row
+  test, and the wide rendered-output coverage)
 
 **Interfaces:**
 - Consumes: `startRowNote(entry startEntry, selected, flattened bool) string`, unchanged signature.
 - Produces: the same function, with the hint branch gone.
 
-- [ ] **Step 1: Rewrite the state test**
+- [ ] **Step 1: Rewrite the state and rendered-output tests**
 
 In `tui/start_test.go`, replace the body of `TestStartRowNotePerState` (it
-currently has hinted cases) with:
+currently has hinted cases) with the following. The synthetic legacy hint is
+deliberate: it makes the test fail under the current implementation even though
+Task 1 already removed every hint from the real catalog.
 
 ```go
 func TestStartRowNotePerState(t *testing.T) {
 	const note = "Saturday Morning Gemzine — back issues"
-	child := startEntry{target: "smog@typed-hole.org", note: note, child: true}
+	child := startEntry{
+		target: "smog@typed-hole.org", note: note,
+		hint: "gemzine back issues", child: true,
+	}
 	root := startEntry{target: "@typed-hole.org", note: "A small menu of fingers, from lobste.rs to smog"}
 
 	tests := []struct {
@@ -223,12 +277,135 @@ func TestStartRowNotePerState(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it to make sure it fails**
+Replace `TestNarrowChildRowIndentsBothLines` with a selected-child case. An
+unselected grouped child has no second-line text after this change, so it can no
+longer prove the note's alignment; the selected row can:
 
-Run: `go test ./tui/ -run TestStartRowNotePerState -count=1`
-Expected: FAIL on "unselected child shows nothing" — the current
-implementation returns `entry.hint`, which is `""` for this fixture, so if it
-passes, check you replaced the whole function body rather than adding cases.
+```go
+func TestNarrowChildRowAlignsSelectedNoteUnderToken(t *testing.T) {
+	common := testCommon()
+	common.width = 40
+	common.contentFocused = true
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	if d.Height() != 2 {
+		t.Fatalf("delegate height = %d at width 40, want the two-line layout", d.Height())
+	}
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "dict@bbs.airandwave.net", note: "Dictionary lookup",
+			child: true, lastChild: true,
+		}, section: sectionServices},
+	}
+	l := list.New(items, d, 40, 4)
+	l.Select(0)
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	lines := strings.Split(ansi.Strip(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("selected child rendered %d lines, want 2: %q", len(lines), lines)
+	}
+	targetByte := strings.Index(lines[0], "dict")
+	noteByte := strings.Index(lines[1], "Dictionary lookup")
+	if targetByte < 0 || noteByte < 0 {
+		t.Fatalf("rendered lines = %q, want token and note", lines)
+	}
+	targetColumn := lipgloss.Width(lines[0][:targetByte])
+	noteColumn := lipgloss.Width(lines[1][:noteByte])
+	if noteColumn != targetColumn {
+		t.Fatalf("note column = %d, token column = %d: %q", noteColumn, targetColumn, lines)
+	}
+}
+```
+
+Replace `TestWideChildRowShowsHintNoteOrFullNote` with these two tests. The
+first retains a synthetic hint only long enough to prove the old behavior is
+gone; Task 4 removes that now-ignored field before deleting it from
+`startEntry`.
+
+```go
+// The wide single-line layout is the macOS default and was once revertible with
+// the suite still green, so it is asserted on rendered output rather than on
+// startRowNote alone.
+func TestWideChildRowShowsItsNoteOnlyWhenSelected(t *testing.T) {
+	const (
+		note       = "Latest earthquakes, M2.5+ past day"
+		legacyHint = "earthquake feed"
+	)
+	common := testCommon()
+	common.width = 100
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	if d.Height() != 1 {
+		t.Fatalf("delegate height = %d at width 100, want the one-line layout", d.Height())
+	}
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "quake@bbs.airandwave.net", note: note,
+			hint: legacyHint, child: true,
+		}, section: sectionServices},
+		startItem{entry: startEntry{
+			target: "urban@bbs.airandwave.net", note: note,
+			child: true, lastChild: true,
+		}, section: sectionServices},
+	}
+	l := list.New(items, d, 100, 6)
+
+	l.Select(1) // row 0 unselected
+	var unselected strings.Builder
+	d.Render(&unselected, l, 0, items[0])
+	unselectedLine := ansi.Strip(unselected.String())
+	if strings.Contains(unselectedLine, note) || strings.Contains(unselectedLine, legacyHint) {
+		t.Errorf("unselected child row = %q, want an empty note column", unselectedLine)
+	}
+	if !strings.Contains(unselectedLine, "quake") {
+		t.Errorf("unselected child row = %q, want its token", unselectedLine)
+	}
+
+	l.Select(0) // row 0 selected
+	var selected strings.Builder
+	d.Render(&selected, l, 0, items[0])
+	if got := ansi.Strip(selected.String()); !strings.Contains(got, note) {
+		t.Errorf("selected child row = %q, want its full note", got)
+	}
+}
+
+// Selection is the cursor's row, not which pane takes keys. A selected child
+// keeps its note while the target input is focused and the inactive shelf is
+// drawn — otherwise the note would blink out every time focus moved.
+func TestSelectedChildKeepsItsNoteWithoutContentFocus(t *testing.T) {
+	const note = "Latest earthquakes, M2.5+ past day"
+	common := testCommon()
+	common.width = 100
+	common.contentFocused = false
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "quake@bbs.airandwave.net", note: note,
+			child: true, lastChild: true,
+		}, section: sectionServices},
+	}
+	l := list.New(items, d, 100, 4)
+	l.Select(0)
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	if got := ansi.Strip(buf.String()); !strings.Contains(got, note) {
+		t.Fatalf("selected child without content focus = %q, want its full note", got)
+	}
+}
+```
+
+- [ ] **Step 2: Run the focused tests and verify the behavior change is red**
+
+Run: `go test ./tui/ -run 'TestStartRowNotePerState|TestNarrowChildRowAlignsSelectedNoteUnderToken|TestWideChildRowShowsItsNoteOnlyWhenSelected|TestSelectedChildKeepsItsNoteWithoutContentFocus' -count=1`
+
+Expected: FAIL in `TestStartRowNotePerState` and
+`TestWideChildRowShowsItsNoteOnlyWhenSelected`: the current implementation
+returns the synthetic legacy hint on an unselected child. The narrow alignment
+and inactive-shelf cases already describe behavior that survives, so they pass.
 
 - [ ] **Step 3: Simplify the implementation**
 
@@ -247,18 +424,28 @@ func startRowNote(entry startEntry, selected, flattened bool) string {
 }
 ```
 
-- [ ] **Step 4: Run the test**
+- [ ] **Step 4: Run the focused tests**
 
-Run: `go test ./tui/ -run TestStartRowNotePerState -count=1 -v`
+Run: `go test ./tui/ -run 'TestStartRowNotePerState|TestNarrowChildRowAlignsSelectedNoteUnderToken|TestWideChildRowShowsItsNoteOnlyWhenSelected|TestSelectedChildKeepsItsNoteWithoutContentFocus' -count=1 -v`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full gate**
+- [ ] **Step 5: Prove the wide-layout test still bites**
+
+Temporarily change the wide branch of `renderEntry` in `tui/start.go` to pass
+`item.entry.note` where it passes `rowNote`, then run:
+
+Run: `go test ./tui/ -run TestWideChildRowShowsItsNoteOnlyWhenSelected -count=1`
+Expected: FAIL on the unselected case. Restore `rowNote`, re-run, and confirm
+PASS. Put both outputs in the implementation report; do not commit the mutation.
+
+- [ ] **Step 6: Run the full gate**
 
 Run: `make check`
-Expected: pass — `tui/start.go` still compiles because `entry.hint` is only
-read here and in `FilterValue`, which Task 3 handles.
+Expected: pass. All tests whose assertions depended on rendering a catalog hint
+were rewritten in Step 1; `entry.hint` still exists for the parser and search
+path until Tasks 3 and 4 remove those independently.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add tui/start.go tui/start_test.go
@@ -392,7 +579,8 @@ guards come out together.
 - Modify: `tui/bookmarks.go` (`startEntry` line 55, `parseCatalogLine` and `splitCatalogNote` lines 185-217)
 - Modify: `tui/catalog_test.go` (delete `hintIsMisplaced`, `TestCatalogHintsOnlyOnServiceChildren`, `TestCatalogHintValidationRejectsNonChildren`, `TestCatalogRawNoteValidationRejectsStrayPipe`, `catalogNotePipeLines`, and the pipe check inside `TestCatalogIsWellFormed`)
 - Modify: `tui/bookmarks_test.go` (delete `TestParseCatalogLineSplitsHintFromNote`, `TestParseCatalogLineRejectsEmptyHintHalves`)
-- Modify: `tui/start_test.go` (two fixtures still set `hint:`)
+- Modify: `tui/start_test.go` (remove the two synthetic legacy-hint fields
+  introduced in Task 2 after they have proved the behavior change)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -464,12 +652,42 @@ Leave `catalogNoteCommentLines` and its `#` guard alone — that rule stands.
 In `tui/bookmarks_test.go`, delete `TestParseCatalogLineSplitsHintFromNote` and
 `TestParseCatalogLineRejectsEmptyHintHalves`.
 
-- [ ] **Step 5: Clean the two remaining fixtures**
+- [ ] **Step 5: Remove the two synthetic legacy-hint fields and scan for leftovers**
 
-In `tui/start_test.go`, remove the `hint:` field from the fixture entries at the
-narrow-layout test (around line 970) and at the `hinted` variable (around line
-1178). Where a test's meaning depended on a hint being displayed, the note is
-what shows now — check each assertion still describes what the row renders.
+Run:
+
+```bash
+rg -n '\bhint\s*:' tui/start_test.go
+```
+
+Expected: exactly two hits, both added by Task 2: the `child` fixture in
+`TestStartRowNotePerState` and the first `startEntry` in
+`TestWideChildRowShowsItsNoteOnlyWhenSelected`.
+
+Delete only those two `hint:` fields. Their final forms are:
+
+```go
+	child := startEntry{target: "smog@typed-hole.org", note: note, child: true}
+```
+
+and:
+
+```go
+		startItem{entry: startEntry{
+			target: "quake@bbs.airandwave.net", note: note,
+			child: true,
+		}, section: sectionServices},
+```
+
+Then run:
+
+```bash
+rg -n '\.hint\b' tui --glob '*.go'
+rg -n '\bhint\s*:' tui/start_test.go tui/bookmarks_test.go
+```
+
+Expected: both commands produce no output. The status-bar `hints` identifier is
+plural and deliberately does not match either expression.
 
 - [ ] **Step 6: Run the full gate**
 
@@ -486,113 +704,7 @@ git commit -m "refactor(catalog): remove the hint grammar"
 
 ---
 
-### Task 5: Keep the wide layout's mutation coverage
-
-`TestWideChildRowShowsHintNoteOrFullNote` exists because a reviewer proved the
-wide layout — the macOS default — could have `rowNote` reverted with the whole
-suite still green. Its hinted case dies with the feature; the coverage must not.
-
-**Files:**
-- Modify: `tui/start_test.go` (`TestWideChildRowShowsHintNoteOrFullNote`, around line 1010)
-
-**Interfaces:**
-- Consumes: `startRowNote` from Task 2.
-- Produces: nothing.
-
-- [ ] **Step 1: Rewrite the test**
-
-In `tui/start_test.go`, replace `TestWideChildRowShowsHintNoteOrFullNote` with:
-
-```go
-// The wide single-line layout is the macOS default and was once revertible with
-// the suite still green, so it is asserted on rendered output rather than on
-// startRowNote alone.
-func TestWideChildRowShowsItsNoteOnlyWhenSelected(t *testing.T) {
-	const note = "Latest earthquakes, M2.5+ past day"
-	common := testCommon()
-	common.width = 100
-	st := common.ensureStyles()
-	d := newStartDelegate(common, st)
-	if d.Height() != 1 {
-		t.Fatalf("delegate height = %d at width 100, want the one-line layout", d.Height())
-	}
-	items := []list.Item{
-		startItem{entry: startEntry{target: "quake@bbs.airandwave.net", note: note, child: true}, section: sectionServices},
-		startItem{entry: startEntry{target: "urban@bbs.airandwave.net", note: note, child: true, lastChild: true}, section: sectionServices},
-	}
-	l := list.New(items, d, 100, 6)
-
-	l.Select(1) // row 0 unselected
-	var unselected strings.Builder
-	d.Render(&unselected, l, 0, items[0])
-	if got := ansi.Strip(unselected.String()); strings.Contains(got, note) {
-		t.Errorf("unselected child row = %q, want no note", got)
-	}
-	if got := ansi.Strip(unselected.String()); !strings.Contains(got, "quake") {
-		t.Errorf("unselected child row = %q, want its token", got)
-	}
-
-	l.Select(0) // row 0 selected
-	var selected strings.Builder
-	d.Render(&selected, l, 0, items[0])
-	if got := ansi.Strip(selected.String()); !strings.Contains(got, note) {
-		t.Errorf("selected child row = %q, want its full note", got)
-	}
-}
-
-// Selection is the cursor's row, not which pane takes keys. A selected child
-// keeps its note while the target input is focused and the inactive shelf is
-// drawn — otherwise the note would blink out every time focus moved.
-func TestSelectedChildKeepsItsNoteWithoutContentFocus(t *testing.T) {
-	const note = "Latest earthquakes, M2.5+ past day"
-	common := testCommon()
-	common.width = 100
-	common.contentFocused = false
-	st := common.ensureStyles()
-	d := newStartDelegate(common, st)
-	items := []list.Item{
-		startItem{entry: startEntry{target: "quake@bbs.airandwave.net", note: note, child: true, lastChild: true}, section: sectionServices},
-	}
-	l := list.New(items, d, 100, 4)
-	l.Select(0)
-
-	var buf strings.Builder
-	d.Render(&buf, l, 0, items[0])
-	if got := ansi.Strip(buf.String()); !strings.Contains(got, note) {
-		t.Fatalf("selected child without content focus = %q, want its full note", got)
-	}
-}
-```
-
-- [ ] **Step 2: Run them**
-
-Run: `go test ./tui/ -run 'TestWideChildRowShowsItsNoteOnlyWhenSelected|TestSelectedChildKeepsItsNoteWithoutContentFocus' -count=1 -v`
-Expected: PASS.
-
-- [ ] **Step 3: Prove the wide-layout test still bites**
-
-Temporarily change the wide branch of `renderEntry` in `tui/start.go` to pass
-`item.entry.note` where it passes `rowNote`, then run:
-
-Run: `go test ./tui/ -run TestWideChildRowShowsItsNoteOnlyWhenSelected -count=1`
-Expected: FAIL on the unselected case. Restore `rowNote`, re-run, confirm PASS.
-Put both outputs in your report — this is the evidence the task is judged on.
-
-- [ ] **Step 4: Run the full gate**
-
-Run: `make check`
-Expected: pass.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tui/start_test.go
-git commit -m "test(startpage): keep wide-layout note coverage without hints"
-```
-
----
-
-### Task 6: Update the documents
+### Task 5: Update the documents
 
 **Files:**
 - Modify: `CLAUDE.md` (the `appModel`/`stateStart` bullet)
@@ -613,8 +725,8 @@ Replace that block with:
 #
 # A note must fit the note column: 48 terminal cells or fewer, which is what
 # the startpage shows at 100 columns. TestCatalogNotesFitTheNoteColumn enforces
-# it. A service child's note is hidden until its row is selected; every other
-# row shows its note always.
+# it. A grouped service child's note is hidden until its row is selected;
+# flattened matches and bookmark rows are listings, so they show the note.
 ```
 
 - [ ] **Step 2: Correct the architecture note**

@@ -1626,42 +1626,6 @@ func fullWidthHelpView(groups [][]key.Binding, st styles, width int, separator s
 	return strings.Join(lines, "\n")
 }
 
-func helpColumnRows(group []key.Binding, st styles) []string {
-	keyWidth := 0
-	for _, binding := range group {
-		if !binding.Enabled() {
-			continue
-		}
-		if w := lipgloss.Width(binding.Help().Key); w > keyWidth {
-			keyWidth = w
-		}
-	}
-	if keyWidth == 0 {
-		return nil
-	}
-
-	var rows []string
-	for _, binding := range group {
-		if !binding.Enabled() {
-			continue
-		}
-		help := binding.Help()
-		key := st.help.FullKey.Render(help.Key + strings.Repeat(" ", keyWidth-lipgloss.Width(help.Key)))
-		rows = append(rows, key+st.helpBand.Render(" ")+st.help.FullDesc.Render(help.Desc))
-	}
-	return rows
-}
-
-func maxLineWidth(lines []string) int {
-	width := 0
-	for _, line := range lines {
-		if w := lipgloss.Width(line); w > width {
-			width = w
-		}
-	}
-	return width
-}
-
 func (m appModel) View() tea.View {
 	(&m).updateKeymap() // sync the help panel's enabled set to current state
 
@@ -1702,7 +1666,8 @@ func (m appModel) View() tea.View {
 // overlayHelp draws the help panel over the bottom rows of body, replacing those
 // lines rather than pushing them down. Help lines are full-width opaque bands
 // (see fullWidthHelpView), so a line-level replace suffices — no alpha
-// compositing — and the content underneath keeps its height.
+// compositing — and the content underneath keeps its height. If Help has more
+// lines than the body can hold, retain the leading priority rows.
 func overlayHelp(body, help string) string {
 	if help == "" {
 		return body
@@ -1710,7 +1675,7 @@ func overlayHelp(body, help string) string {
 	bodyLines := strings.Split(body, "\n")
 	helpLines := strings.Split(help, "\n")
 	if n := len(helpLines); n > len(bodyLines) {
-		helpLines = helpLines[n-len(bodyLines):]
+		helpLines = helpLines[:len(bodyLines)]
 	}
 	copy(bodyLines[len(bodyLines)-len(helpLines):], helpLines)
 	return strings.Join(bodyLines, "\n")

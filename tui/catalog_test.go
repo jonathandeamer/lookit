@@ -36,9 +36,6 @@ func TestCatalogIsWellFormed(t *testing.T) {
 	if lines := catalogNoteCommentLines(catalogData); len(lines) != 0 {
 		t.Fatalf("catalog notes contain '#', which the comment stripper would eat, on lines %v", lines)
 	}
-	if lines := catalogNotePipeLines(catalogData); len(lines) != 0 {
-		t.Fatalf("catalog notes contain a stray '|' outside the ' | ' delimiter, on lines %v", lines)
-	}
 	entries, problems := parseCatalogData(catalogData)
 	if len(problems) != 0 {
 		t.Fatalf("catalog.txt has %d bad lines: %+v", len(problems), problems)
@@ -96,43 +93,6 @@ func TestCatalogHasRootForEveryGroupedHost(t *testing.T) {
 	}
 }
 
-// hintIsMisplaced reports whether e carries a hint somewhere it can never
-// render: a hint renders only where a token renders, on a service child.
-// "Not a root" is too loose — a queried community such as
-// ring@thebackupbox.net is non-root but is never grouped, so a hint on it
-// would never appear either. Shared by TestCatalogHintsOnlyOnServiceChildren
-// and its meta-guard, TestCatalogHintValidationRejectsNonChildren, so the two
-// tests can't drift apart from each other.
-func hintIsMisplaced(e startEntry) bool {
-	return e.hint != "" && (e.kind != kindService || entryToken(e.target) == "")
-}
-
-func TestCatalogHintsOnlyOnServiceChildren(t *testing.T) {
-	entries, _ := parseCatalogData(catalogData)
-	for _, e := range entries {
-		if hintIsMisplaced(e) {
-			t.Errorf("%s carries hint %q but never renders as a token", e.target, e.hint)
-		}
-	}
-}
-
-func TestCatalogHintValidationRejectsNonChildren(t *testing.T) {
-	data := []byte(strings.Join([]string{
-		"community ring@thebackupbox.net The finger ring | the ring",
-		"service @graph.no Weather worldwide | weather",
-	}, "\n"))
-	entries, problems := parseCatalogData(data)
-	if len(problems) != 0 {
-		t.Fatalf("parse problems = %+v, want none; the grammar is valid, the placement is not", problems)
-	}
-	for _, e := range entries {
-		if hintIsMisplaced(e) {
-			return
-		}
-	}
-	t.Fatal("fixture did not produce a misplaced hint; the guard cannot be trusted")
-}
-
 // startNoteMaxCells is the widest a catalog note may render. The note column is
 // half the startpage width less the frame, so this is what fits at 100 columns
 // — the width the spec guarantees. Below that, notes truncate as they always
@@ -180,36 +140,20 @@ func TestCatalogNotesFitTheNoteColumn(t *testing.T) {
 	}
 }
 
-func TestCatalogRawNoteValidationRejectsStrayPipe(t *testing.T) {
-	data := []byte(strings.Join([]string{
-		"# heading",
-		"community @plan.cat Fine note",
-		"service weird@example.com Contains a stray|pipe",
-		"service twice@example.com Split note | short hint | extra",
-		"service ok@example.com Split note | short hint",
-	}, "\n"))
-	if got, want := catalogNotePipeLines(data), []int{3, 4}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("pipe lines = %v, want %v", got, want)
-	}
-}
-
-// catalogNotePipeLines flags any "|" that is not part of exactly one " | "
-// delimiter: a bare pipe with no surrounding spaces (which splitCatalogNote
-// would silently leave inside the note, since it cuts on " | " and not "|"),
-// and more than one " | " delimiter (ambiguous — splitCatalogNote only ever
-// honours the first).
-func catalogNotePipeLines(data []byte) []int {
-	var lines []int
-	for i, raw := range strings.Split(string(data), "\n") {
+// The catalog grammar is <kind> <target> <note>. A "|" is no longer a
+// delimiter; a hint line surviving the removal would silently become part of
+// the note instead of failing loudly, so this guards against a leftover.
+// Comment lines are skipped, matching catalogNoteCommentLines/catalogNoteWidths:
+// the parser strips comments too, and the header documents the old grammar in
+// prose rather than data.
+func TestCatalogCarriesNoHints(t *testing.T) {
+	for i, raw := range strings.Split(string(catalogData), "\n") {
 		record := strings.TrimSpace(raw)
 		if record == "" || strings.HasPrefix(record, "#") {
 			continue
 		}
-		total := strings.Count(record, "|")
-		delims := strings.Count(record, " | ")
-		if total != 0 && (delims != 1 || total != delims) {
-			lines = append(lines, i+1)
+		if strings.Contains(record, "|") {
+			t.Errorf("line %d contains \"|\": %q; the hint grammar is gone, so a pipe is now just note text and is probably a leftover", i+1, record)
 		}
 	}
-	return lines
 }

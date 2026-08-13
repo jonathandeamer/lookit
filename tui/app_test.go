@@ -3681,10 +3681,3 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 		})
 	}
 }
-
-// TestHintWordFindsItsChildButNotItsBookmark used to assert that a service
-// child was findable by a word from its catalog hint. Task 1 of the
-// startpage-focus-notes plan stripped every hint from tui/catalog.txt (the
-// 48-cell note-width gate made the hint grammar redundant), so no shipped
-// entry carries hint text to search by; a later task removes the hint
-// feature itself. Deleted here rather than left red for that later task.

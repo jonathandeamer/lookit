@@ -996,10 +996,7 @@ func TestNarrowChildRowAlignsSelectedNoteUnderToken(t *testing.T) {
 // the suite still green, so it is asserted on rendered output rather than on
 // startRowNote alone.
 func TestWideChildRowShowsItsNoteOnlyWhenSelected(t *testing.T) {
-	const (
-		note       = "Latest earthquakes, M2.5+ past day"
-		legacyHint = "earthquake feed"
-	)
+	const note = "Latest earthquakes, M2.5+ past day"
 	common := testCommon()
 	common.width = 100
 	st := common.ensureStyles()
@@ -1010,7 +1007,7 @@ func TestWideChildRowShowsItsNoteOnlyWhenSelected(t *testing.T) {
 	items := []list.Item{
 		startItem{entry: startEntry{
 			target: "quake@bbs.airandwave.net", note: note,
-			hint: legacyHint, child: true,
+			child: true,
 		}, section: sectionServices},
 		startItem{entry: startEntry{
 			target: "urban@bbs.airandwave.net", note: note,
@@ -1023,7 +1020,7 @@ func TestWideChildRowShowsItsNoteOnlyWhenSelected(t *testing.T) {
 	var unselected strings.Builder
 	d.Render(&unselected, l, 0, items[0])
 	unselectedLine := ansi.Strip(unselected.String())
-	if strings.Contains(unselectedLine, note) || strings.Contains(unselectedLine, legacyHint) {
+	if strings.Contains(unselectedLine, note) {
 		t.Errorf("unselected child row = %q, want an empty note column", unselectedLine)
 	}
 	if !strings.Contains(unselectedLine, "quake") {
@@ -1185,10 +1182,7 @@ func TestStartRowTargetDrawsConnectors(t *testing.T) {
 
 func TestStartRowNotePerState(t *testing.T) {
 	const note = "Saturday Morning Gemzine — back issues"
-	child := startEntry{
-		target: "smog@typed-hole.org", note: note,
-		hint: "gemzine back issues", child: true,
-	}
+	child := startEntry{target: "smog@typed-hole.org", note: note, child: true}
 	root := startEntry{target: "@typed-hole.org", note: "A small menu of fingers, from lobste.rs to smog"}
 
 	tests := []struct {

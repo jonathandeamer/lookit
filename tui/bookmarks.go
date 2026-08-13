@@ -52,7 +52,6 @@ type startEntry struct {
 	target string
 	kind   entryKind
 	note   string
-	hint   string // short label a child row shows in place of its note; "" when absent
 	source entrySource
 
 	child      bool // drawn under its host's parent row behind a connector; renders its token only
@@ -182,39 +181,7 @@ func parseCatalogLine(line string) (startEntry, error) {
 	if err := validateTarget(target); err != nil {
 		return startEntry{}, err
 	}
-	note, hint, err := splitCatalogNote(fields[2])
-	if err != nil {
-		return startEntry{}, err
-	}
-	return startEntry{target: target, kind: kind, note: note, hint: hint, source: sourceCatalog}, nil
-}
-
-// splitCatalogNote separates a note from its optional short hint at " | ",
-// matching the documented grammar. A "|" that is not delimiter-shaped — no
-// space immediately before it and no space immediately after — is left
-// embedded in the note rather than treated as a split point, so a stray pipe
-// inside prose (no surrounding whitespace) cannot silently become a bogus
-// hint; TestCatalogIsWellFormed's pipe guard catches that case at the raw-text
-// level instead. The two field boundaries count as the missing whitespace: by
-// the time this is called, parseCatalogLine's earlier SplitN has already
-// consumed the single space that would otherwise precede a delimiter at the
-// very start of field, and a run of trailing whitespace never survives that
-// same normalization at the very end — so a leading or trailing "|" is still
-// delimiter-shaped, and its empty note/hint is caught below rather than
-// silently accepted.
-func splitCatalogNote(field string) (note, hint string, err error) {
-	before, after, found := strings.Cut(field, "|")
-	if !found {
-		return field, "", nil
-	}
-	if (before != "" && !strings.HasSuffix(before, " ")) || (after != "" && !strings.HasPrefix(after, " ")) {
-		return field, "", nil // not delimiter-shaped; leave the "|" in the note
-	}
-	note, hint = strings.TrimSpace(before), strings.TrimSpace(after)
-	if note == "" || hint == "" {
-		return "", "", fmt.Errorf("note and hint must both be non-empty, got %q", field)
-	}
-	return note, hint, nil
+	return startEntry{target: target, kind: kind, note: fields[2], source: sourceCatalog}, nil
 }
 
 // validateTarget screens a target from a config file. finger.ParseTarget rejects

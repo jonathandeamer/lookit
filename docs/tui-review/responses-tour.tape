@@ -1,8 +1,8 @@
 # Shared walkthrough for the responses review tapes. No Set/Output here —
 # each responses-*.tape applies size and theme first, then Sources this file.
 #
-# Needs the loopback fingerd on 127.0.0.1:2479 (make review-tui starts it;
-# this Hide block starts it if you record a tape by hand).
+# Needs the loopback fingerd on 127.0.0.1:2479 and :2480 (make review-tui
+# starts it; this Hide block starts it if you record a tape by hand).
 # Sleep after every Screenshot: VHS captures the *next* frame.
 
 Hide
@@ -32,6 +32,50 @@ Sleep 250ms
 Enter
 Wait+Screen /Alice Review/
 Screenshot docs/tui-review/frames/reader.png
+Sleep 250ms
+
+Tab
+Wait+Screen /link 1/
+Screenshot docs/tui-review/frames/reader-link.png
+Sleep 250ms
+
+Type "L"
+Wait+Screen /example.com/
+Screenshot docs/tui-review/frames/links.png
+Sleep 250ms
+
+Escape
+Sleep 200ms
+Type "v"
+Wait+Screen /esc back/
+Screenshot docs/tui-review/frames/raw.png
+Sleep 250ms
+
+Escape
+Sleep 200ms
+Type "i"
+Wait+Screen /esc cancel/
+Screenshot docs/tui-review/frames/reader-input.png
+Sleep 250ms
+
+Escape
+Sleep 200ms
+Type "i"
+Sleep 200ms
+Ctrl+U
+Type "@127.0.0.1:2480"
+Enter
+Wait+Screen /auto-detected/
+Screenshot docs/tui-review/frames/generic.png
+Sleep 250ms
+
+Type "i"
+Sleep 200ms
+Ctrl+U
+Type "trunc@127.0.0.1:2479"
+Enter
+Wait+Screen /partial/
+Screenshot docs/tui-review/frames/truncated.png
 Sleep 250ms
 
 Type "i"

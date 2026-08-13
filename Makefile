@@ -74,7 +74,7 @@ review-tui: build review-fingerd ## record docs/tui-review stills (not part of c
 		vhs "$$tape"; \
 		dest=docs/tui-review/frames/$$name; \
 		mkdir -p "$$dest"; \
-		for scene in start-input start-list start-filter help about; do \
+		for scene in start-input start-list start-child start-filter help about; do \
 			src=docs/tui-review/frames/$$scene.png; \
 			if [ ! -f "$$src" ]; then \
 				echo "missing $$src (tour.tape Screenshot after a Sleep?)"; \
@@ -90,7 +90,7 @@ review-tui: build review-fingerd ## record docs/tui-review stills (not part of c
 		vhs "$$tape"; \
 		dest=docs/tui-review/frames/$$name; \
 		mkdir -p "$$dest"; \
-		for scene in list reader error; do \
+		for scene in list reader reader-link links raw reader-input generic truncated error; do \
 			src=docs/tui-review/frames/$$scene.png; \
 			if [ ! -f "$$src" ]; then \
 				echo "missing $$src (responses-tour.tape Screenshot after a Sleep?)"; \

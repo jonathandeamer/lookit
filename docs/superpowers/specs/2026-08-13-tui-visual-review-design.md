@@ -32,9 +32,11 @@ to `docs/wordmark-design/`.
 - Generated frames are gitignored. `make review-tui` records; `make check`
   does not.
 - Reader, list, and error stills use a loopback fingerd
-  (`docs/tui-review/fixtures/fingerd`, `127.0.0.1:2479`) plus a closed-port
-  dial. No product fetch seam and no live hosts. A Go scene book that dumps
-  `View()` stays deferred.
+  (`docs/tui-review/fixtures/fingerd`, `127.0.0.1:2479` named / `:2480`
+  generic) plus a closed-port dial. Extra stills cover a selected service
+  child, view-source, focused link, links panel, `i` on a landed reader,
+  `auto-detected`, and `partial (truncated)`. No product fetch seam and no
+  live hosts. A Go scene book that dumps `View()` stays deferred.
 
 ## Non-goals
 

@@ -30,6 +30,13 @@ Sleep 250ms
 Screenshot docs/tui-review/frames/start-list.png
 Sleep 250ms
 
+# Bookmark + 6 communities + bbs parent → first service child (dict).
+# Wait on the child's note, which only appears when that row is selected.
+Down 8
+Wait+Screen /Dictionary lookup/
+Screenshot docs/tui-review/frames/start-child.png
+Sleep 250ms
+
 Type "/"
 Sleep 200ms
 Type "plan"

@@ -228,6 +228,9 @@ func TestNavigationFailureStillPushesErrorNode(t *testing.T) {
 	if got.pos != 1 || len(got.history) != 2 || got.history[1].entry.Err == nil || got.requestFailure != nil {
 		t.Fatalf("navigation failure = pos %d history %#v warning %#v", got.pos, got.history, got.requestFailure)
 	}
+	if got.input.Value() != failed.Target.Raw {
+		t.Fatalf("input = %q, want failed target %q", got.input.Value(), failed.Target.Raw)
+	}
 }
 
 func TestEmptyBodyRefreshFailurePreservesEntry(t *testing.T) {
@@ -361,6 +364,30 @@ func TestPendingStatusPrioritizesCancellationControls(t *testing.T) {
 	}
 }
 
+func TestPendingRefreshDoesNotExposeLandedLatency(t *testing.T) {
+	entry := Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("old\n"),
+		Meta:   finger.Meta{Elapsed: 987 * time.Millisecond},
+	}
+	m := settledReader(t, entry)
+	m.common.width = 80
+	m.pending = &pendingRequest{
+		target: entry.Target, intent: requestRefresh,
+		started: time.Now(), cancel: func() {},
+	}
+
+	got := ansi.Strip(m.statusBarModel().render())
+	if strings.Contains(got, "987ms") {
+		t.Fatalf("loading status exposed landed latency: %q", got)
+	}
+	for _, want := range []string{"loading alice@plan.cat", "esc cancel", "q quit"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("loading status %q missing %q", got, want)
+		}
+	}
+}
+
 func TestSessionCancellationCancelsAndQuits(t *testing.T) {
 	ctx, cancelSession := context.WithCancel(context.Background())
 	m := newAppWithContext(ctx, stubFetch(t), colorprofile.NoTTY, Options{})
@@ -413,6 +440,78 @@ func TestCancelSubmittedTargetOverContentRestoresEditor(t *testing.T) {
 	got := next.(appModel)
 	if !got.inputFocused || got.input.Value() != "new@plan.cat" || got.pos != 0 || string(got.history[0].entry.Body) != "old\n" {
 		t.Fatalf("cancelled edit = focused %v value %q pos %d entry %#v", got.inputFocused, got.input.Value(), got.pos, got.history[0].entry)
+	}
+	next, _ = got.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	got = next.(appModel)
+	if got.inputFocused || got.input.Value() != old.Target.Raw {
+		t.Fatalf("cancel draft = focused %v value %q, want blurred %q", got.inputFocused, got.input.Value(), old.Target.Raw)
+	}
+}
+
+func TestStartRequestPublishesNavigationAddress(t *testing.T) {
+	old := Entry{Target: hostTarget(t, "old@plan.cat"), Body: []byte("old\n")}
+	m := settledReader(t, old)
+	next := hostTarget(t, "new@plan.cat")
+
+	_ = m.startRequest(next, requestNavigate, false)
+	t.Cleanup(m.pending.cancel)
+
+	if got := m.input.Value(); got != next.Raw {
+		t.Fatalf("input = %q, want pending target %q", got, next.Raw)
+	}
+}
+
+func TestCancelContentNavigationRestoresVisibleAddress(t *testing.T) {
+	old := Entry{Target: hostTarget(t, "old@plan.cat"), Body: []byte("old\n")}
+	m := settledReader(t, old)
+	_ = m.startRequest(hostTarget(t, "new@plan.cat"), requestNavigate, false)
+
+	if cmd := m.cancelRequest(); cmd != nil {
+		t.Fatal("content cancellation unexpectedly focused the input")
+	}
+	if got := m.input.Value(); got != old.Target.Raw {
+		t.Fatalf("input = %q, want visible target %q", got, old.Target.Raw)
+	}
+}
+
+func TestCancelStartpageNavigationRestoresEmptyAddress(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.blurInput()
+	_ = m.startRequest(hostTarget(t, "alice@plan.cat"), requestNavigate, false)
+
+	_ = m.cancelRequest()
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input = %q, want empty startpage address", got)
+	}
+}
+
+func TestRefreshKeepsActiveAddress(t *testing.T) {
+	target := hostTarget(t, "alice@plan.cat")
+	m := deliverNavigation(newApp(stubFetch(t), colorprofile.NoTTY), Entry{Target: target, Body: []byte("old\n")})
+	_ = m.refreshCurrent()
+	if got := m.input.Value(); got != target.Raw {
+		t.Fatalf("pending refresh input = %q, want %q", got, target.Raw)
+	}
+	next, _ := m.Update(fetchResultMsg{reqID: m.pending.id, entry: Entry{Target: target, Body: []byte("fresh\n")}})
+	got := next.(appModel)
+	if got.input.Value() != target.Raw {
+		t.Fatalf("landed refresh input = %q, want %q", got.input.Value(), target.Raw)
+	}
+}
+
+func TestTransientViewsDoNotChangeAddress(t *testing.T) {
+	target := hostTarget(t, "alice@plan.cat")
+	m := deliverNavigation(newApp(stubFetch(t), colorprofile.NoTTY), Entry{Target: target, Body: []byte("Plan: hi\n")})
+	m.openHelp()
+	m.closeHelp()
+	m.openAbout()
+	m.closeAbout()
+	m.enterRaw()
+	m.exitRaw()
+	m.showingLinks = true
+	m.showingLinks = false
+	if got := m.input.Value(); got != target.Raw {
+		t.Fatalf("transient views changed input to %q, want %q", got, target.Raw)
 	}
 }
 
@@ -538,6 +637,27 @@ func TestFailedRefreshWarningPrioritizesConsequenceAndRetry(t *testing.T) {
 		}
 		if strings.Contains(bar, "%") || strings.Contains(bar, formatBytes(len(entry.Body))) {
 			t.Fatalf("width %d: lower-priority scroll/meta survived ahead of warning: %q", width, bar)
+		}
+	}
+}
+
+func TestRequestFailureDropsLatencyBeforePreviousResponseStatus(t *testing.T) {
+	entry := Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("old\n"),
+		Meta:   finger.Meta{Elapsed: 987 * time.Millisecond},
+	}
+	m := settledReader(t, entry)
+	m.common.width = 80
+	m.requestFailure = &requestFailure{err: errors.New("timeout")}
+
+	got := ansi.Strip(m.statusBarModel().render())
+	if strings.Contains(got, "987ms") {
+		t.Fatalf("priority status retained expendable latency: %q", got)
+	}
+	for _, want := range []string{"4 B", "showing previous response", "r retry"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("priority status %q missing older information %q", got, want)
 		}
 	}
 }

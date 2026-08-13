@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/jonathandeamer/lookit/finger"
@@ -49,60 +48,35 @@ func compareGolden(t *testing.T, name, profile, got string) {
 func TestRender_BasicTrueColor(t *testing.T) {
 	body := loadInput(t, "basic")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{
-		Addr:    "plan.cat:79",
-		Elapsed: 123 * time.Millisecond,
-		Bytes:   len(body),
-	}
-	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+	got := RenderWithBackground(target, body, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "basic", "truecolor", got)
 }
 
 func TestRender_BasicNoTTY(t *testing.T) {
 	body := loadInput(t, "basic")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{
-		Addr:    "plan.cat:79",
-		Elapsed: 123 * time.Millisecond,
-		Bytes:   len(body),
-	}
-	got := Render(target, body, meta, nil, colorprofile.NoTTY)
+	got := Render(target, body, nil, colorprofile.NoTTY)
 	compareGolden(t, "basic", "notty", got)
 }
 
 func TestRender_StandardFingerFieldsTrueColor(t *testing.T) {
 	body := loadInput(t, "standard-fields")
 	target := finger.Target{HostPort: "example.com:79", Raw: "alice@example.com"}
-	meta := finger.Meta{
-		Addr:    "example.com:79",
-		Elapsed: 45 * time.Millisecond,
-		Bytes:   len(body),
-	}
-	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+	got := RenderWithBackground(target, body, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "standard-fields", "truecolor", got)
 }
 
 func TestRender_StandardFingerFieldsNoTTY(t *testing.T) {
 	body := loadInput(t, "standard-fields")
 	target := finger.Target{HostPort: "example.com:79", Raw: "alice@example.com"}
-	meta := finger.Meta{
-		Addr:    "example.com:79",
-		Elapsed: 45 * time.Millisecond,
-		Bytes:   len(body),
-	}
-	got := Render(target, body, meta, nil, colorprofile.NoTTY)
+	got := Render(target, body, nil, colorprofile.NoTTY)
 	compareGolden(t, "standard-fields", "notty", got)
 }
 
 func TestRender_NoTTY_HasNoANSI(t *testing.T) {
 	body := loadInput(t, "basic")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{
-		Addr:    "plan.cat:79",
-		Elapsed: 123 * time.Millisecond,
-		Bytes:   len(body),
-	}
-	got := Render(target, body, meta, nil, colorprofile.NoTTY)
+	got := Render(target, body, nil, colorprofile.NoTTY)
 	if strings.Contains(got, "\x1b[") {
 		t.Fatalf("NoTTY output contains ANSI escape sequence: %q", got)
 	}
@@ -111,9 +85,7 @@ func TestRender_NoTTY_HasNoANSI(t *testing.T) {
 func TestRenderWithBackgroundNoTTYHasNoANSI(t *testing.T) {
 	body := []byte("Login: alice\nPlan: hello\n")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
-
-	got := RenderWithBackground(target, body, meta, nil, colorprofile.NoTTY, false)
+	got := RenderWithBackground(target, body, nil, colorprofile.NoTTY, false)
 	if strings.Contains(got, "\x1b[") {
 		t.Fatalf("NoTTY output contains ANSI escape sequence: %q", got)
 	}
@@ -125,8 +97,7 @@ func TestRenderWithBackgroundNoTTYHasNoANSI(t *testing.T) {
 func TestRender_AsciiArtPreserved(t *testing.T) {
 	body := loadInput(t, "ascii-art")
 	target := finger.Target{HostPort: "example.com:79", Raw: "bob@example.com"}
-	meta := finger.Meta{Addr: "example.com:79", Elapsed: 90 * time.Millisecond, Bytes: len(body)}
-	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+	got := RenderWithBackground(target, body, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "ascii-art", "truecolor", got)
 
 	// Programmatic check: every input line that is not a field-prefixed line
@@ -145,44 +116,29 @@ func TestRender_AsciiArtPreserved(t *testing.T) {
 func TestRender_EmptyResponse(t *testing.T) {
 	body := loadInput(t, "empty")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 42 * time.Millisecond, Bytes: 0}
-	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+	got := RenderWithBackground(target, body, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "empty", "truecolor", got)
 }
 
 func TestRender_Truncated(t *testing.T) {
 	body := loadInput(t, "truncated")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{
-		Addr:      "plan.cat:79",
-		Elapsed:   800 * time.Millisecond,
-		Bytes:     len(body),
-		Truncated: true,
-	}
-	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+	got := RenderWithBackground(target, body, nil, colorprofile.TrueColor, true)
 	compareGolden(t, "truncated", "truecolor", got)
 }
 
 func TestRender_Timeout(t *testing.T) {
 	body := loadInput(t, "timeout")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{
-		Addr:      "plan.cat:79",
-		Elapsed:   30 * time.Second,
-		Bytes:     len(body),
-		Truncated: true,
-	}
 	queryErr := errors.New("read response timed out after 30s")
-	got := RenderWithBackground(target, body, meta, queryErr, colorprofile.TrueColor, true)
+	got := RenderWithBackground(target, body, queryErr, colorprofile.TrueColor, true)
 	compareGolden(t, "timeout", "truecolor", got)
 }
 
 func TestRenderWithBackgroundUsesLightPalette(t *testing.T) {
 	body := []byte("Login: alice\nPlan: hello\n")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
-
-	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, false)
+	got := RenderWithBackground(target, body, nil, colorprofile.TrueColor, false)
 	if !strings.Contains(got, "\x1b[38;2;201;40;112mLogin:\x1b[0m") {
 		t.Fatalf("light render missing light field colour escape:\n%q", got)
 	}
@@ -191,36 +147,21 @@ func TestRenderWithBackgroundUsesLightPalette(t *testing.T) {
 func TestRenderWithBackgroundUsesDarkPalette(t *testing.T) {
 	body := []byte("Login: alice\nPlan: hello\n")
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
-
-	got := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
+	got := RenderWithBackground(target, body, nil, colorprofile.TrueColor, true)
 	if !strings.Contains(got, "\x1b[38;2;255;95;162mLogin:\x1b[0m") {
 		t.Fatalf("dark render missing dark field colour escape:\n%q", got)
 	}
 }
 
-func TestSplit_HeaderAndBodyRoundtrip(t *testing.T) {
-	body := []byte("Login: alice\nPlan:\nHello world\n")
+func TestRenderStartsWithResponseBody(t *testing.T) {
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	meta := finger.Meta{Addr: "plan.cat:79", Elapsed: 123 * time.Millisecond, Bytes: len(body)}
-	rendered := RenderWithBackground(target, body, meta, nil, colorprofile.TrueColor, true)
-
-	header, bodyPart := Split(rendered)
-
-	// Roundtrip: concatenating must recover the original.
-	if header+bodyPart != rendered {
-		t.Errorf("Split roundtrip failed:\nheader=%q\nbody=%q\noriginal=%q", header, bodyPart, rendered)
+	got := RenderWithBackground(target, []byte("Login: alice\nPlan:\nHello\n"), nil, colorprofile.NoTTY, true)
+	if !strings.HasPrefix(got, "Login: alice\n") {
+		t.Fatalf("rendered response starts with chrome: %q", got)
 	}
-	// Header must be non-empty (there is always chrome).
-	if header == "" {
-		t.Error("Split returned empty header")
-	}
-	// Body must contain the plan text.
-	if !strings.Contains(bodyPart, "Hello world") {
-		t.Errorf("Split body does not contain body text: %q", bodyPart)
-	}
-	// Header must NOT contain the plan text.
-	if strings.Contains(header, "Hello world") {
-		t.Errorf("Split header contains body text: %q", header)
+	for _, forbidden := range []string{"➜", "✦", "123ms"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("rendered response contains receipt %q: %q", forbidden, got)
+		}
 	}
 }

@@ -57,9 +57,13 @@ func (m *appModel) startRequest(target finger.Target, intent requestIntent, retr
 	}
 	ctx, cancel := context.WithCancel(base)
 	m.reqSeq++
+	returnToInput := m.inputFocused
+	if intent == requestNavigate {
+		m.setAddress(target.Raw)
+	}
 	m.pending = &pendingRequest{
 		id: m.reqSeq, target: target, intent: intent, retry: retry,
-		returnToInput: m.inputFocused, started: time.Now(), cancel: cancel,
+		returnToInput: returnToInput, started: time.Now(), cancel: cancel,
 	}
 	return tea.Batch(fetchCmd(ctx, m.common.fetch, target, m.reqSeq), m.spin.Tick)
 }
@@ -80,6 +84,7 @@ func (m *appModel) cancelRequest() tea.Cmd {
 	}
 	pending.cancel()
 	if !pending.returnToInput {
+		m.restoreVisibleAddress()
 		return nil
 	}
 	m.setInputFocused(true)

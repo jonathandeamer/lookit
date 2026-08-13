@@ -3,10 +3,12 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jonathandeamer/lookit/finger"
 )
 
 func TestStatusBarProfileShowsBreadcrumb(t *testing.T) {
@@ -118,6 +120,79 @@ func TestStatusBarShowsScrollAndPage(t *testing.T) {
 func TestStatusBarZeroWidthIsEmpty(t *testing.T) {
 	if out := (statusBar{width: 0, styles: newStyles(true)}).render(); out != "" {
 		t.Fatalf("zero-width bar = %q, want empty", out)
+	}
+}
+
+func TestStatusBarFormatsLandedLatency(t *testing.T) {
+	tests := []struct {
+		in   time.Duration
+		want string
+	}{
+		{500 * time.Microsecond, "500µs"},
+		{42 * time.Millisecond, "42ms"},
+		{1500 * time.Millisecond, "1.50s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			m := settledReader(t, Entry{
+				Target: hostTarget(t, "alice@plan.cat"),
+				Body:   []byte("Plan: hi\n"),
+				Meta:   finger.Meta{Elapsed: tt.in},
+			})
+			m.common.width = 100
+			if got := ansi.Strip(m.buildStatusBar().render()); !strings.Contains(got, tt.want+" · 9 B") {
+				t.Errorf("status bar = %q, want formatted latency %q before byte count", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStatusBarShowsLandedLatencyWhenItFits(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan: hi\n"),
+		Meta:   finger.Meta{Elapsed: 123 * time.Millisecond},
+	})
+	m.common.width = 100
+	if got := ansi.Strip(m.buildStatusBar().render()); !strings.Contains(got, "123ms · 9 B") {
+		t.Fatalf("status bar missing latency: %q", got)
+	}
+}
+
+func TestStatusBarDropsLatencyBeforeExistingInformation(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "alice@x.example"),
+		Body:   []byte("Plan: hi\n"),
+		Meta:   finger.Meta{Elapsed: 123 * time.Millisecond},
+	})
+	m.common.width = lipgloss.Width("@x.example / alice") + 1 + lipgloss.Width("9 B · ↑↓ scroll · r refresh · ? help")
+	got := ansi.Strip(m.buildStatusBar().render())
+	if strings.Contains(got, "123ms") || !strings.Contains(got, "9 B") || !strings.Contains(got, "? help") {
+		t.Fatalf("latency displaced existing information: %q", got)
+	}
+}
+
+func TestStatusBarIncludesLatencyAtExactCandidateWidth(t *testing.T) {
+	// Exact candidate width: "@h" (2) + gap (1) +
+	// "123ms · 9 B · ? help" (20) = 23 cells.
+	b := statusBar{
+		host: "@h", latency: "123ms", meta: "9 B", hints: "? help",
+		width: 23, styles: newStyles(true),
+	}
+	got := ansi.Strip(b.render())
+	if !strings.Contains(got, "123ms · 9 B · ? help") {
+		t.Fatalf("exact-fit status omitted latency: %q", got)
+	}
+}
+
+func TestStatusBarOmitsLatencyOneCellBeforeFit(t *testing.T) {
+	b := statusBar{
+		host: "@h", latency: "123ms", meta: "9 B", hints: "? help",
+		width: 22, styles: newStyles(true),
+	}
+	got := ansi.Strip(b.render())
+	if strings.Contains(got, "123ms") || !strings.Contains(got, "9 B · ? help") {
+		t.Fatalf("one-cell-short status displaced existing information: %q", got)
 	}
 }
 

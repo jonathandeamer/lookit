@@ -10,23 +10,19 @@ import (
 
 // Render formats a finger query result for the requested terminal color
 // profile, using Lip Gloss v1's standalone background detection.
-func Render(t finger.Target, body []byte, meta finger.Meta, queryErr error, profile colorprofile.Profile) string {
-	return RenderWithBackground(t, body, meta, queryErr, profile, lipgloss.HasDarkBackground())
+func Render(t finger.Target, body []byte, queryErr error, profile colorprofile.Profile) string {
+	return RenderWithBackground(t, body, queryErr, profile, lipgloss.HasDarkBackground())
 }
 
 // RenderWithBackground formats a finger query result for a known terminal
 // background mode. The TUI uses this so tea.BackgroundColorMsg can restyle a
-// live session deterministically. It is footerless: the one-shot CLI that owned
-// the "bytes · elapsed" footer is gone, and the TUI surfaces byte count and
-// truncation in its own status bar.
-func RenderWithBackground(t finger.Target, body []byte, meta finger.Meta, queryErr error, profile colorprofile.Profile, darkBackground bool) string {
+// live session deterministically. It adds no receipt or metadata chrome; the
+// TUI owns byte count, elapsed time, and truncation in its status bar.
+func RenderWithBackground(t finger.Target, body []byte, queryErr error, profile colorprofile.Profile, darkBackground bool) string {
 	theme := NewThemeWithBackground(profile, darkBackground)
 	var sb strings.Builder
 
-	success := queryErr == nil
-	sb.WriteString(renderHeader(theme, t, meta, success))
-
-	if len(body) == 0 && success {
+	if len(body) == 0 && queryErr == nil {
 		sb.WriteString(theme.Footer.Render("(no response body)"))
 		sb.WriteByte('\n')
 	} else {
@@ -45,17 +41,4 @@ func RenderWithBackground(t finger.Target, body []byte, meta finger.Meta, queryE
 	}
 
 	return sb.String()
-}
-
-// Split separates the header chrome from the body in the output of
-// RenderWithBackground. The header is the first line (including its trailing
-// newline); the body is everything after it. Concatenating header and body
-// always reconstructs the original rendered string. If rendered contains no
-// newline at all, Split returns (rendered, "").
-func Split(rendered string) (header, body string) {
-	idx := strings.IndexByte(rendered, '\n')
-	if idx < 0 {
-		return rendered, ""
-	}
-	return rendered[:idx+1], rendered[idx+1:]
 }

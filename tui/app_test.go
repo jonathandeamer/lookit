@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -71,6 +72,43 @@ func TestReaderFocusedLinkStatus(t *testing.T) {
 				t.Fatalf("status hints = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLandedReaderAndListExposeLatencyToStatusBar(t *testing.T) {
+	readerTarget := hostTarget(t, "alice@plan.cat")
+	reader := deliverNavigation(newApp(stubFetch(t), colorprofile.NoTTY), Entry{
+		Target: readerTarget,
+		Body:   []byte("Plan: hi\n"),
+		Meta:   finger.Meta{Elapsed: 123 * time.Millisecond},
+	})
+	reader.common.width = 100
+	if got := ansi.Strip(reader.buildStatusBar().render()); !strings.Contains(got, "123ms") {
+		t.Fatalf("reader status = %q, want latency 123ms", got)
+	}
+
+	listTarget := hostTarget(t, "@tilde.team")
+	list := deliverNavigation(newApp(stubFetch(t), colorprofile.NoTTY), Entry{
+		Target: listTarget,
+		Body:   []byte("Users currently online:\n\nalice bob\n"),
+		Meta:   finger.Meta{Elapsed: 45 * time.Millisecond},
+	})
+	list.common.width = 100
+	if got := ansi.Strip(list.buildStatusBar().render()); !strings.Contains(got, "45ms") {
+		t.Fatalf("list status = %q, want latency 45ms", got)
+	}
+}
+
+func TestStartAndAboutDoNotExposeResponseLatency(t *testing.T) {
+	start := newApp(stubFetch(t), colorprofile.NoTTY)
+	if got := ansi.Strip(start.buildStatusBar().render()); strings.Contains(got, "123ms") {
+		t.Fatalf("startpage status unexpectedly carries response latency: %q", got)
+	}
+	target := hostTarget(t, "alice@plan.cat")
+	about := deliverNavigation(start, Entry{Target: target, Body: []byte("Plan: hi\n"), Meta: finger.Meta{Elapsed: 123 * time.Millisecond}})
+	about.openAbout()
+	if got := ansi.Strip(about.buildStatusBar().render()); strings.Contains(got, "123ms") {
+		t.Fatalf("about status unexpectedly carries response latency: %q", got)
 	}
 }
 
@@ -304,6 +342,9 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	if got.pending == nil || got.state != stateList {
 		t.Fatalf("after drill: pending=%#v state=%d, want pending state=stateList", got.pending, got.state)
 	}
+	if got.input.Value() != "alrs@tilde.team" {
+		t.Fatalf("pending input = %q, want alrs@tilde.team", got.input.Value())
+	}
 	if cmd == nil {
 		t.Fatal("cmd = nil, want fetch command")
 	}
@@ -313,8 +354,12 @@ func TestEnterInListDrillsIntoUser(t *testing.T) {
 	}
 	// When the result lands it routes to the reader.
 	landed, _ := got.Update(fetchResultMsg{reqID: got.reqSeq, entry: Entry{Target: hostTarget(t, "alrs@tilde.team"), Body: []byte("Plan: hi\n")}})
-	if landed.(appModel).state != stateReader {
-		t.Fatalf("after the drilled result lands, state = %d, want stateReader", landed.(appModel).state)
+	landedModel := landed.(appModel)
+	if landedModel.state != stateReader {
+		t.Fatalf("after the drilled result lands, state = %d, want stateReader", landedModel.state)
+	}
+	if landedModel.input.Value() != "alrs@tilde.team" {
+		t.Fatalf("landed input = %q, want alrs@tilde.team", landedModel.input.Value())
 	}
 }
 
@@ -374,6 +419,9 @@ func TestEscInDrilledReaderRestoresList(t *testing.T) {
 
 	if got.state != stateList || got.pos != 0 {
 		t.Fatalf("state=%d pos=%d, want list/0 after Esc", got.state, got.pos)
+	}
+	if got.input.Value() != host.Raw {
+		t.Fatalf("input = %q, want restored list target %q", got.input.Value(), host.Raw)
 	}
 }
 
@@ -802,8 +850,6 @@ func TestVTogglesRawBodyOnProfile(t *testing.T) {
 	if m.state != stateReader {
 		t.Fatalf("precondition: a profile opens in the reader (state=%d)", m.state)
 	}
-	rendered := m.reader.viewport.View()
-
 	raw, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
 	gotRaw := raw.(appModel)
 	if !gotRaw.showingRaw {
@@ -812,9 +858,6 @@ func TestVTogglesRawBodyOnProfile(t *testing.T) {
 	rawView := gotRaw.reader.viewport.View()
 	if !strings.Contains(rawView, "hello from the raw body") {
 		t.Fatalf("raw view missing body text: %q", rawView)
-	}
-	if rawView == rendered {
-		t.Fatal("raw view should differ from the rendered profile (view source)")
 	}
 
 	off, _ := gotRaw.Update(tea.KeyPressMsg{Code: 'v'})
@@ -1769,6 +1812,9 @@ func TestReaderEnterDefiniteFingersFocusedLink(t *testing.T) {
 	got := next.(appModel)
 	if got.pending == nil {
 		t.Fatal("Enter on a definite finger link should start a request")
+	}
+	if got.input.Value() != got.pending.target.Raw {
+		t.Fatalf("input = %q, want pending target %q", got.input.Value(), got.pending.target.Raw)
 	}
 	if cmd == nil {
 		t.Fatal("Enter on a definite finger link should return a fetch command")
@@ -2769,6 +2815,9 @@ func TestAboutEnterFingersAuthor(t *testing.T) {
 	if got.pending == nil {
 		t.Fatal("Enter on about should start a request")
 	}
+	if got.input.Value() != got.pending.target.Raw {
+		t.Fatalf("input = %q, want pending target %q", got.input.Value(), got.pending.target.Raw)
+	}
 	if cmd == nil {
 		t.Fatal("Enter on about should return a fetch command")
 	}
@@ -2885,7 +2934,11 @@ func TestStartEnterRequestsSelectedTarget(t *testing.T) {
 		t.Fatal("startpage has no selected target")
 	}
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := next.(appModel)
+	if got.input.Value() != selected.target {
+		t.Fatalf("input = %q, want selected target %q", got.input.Value(), selected.target)
+	}
 	if cmd == nil {
 		t.Fatal("Enter produced no request command")
 	}
@@ -3298,6 +3351,9 @@ func TestHomeTruncatesHistory(t *testing.T) {
 	}
 	if len(m.history) != 0 {
 		t.Fatalf("history = %+v, want truncated", m.history)
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("home input = %q, want empty", m.input.Value())
 	}
 	// Focus follows how you arrived: h is pressed from content, so it lands on
 	// content with a row selected rather than costing an extra ↓.

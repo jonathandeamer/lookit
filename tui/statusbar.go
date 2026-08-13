@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -21,6 +22,7 @@ type statusBar struct {
 	flags     []string // honesty flags, e.g. {"auto-detected"}, {"partial (truncated)"}
 	page      string   // "page 2/4" when list has multiple pages; "" otherwise
 	scroll    string   // "42%" when reader is scrollable; "" otherwise
+	latency   string   // "123ms" for a landed response; "" otherwise
 	meta      string   // "1.2 KB", "3 users", …
 	hints     string   // contextual keys, e.g. "↵ go · / filter · ? help"
 	priority  *priorityStatus
@@ -70,27 +72,16 @@ func (b statusBar) render() string {
 	}
 	st := b.styles
 
-	// Right group: "◂ esc: X · page N/M · 42% · meta · hints", dim, truncated whole if needed.
-	var right []string
-	if b.escTarget != "" {
-		right = append(right, "◂ esc: "+b.escTarget)
-	}
-	if b.page != "" {
-		right = append(right, b.page)
-	}
-	if b.scroll != "" {
-		right = append(right, b.scroll)
-	}
-	if b.meta != "" {
-		right = append(right, b.meta)
-	}
-	if b.hints != "" {
-		right = append(right, b.hints)
+	// Right group: "◂ esc: X · page N/M · 42% · latency · meta · hints", dim, truncated whole if needed.
+	allFlags, _ := b.flagsWithin(b.width)
+	right := b.rightParts(false)
+	candidate := b.rightParts(true)
+	if b.latency != "" && b.fullWidth(candidate, allFlags) <= b.width {
+		right = candidate
 	}
 	// Honesty flags take precedence over contextual hints. Reserve their room
 	// before truncating the right group so a new hint cannot hide a partial or
 	// auto-detected marker on a narrow terminal.
-	allFlags, _ := b.flagsWithin(b.width)
 	separator := 0
 	if len(right) > 0 && (b.host != "" || b.user != "" || allFlags != "") {
 		separator = 1
@@ -136,6 +127,42 @@ func (b statusBar) render() string {
 	return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)
 }
 
+func (b statusBar) rightParts(includeLatency bool) []string {
+	var right []string
+	if b.escTarget != "" {
+		right = append(right, "◂ esc: "+b.escTarget)
+	}
+	if b.page != "" {
+		right = append(right, b.page)
+	}
+	if b.scroll != "" {
+		right = append(right, b.scroll)
+	}
+	if includeLatency && b.latency != "" {
+		right = append(right, b.latency)
+	}
+	if b.meta != "" {
+		right = append(right, b.meta)
+	}
+	if b.hints != "" {
+		right = append(right, b.hints)
+	}
+	return right
+}
+
+func (b statusBar) fullWidth(right []string, flags string) int {
+	crumb := b.host
+	if b.user != "" {
+		crumb += " / " + b.user
+	}
+	leftWidth := lipgloss.Width(crumb) + lipgloss.Width(flags)
+	rightWidth := lipgloss.Width(strings.Join(right, " · "))
+	if leftWidth > 0 && rightWidth > 0 {
+		return leftWidth + 1 + rightWidth
+	}
+	return leftWidth + rightWidth
+}
+
 func (b statusBar) renderPriority() string {
 	st := b.styles
 	full := b.priority.text()
@@ -162,7 +189,7 @@ func (b statusBar) renderPriority() string {
 
 func (b statusBar) hasOrdinaryStatus() bool {
 	return b.host != "" || b.user != "" || b.escTarget != "" || len(b.flags) > 0 ||
-		b.page != "" || b.scroll != "" || b.meta != ""
+		b.page != "" || b.scroll != "" || b.latency != "" || b.meta != ""
 }
 
 func (b statusBar) flagsWithin(width int) (plain, styled string) {
@@ -221,4 +248,14 @@ func formatBytes(n int) string {
 	default:
 		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
 	}
+}
+
+func formatElapsed(d time.Duration) string {
+	if d < time.Millisecond {
+		return fmt.Sprintf("%dµs", d.Microseconds())
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.2fs", d.Seconds())
 }

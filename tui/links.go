@@ -143,11 +143,49 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		// Cue word: scan backwards from start across up to 5 words on the
 		// same line for any recognized cue word (handles "email me at user@host").
 		cueWord := findCueWord(text, start)
+		parseRaw := raw
+		quoted := false
+		if quotedStart, quotedRaw, quotedParseRaw, ok := quotedAtToken(text, atAbs, end); ok {
+			overlapsConsumed := false
+			for i := quotedStart; i < end; i++ {
+				if consumed[i] {
+					overlapsConsumed = true
+					break
+				}
+			}
+			if !overlapsConsumed {
+				start = quotedStart
+				raw = quotedRaw
+				parseRaw = quotedParseRaw
+				quoted = true
+			}
+		}
+		if !quoted && strings.EqualFold(cueWord, "finger") {
+			if expandedStart, expandedRaw, ok := expandFingerSpan(text, start, end); ok {
+				overlapsConsumed := false
+				for i := expandedStart; i < end; i++ {
+					if consumed[i] {
+						overlapsConsumed = true
+						break
+					}
+				}
+				if !overlapsConsumed {
+					start = expandedStart
+					raw = expandedRaw
+				}
+			}
+		}
+		if !quoted {
+			parseRaw = raw
+		}
 
-		link, ok := classifyAtToken(raw, cueWord, origin)
+		link, ok := classifyAtToken(parseRaw, cueWord, origin)
 		if !ok {
 			pos = end
 			continue
+		}
+		if quoted {
+			link.Raw = raw
 		}
 		for i := start; i < end; i++ {
 			consumed[i] = true
@@ -218,15 +256,16 @@ func isOSC8Openable(raw string) bool {
 
 // Compiled regexes used by the scanner.
 var (
-	// schemeURLRe matches any scheme-prefixed URL token, including both
-	// the scheme://... form (finger, http, https, gemini, gopher, ircs, …)
-	// and the scheme:path form without // (e.g. mailto:user@host).
-	// Authority must be non-empty for the :// form — the caller's post-filter
-	// drops bare "https://" with no host.
-	// Parens/brackets are allowed in the URL body (e.g. Wikipedia URLs); the
-	// trailing-punct stripper removes unbalanced closing delimiters afterwards.
+	// schemeURLRe matches explicit scheme:// URLs and mailto: addresses. The
+	// colon-only alternative is deliberately limited to mailto:; other
+	// label:value text must remain available to the @-token scanner because Finger
+	// services commonly use query shapes such as wiki:article@host.
+	//
+	// Both alternatives retain the shipped URL body class. Parentheses and square
+	// brackets may therefore appear inside a URL; stripTrailingPunct removes only
+	// trailing sentence punctuation and unbalanced closing delimiters.
 	schemeURLRe = regexp.MustCompile(
-		`(?i)[A-Za-z][A-Za-z0-9+.\-]{1,30}:(?://[^\s<>"` + "`" + `]+|[^\s<>"` + "`" + `/][^\s<>"` + "`" + `]*)`)
+		`(?i)(?:[A-Za-z][A-Za-z0-9+.\-]{1,30}://[^\s<>"` + "`" + `]+|mailto:[^\s<>"` + "`" + `]+)`)
 
 	// ipv4Re matches a bare IPv4 dotted-quad (used inside domainSane).
 	ipv4Re = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
@@ -272,6 +311,70 @@ func findCueWord(text string, pos int) string {
 		}
 	}
 	return ""
+}
+
+func quotedAtToken(text string, at, tokenEnd int) (int, string, string, bool) {
+	if at == 0 {
+		return 0, "", "", false
+	}
+	quote := text[at-1]
+	if quote != '\'' && quote != '"' {
+		return 0, "", "", false
+	}
+
+	lineStart := strings.LastIndex(text[:at-1], "\n") + 1
+	relOpen := strings.LastIndexByte(text[lineStart:at-1], quote)
+	if relOpen < 0 {
+		return 0, "", "", false
+	}
+	open := lineStart + relOpen
+	query := text[open+1 : at-1]
+	if query == "" || strings.Contains(query, "@") || strings.ContainsRune(query, rune(quote)) {
+		return 0, "", "", false
+	}
+
+	hostPart := stripTrailingPunct(text[at:tokenEnd])
+	if len(hostPart) <= 1 || strings.Contains(hostPart[1:], "@") {
+		return 0, "", "", false
+	}
+	raw := text[open:at] + hostPart
+	parseRaw := query + hostPart
+	return open, raw, parseRaw, true
+}
+
+func isWordBoundedFinger(text string, start int) bool {
+	const cue = "finger"
+	if start < 0 || start+len(cue) > len(text) || !strings.EqualFold(text[start:start+len(cue)], cue) {
+		return false
+	}
+	return (start == 0 || !isWordChar(text[start-1])) &&
+		(start+len(cue) == len(text) || !isWordChar(text[start+len(cue)]))
+}
+
+func lastFingerCue(text string, lineStart, before int) int {
+	for start := before - len("finger"); start >= lineStart; start-- {
+		if isWordBoundedFinger(text, start) {
+			return start
+		}
+	}
+	return -1
+}
+
+func expandFingerSpan(text string, tokenStart, tokenEnd int) (int, string, bool) {
+	lineStart := strings.LastIndex(text[:tokenStart], "\n") + 1
+	cueStart := lastFingerCue(text, lineStart, tokenStart)
+	if cueStart < 0 {
+		return tokenStart, "", false
+	}
+
+	afterCue := text[cueStart+len("finger") : tokenEnd]
+	raw := strings.TrimSpace(afterCue)
+	if raw == "" || strings.Count(raw, "@") != 1 ||
+		lastFingerCue(raw, 0, len(raw)) >= 0 || strings.ContainsAny(raw, "\"'`") {
+		return tokenStart, "", false
+	}
+	leading := strings.Index(afterCue, raw)
+	return cueStart + len("finger") + leading, raw, true
 }
 
 // canonicalHost strips the port suffix and lowercases the host.

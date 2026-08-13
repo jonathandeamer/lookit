@@ -481,6 +481,36 @@ func TestGenericHarvestsFingerURLTarget(t *testing.T) {
 	}
 }
 
+func TestStrongGate_ServiceQueriesStayReaderOnly(t *testing.T) {
+	body := []byte(
+		"Login   Name\n" +
+			"alice   Alice\n" +
+			"bob     Bob\n" +
+			"\n" +
+			"Use: finger dict:word@other.host\n" +
+			"Use: finger urban:old school@bbs.airandwave.net\n",
+	)
+	parsed, ok := parseUserList(body, "example.com:79")
+	if !ok {
+		t.Fatal("parseUserList ok = false, want true")
+	}
+	harvested := appendHarvestedTargets(parsed.users, body, "example.com:79")
+	if got := logins(harvested); !reflect.DeepEqual(got, []string{"alice", "bob"}) {
+		t.Fatalf("logins = %v, want only structured rows", got)
+	}
+	if loginRe.MatchString("dict:word") || loginRe.MatchString("urban:old school") {
+		t.Fatal("service queries unexpectedly match the harvestable login grammar")
+	}
+
+	links := DetectLinks(body, "example.com:79")
+	if link, ok := findLink(links, "dict:word@other.host"); !ok || !link.Strong || link.Action != ActionDrill {
+		t.Fatalf("dict reader link = %#v, found=%v", link, ok)
+	}
+	if link, ok := findLink(links, "urban:old school@bbs.airandwave.net"); !ok || !link.Strong || link.Action != ActionDrill {
+		t.Fatalf("urban reader link = %#v, found=%v", link, ok)
+	}
+}
+
 func TestGenericTargetsDoNotOpenAlone(t *testing.T) {
 	// No structured-login block: a lone "finger user@host" mention in prose must
 	// NOT open a list (additive-only rule). This is the graph.no shape.

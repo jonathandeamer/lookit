@@ -79,6 +79,22 @@ func TestListMoveDownChangesSelection(t *testing.T) {
 	}
 }
 
+func TestListJumpAliasesRemainAvailable(t *testing.T) {
+	users := []User{{Login: "alice"}, {Login: "bob"}, {Login: "carol"}}
+	m := newList(testCommon(), hostTarget(t, "@tilde.team"), users)
+	m.list.Select(1)
+
+	m, _ = m.update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	if got := m.list.Index(); got != 0 {
+		t.Fatalf("g selected index = %d, want 0", got)
+	}
+
+	m, _ = m.update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	if got := m.list.Index(); got != len(users)-1 {
+		t.Fatalf("G selected index = %d, want %d", got, len(users)-1)
+	}
+}
+
 func TestListViewShowsLoginAndName(t *testing.T) {
 	users := []User{{Login: "geurimja", Name: "Geurimja"}}
 	m := newList(testCommon(), hostTarget(t, "@plan.cat"), users)

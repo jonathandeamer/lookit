@@ -4,9 +4,9 @@ import "charm.land/bubbles/v2/key"
 
 // keyMap holds lookit's app-level key bindings. It is matched with key.Matches
 // and doubles as the help.KeyMap that drives the bubbles/help panel. Scroll,
-// page, and jump bindings are owned by the bubbles viewport/list at runtime;
-// they appear here only so the help panel advertises them (we disable the
-// list's built-in help).
+// page, and jump bindings are owned by the bubbles viewport/list at runtime.
+// Move and Page appear here so the help panel can advertise them; Jump mirrors
+// the working advanced shortcut but is intentionally omitted from help.
 type keyMap struct {
 	FocusInput key.Binding
 	Back       key.Binding
@@ -53,7 +53,7 @@ func newKeyMap() keyMap {
 		// 'h'/home are the stronger mnemonics and both need a bare letter. ←/pgup
 		// still page back, and 'l' still pages forward.
 		Bookmark: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "bookmark")),
-		Home:     key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "startpage")),
+		Home:     key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "home")),
 		// Browse is the omnibox gesture: from the target input, drop into the
 		// startpage list. Both keys are free in textinput (↓ has no binding, and tab
 		// only matters to the reader's LinkNext, which the input never reaches).
@@ -66,8 +66,8 @@ func newKeyMap() keyMap {
 		// the ones we don't — 'l' still pages.
 		Page:       key.NewBinding(key.WithKeys("left", "right", "l", "pgup", "pgdown"), key.WithHelp("←/→", "page")),
 		Jump:       key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("g/G", "top/bottom")),
-		LinkNext:   key.NewBinding(key.WithKeys("tab", "n"), key.WithHelp("tab/n", "next link")),
-		LinkPrev:   key.NewBinding(key.WithKeys("shift+tab", "N"), key.WithHelp("shift+tab/N", "previous link")),
+		LinkNext:   key.NewBinding(key.WithKeys("tab", "n"), key.WithHelp("tab", "next link")),
+		LinkPrev:   key.NewBinding(key.WithKeys("shift+tab", "N"), key.WithHelp("shift+tab", "previous link")),
 		LinkFinger: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "finger link")),
 		LinkPanel:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "browse links")),
 	}
@@ -85,7 +85,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Open, k.FocusInput, k.Copy, k.Raw, k.Refresh},
-		{k.Move, k.Page, k.Jump, k.Filter, k.Browse},
+		{k.Move, k.Page, k.Filter, k.Browse},
 		{k.Bookmark, k.Home, k.Back, k.About, k.Quit},
 	}
 }

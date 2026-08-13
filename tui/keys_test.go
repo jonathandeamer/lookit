@@ -33,27 +33,48 @@ func TestRefreshKeyHelp(t *testing.T) {
 	}
 }
 
-func TestLinkKeyHelp(t *testing.T) {
+func TestLinkKeyHelpSimplifiesDisplayWithoutRemovingAliases(t *testing.T) {
 	k := newKeyMap()
 	tests := []struct {
-		name string
-		got  key.Help
-		want key.Help
+		name     string
+		binding  key.Binding
+		wantHelp key.Help
+		wantKeys []string
 	}{
-		{name: "next", got: k.LinkNext.Help(), want: key.Help{Key: "tab/n", Desc: "next link"}},
-		{name: "previous", got: k.LinkPrev.Help(), want: key.Help{Key: "shift+tab/N", Desc: "previous link"}},
-		{name: "panel", got: k.LinkPanel.Help(), want: key.Help{Key: "L", Desc: "browse links"}},
+		{
+			name:     "next",
+			binding:  k.LinkNext,
+			wantHelp: key.Help{Key: "tab", Desc: "next link"},
+			wantKeys: []string{"tab", "n"},
+		},
+		{
+			name:     "previous",
+			binding:  k.LinkPrev,
+			wantHelp: key.Help{Key: "shift+tab", Desc: "previous link"},
+			wantKeys: []string{"shift+tab", "N"},
+		},
+		{
+			name:     "panel",
+			binding:  k.LinkPanel,
+			wantHelp: key.Help{Key: "L", Desc: "browse links"},
+			wantKeys: []string{"L"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.want {
-				t.Fatalf("link help = %+v, want %+v", tt.got, tt.want)
+			if got := tt.binding.Help(); got != tt.wantHelp {
+				t.Fatalf("link help = %+v, want %+v", got, tt.wantHelp)
+			}
+			for _, want := range tt.wantKeys {
+				if got := tt.binding.Keys(); !contains(got, want) {
+					t.Errorf("keys = %v, want to retain %q", got, want)
+				}
 			}
 		})
 	}
 }
 
-func TestKeyMapFullHelpIncludesPageAndMoveKeys(t *testing.T) {
+func TestKeyMapFullHelpOmitsJumpButKeepsBinding(t *testing.T) {
 	k := newKeyMap()
 	var all []string
 	for _, group := range k.FullHelp() {
@@ -62,8 +83,8 @@ func TestKeyMapFullHelpIncludesPageAndMoveKeys(t *testing.T) {
 		}
 	}
 	joined := strings.Join(all, " ")
-	for _, want := range []string{"i", "y", "r", "esc", "q"} {
-		if !strings.Contains(joined, want) {
+	for _, want := range []string{"i", "y", "r", "esc", "q", "left,right,l,pgup,pgdown"} {
+		if !contains(all, want) {
 			t.Fatalf("FullHelp missing %q; got %s", want, joined)
 		}
 	}
@@ -72,9 +93,13 @@ func TestKeyMapFullHelpIncludesPageAndMoveKeys(t *testing.T) {
 	if strings.Contains(joined, "?") {
 		t.Fatalf("FullHelp should omit '?' (it lives in the bottom bar); got %s", joined)
 	}
-	// Page/move discoverability (owed because we disable the list's own help).
-	if !strings.Contains(joined, "left") || !strings.Contains(joined, "g") {
-		t.Fatalf("FullHelp must advertise page/move keys; got %s", joined)
+	if contains(all, "g,G") {
+		t.Fatalf("FullHelp should omit Jump; got %s", joined)
+	}
+	for _, want := range []string{"g", "G"} {
+		if got := k.Jump.Keys(); !contains(got, want) {
+			t.Fatalf("Jump keys = %v, want to retain %q", got, want)
+		}
 	}
 }
 
@@ -113,6 +138,9 @@ func TestBookmarkAndHomeKeysBound(t *testing.T) {
 	}
 	if got := k.Home.Keys(); !contains(got, "h") {
 		t.Fatalf("Home keys = %v, want h", got)
+	}
+	if got, want := k.Home.Help(), (key.Help{Key: "h", Desc: "home"}); got != want {
+		t.Fatalf("Home help = %+v, want %+v", got, want)
 	}
 	// h moved from Page to Home, so the help must stop claiming it.
 	if got := k.Page.Keys(); contains(got, "h") {

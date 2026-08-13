@@ -70,7 +70,7 @@ func (e *QueryError) Error() string {
 	case FailureNoSuchHost:
 		return "no such host: " + e.Host
 	case FailureDNS:
-		return fmt.Sprintf("couldn't look up %s: %v", e.Host, e.Err)
+		return fmt.Sprintf("couldn't look up %s: %s", e.Host, dnsReason(e.Err))
 	case FailureNetworkUnreachable:
 		return "network unreachable: " + e.Addr
 	case FailureHostUnreachable:
@@ -115,6 +115,20 @@ func classify(err error) FailureKind {
 		return FailureTimeout
 	}
 	return FailureUnknown
+}
+
+// dnsReason returns just the reason a DNS lookup failed — *net.DNSError's own
+// Error() renders "lookup <name>: <reason>", and quoting that whole string in
+// a message that already names the host would repeat the host, exactly the
+// flaw this type exists to remove. Falls back to the error's full text if the
+// error isn't a *net.DNSError or carries no reason, so nothing is silently
+// dropped.
+func dnsReason(err error) string {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.Err != "" {
+		return dnsErr.Err
+	}
+	return fmt.Sprintf("%v", err)
 }
 
 func hostOnly(addr string) string {

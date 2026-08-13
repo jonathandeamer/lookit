@@ -56,7 +56,14 @@ func TestQueryErrorMessages(t *testing.T) {
 			op:   opDial, addr: "nosuchhost.example:79",
 			err:  &net.DNSError{Err: "server misbehaving", Name: "nosuchhost.example"},
 			kind: FailureDNS,
-			want: "couldn't look up nosuchhost.example: lookup nosuchhost.example: server misbehaving",
+			want: "couldn't look up nosuchhost.example: server misbehaving",
+		},
+		{
+			name: "dns failure without a reason falls back to the full error text",
+			op:   opDial, addr: "nosuchhost.example:79",
+			err:  &net.DNSError{Err: "", Name: "nosuchhost.example"},
+			kind: FailureDNS,
+			want: "couldn't look up nosuchhost.example: lookup nosuchhost.example: ",
 		},
 		{
 			name: "network unreachable",

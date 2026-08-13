@@ -10,12 +10,13 @@
 
 ## Global Constraints
 
-- This is PR 3 of 3. Its behavior depends only on PR 1; this execution plan follows the numbered delivery sequence, so branch from current `origin/main` after PR 2 is merged and strict branch protection is satisfied.
-- Suggested branch/worktree after syncing `main`: `feat/quoted-finger-queries` at `.worktrees/feat-quoted-finger-queries`.
+- This is PR 3 of 3. Its behavior depends only on PR 1, but its combined scanner precedence must be tested with PR 2. While PR 1 awaits human merge, implement PR 3 locally on `feat/quoted-finger-queries`, stacked from local PR-2 commit `2e4b4de`; do not push the stacked branch. After PR 1 is squash-merged, rebase PR 2 onto updated `origin/main`; after PR 2 is human-merged, rebase only the PR-3 changes onto updated `origin/main` before the first push.
+- Use branch/worktree `feat/quoted-finger-queries` at `.worktrees/feat-quoted-finger-queries`.
 - Quote grouping must execute before PR-2 spaced expansion when both are present. If PR 2 is absent, grouping still works without an expansion helper.
 - Keep PR 2's ASCII quote/backtick rejection in `expandFingerSpan`; malformed quote-like syntax must fall back to the original `isDelim` token.
 - Do not remove `'`, `"`, or backtick from `isDelim`; existing quoted-URL punctuation behavior must remain unchanged.
 - Accept only matching ASCII `'` or `"`, with a non-empty query containing neither that quote nor `@`, and no whitespace between the closing quote and `@`.
+- Quoted grouping is direct one-`@` syntax only: the query contains no `@`, and the host suffix contains no additional `@` beyond its leading separator. Quoted forwarding is out of scope; existing whitespace-free `user@host@relay` and `finger://` forwarding behavior remains unchanged.
 - The `finger` cue is optional for grouping. It affects classification only through the unchanged `findCueWord` five-field window.
 - Keep exact quotes in `Link.Raw`; pass `query@host` without quotes to `classifyAtToken`; restore `Link.Raw` only after successful classification.
 - Do not change forwarding rules, `domainSane`, `ParseTargetPinned`, `loginRe`, harvesting, OSC-8 policy, or `applyLinkOverlay`.
@@ -33,17 +34,17 @@
 - Consumes: `DetectLinks(body []byte, originHostPort string) []Link` and existing `Link` fields.
 - Produces: failing tests freezing display `Raw`, parse `Target.Query`, cue action, suffix precedence, punctuation stripping, and rejected quote placements.
 
-- [ ] **Step 1: Create the isolated PR-3 branch after PR 2 merges**
+- [ ] **Step 1: Create the isolated local PR-3 branch from PR 2**
 
-From `/Users/jonathan/lookit`, run each command separately:
+While PR 2 remains local, from `/Users/jonathan/lookit` run:
 
 ```bash
 git fetch origin
-git log -1 --oneline origin/main
-git worktree add .worktrees/feat-quoted-finger-queries -b feat/quoted-finger-queries origin/main
+git log -1 --oneline feat/cued-finger-queries
+git worktree add .worktrees/feat-quoted-finger-queries -b feat/quoted-finger-queries feat/cued-finger-queries
 ```
 
-Confirm the displayed `origin/main` commit contains PR 2 (and therefore PR 1), then switch all remaining commands in this plan to `/Users/jonathan/lookit/.worktrees/feat-quoted-finger-queries`. Establish the baseline:
+Confirm the displayed branch tip is the reviewed PR-2 commit, then switch all remaining commands in this plan to `/Users/jonathan/lookit/.worktrees/feat-quoted-finger-queries`. Establish the baseline:
 
 ```bash
 go mod download
@@ -51,6 +52,8 @@ go test ./...
 ```
 
 Expected: the new worktree is clean and the full baseline passes before adding PR-3 tests.
+
+After PR 2 is human-merged, fetch `origin`, rebase only the PR-3 changes onto updated `origin/main`, and verify again before the first push. This avoids publishing a stacked branch that would later require a force-push.
 
 - [ ] **Step 2: Add accepted quote-production cases**
 
@@ -170,7 +173,7 @@ func quotedAtToken(text string, at, tokenEnd int) (int, string, string, bool) {
 	}
 
 	hostPart := stripTrailingPunct(text[at:tokenEnd])
-	if len(hostPart) <= 1 {
+	if len(hostPart) <= 1 || strings.Contains(hostPart[1:], "@") {
 		return 0, "", "", false
 	}
 	raw := text[open:at] + hostPart
@@ -274,7 +277,7 @@ Expected: `isDelim`, URL grammar, classifiers, forwarding, harvest, and overlay 
 - [ ] **Step 7: Commit only after explicit approval**
 
 ```bash
-git add tui/links.go tui/links_test.go
+git add docs/superpowers/plans/2026-08-13-quoted-finger-queries.md docs/superpowers/specs/2026-08-13-catalog-finger-command-links-design.md tui/links.go tui/links_test.go
 git commit -m "feat(tui): group shell-quoted finger queries as one link"
 ```
 

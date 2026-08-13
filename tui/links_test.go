@@ -275,6 +275,73 @@ func TestDetectLinks_Rule2_FingerCue(t *testing.T) {
 	}
 }
 
+func TestDetectLinks_QuotedFingerQuery(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		raw       string
+		query     string
+		strong    bool
+		ambiguous bool
+		action    LinkAction
+	}{
+		{"cued double", `finger "oslo, united states"@graph.no`, `"oslo, united states"@graph.no`, "oslo, united states", true, false, ActionDrill},
+		{"uncued double", `"oslo, united states"@graph.no`, `"oslo, united states"@graph.no`, "oslo, united states", false, true, ActionCopy},
+		{"cued single", `finger 'oslo, united states'@graph.no`, `'oslo, united states'@graph.no`, "oslo, united states", true, false, ActionDrill},
+		{"trailing punctuation", `finger "oslo"@graph.no.`, `"oslo"@graph.no`, "oslo", true, false, ActionDrill},
+		{"suffix wins", `finger oslo, "united states"@graph.no`, `"united states"@graph.no`, "united states", true, false, ActionDrill},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			links := DetectLinks([]byte(tt.body), "example.com:79")
+			if len(links) != 1 {
+				t.Fatalf("DetectLinks(%q) returned %d links, want 1: %#v", tt.body, len(links), links)
+			}
+			link := links[0]
+			if link.Raw != tt.raw || link.Kind != LinkFinger || link.Action != tt.action ||
+				link.Strong != tt.strong || link.Ambiguous != tt.ambiguous || link.Blocked != "" ||
+				link.Target.Query != tt.query || link.Target.HostPort != "graph.no:79" {
+				t.Fatalf("DetectLinks(%q)[0] = %#v, want Raw=%q Query=%q Strong=%v Ambiguous=%v Action=%v",
+					tt.body, link, tt.raw, tt.query, tt.strong, tt.ambiguous, tt.action)
+			}
+		})
+	}
+}
+
+func TestDetectLinks_QuotedFingerQueryDeclines(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		raw  string
+	}{
+		{"unmatched opening quote", `finger "oslo@graph.no`, "oslo@graph.no"},
+		{"quotes wrap whole address", `"oslo@graph.no"`, "oslo@graph.no"},
+		{"host inside quotes", `finger "oslo, united states@graph.no"`, "states@graph.no"},
+		{"space before at", `finger "oslo, united states" @graph.no`, "@graph.no"},
+		{"mixed quotes", `finger "oslo'@graph.no`, "@graph.no"},
+		{"backticks do not group", "finger `oslo, united states`@graph.no", "@graph.no"},
+		{"empty quoted query", `finger ""@graph.no`, "@graph.no"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			links := DetectLinks([]byte(tt.body), "example.com:79")
+			if len(links) != 1 || links[0].Raw != tt.raw {
+				t.Fatalf("DetectLinks(%q) = %#v, want existing fallback Raw=%q", tt.body, links, tt.raw)
+			}
+		})
+	}
+}
+
+func TestDetectLinks_QuotedFingerQueryDeclinesTypographicQuotes(t *testing.T) {
+	links := DetectLinks([]byte(`finger “oslo”@graph.no`), "example.com:79")
+	if len(links) != 1 || links[0].Raw != "“oslo”@graph.no" || links[0].Target.Query != "“oslo”" {
+		t.Fatalf("DetectLinks(typographic quoted query) = %#v, want Raw=%q Query=%q",
+			links, "“oslo”@graph.no", "“oslo”")
+	}
+}
+
 func TestDetectLinks_Rule2_EmailCue(t *testing.T) {
 	links := DetectLinks([]byte("email me at bob@example.com"), "tilde.team:79")
 	l, ok := findLink(links, "bob@example.com")
@@ -625,6 +692,135 @@ func TestDetectLinks_Punctuation_DoubleQuotes(t *testing.T) {
 }
 
 // ---- Forwarding ----
+
+func TestDetectLinks_QuotedFingerQuery_ForwardingDeclinedSameRelay(t *testing.T) {
+	body := []byte(`finger "alice smith"@whois.ano@thebackupbox.net`)
+	links := DetectLinks(body, "thebackupbox.net:79")
+	for _, link := range links {
+		if link.Forwarded || link.Action == ActionDrill {
+			t.Fatalf("DetectLinks(%q) = %#v, quoted grouping must not forward or drill", body, links)
+		}
+	}
+}
+
+func TestDetectLinks_QuotedFingerQuery_ForwardingDeclinedCrossRelay(t *testing.T) {
+	body := []byte(`finger "alice smith"@whois.ano@other-relay.net`)
+	links := DetectLinks(body, "thebackupbox.net:79")
+	for _, link := range links {
+		if link.Forwarded || link.Action == ActionDrill || link.Blocked != "" {
+			t.Fatalf("DetectLinks(%q) = %#v, quoted grouping must not forward or block", body, links)
+		}
+	}
+}
+
+func TestDetectLinks_QuotedFingerQuery_FinalReviewCases(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []struct {
+			raw    string
+			query  string
+			kind   LinkKind
+			action LinkAction
+			host   string
+		}
+	}{
+		{
+			name: "last matching quote and suffix precedence",
+			body: `finger "old" prose "new value"@graph.no`,
+			want: []struct {
+				raw    string
+				query  string
+				kind   LinkKind
+				action LinkAction
+				host   string
+			}{{`"new value"@graph.no`, "new value", LinkFinger, ActionDrill, "graph.no:79"}},
+		},
+		{
+			name: "unicode query keeps exact bytes",
+			body: `finger "東京 · café"@graph.no`,
+			want: []struct {
+				raw    string
+				query  string
+				kind   LinkKind
+				action LinkAction
+				host   string
+			}{{`"東京 · café"@graph.no`, "東京 · café", LinkFinger, ActionDrill, "graph.no:79"}},
+		},
+		{
+			name: "phase one overlap declines quote grouping",
+			body: `"https://example.com"@graph.no`,
+			want: []struct {
+				raw    string
+				query  string
+				kind   LinkKind
+				action LinkAction
+				host   string
+			}{{"https://example.com", "", LinkURL, ActionCopy, ""}, {"@graph.no", "", LinkFinger, ActionDrill, "graph.no:79"}},
+		},
+		{
+			name: "multiple links stay in document order",
+			body: `"one"@a.example https://example.com "two"@b.example`,
+			want: []struct {
+				raw    string
+				query  string
+				kind   LinkKind
+				action LinkAction
+				host   string
+			}{{`"one"@a.example`, "one", LinkFinger, ActionCopy, "a.example:79"}, {"https://example.com", "", LinkURL, ActionCopy, ""}, {`"two"@b.example`, "two", LinkFinger, ActionCopy, "b.example:79"}},
+		},
+		{
+			name: "original token cue chooses nearer email",
+			body: `finger "foo email bar"@graph.no`,
+			want: []struct {
+				raw    string
+				query  string
+				kind   LinkKind
+				action LinkAction
+				host   string
+			}{{`"foo email bar"@graph.no`, "", LinkEmail, ActionCopy, ""}},
+		},
+		{
+			name: "server port is pinned",
+			body: `finger "alice smith"@graph.no:70`,
+			want: []struct {
+				raw    string
+				query  string
+				kind   LinkKind
+				action LinkAction
+				host   string
+			}{{`"alice smith"@graph.no:70`, "alice smith", LinkFinger, ActionDrill, "graph.no:79"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			links := DetectLinks([]byte(tt.body), "example.com:79")
+			if len(links) != len(tt.want) {
+				t.Fatalf("DetectLinks(%q) = %#v, want %d links", tt.body, links, len(tt.want))
+			}
+			for i, want := range tt.want {
+				got := links[i]
+				if got.Raw != want.raw || got.Target.Query != want.query || got.Kind != want.kind ||
+					got.Action != want.action || got.Target.HostPort != want.host {
+					t.Errorf("DetectLinks(%q)[%d] = %#v, want Raw=%q Query=%q Kind=%v Action=%v HostPort=%q",
+						tt.body, i, got, want.raw, want.query, want.kind, want.action, want.host)
+				}
+				if tt.name == "original token cue chooses nearer email" && !got.Strong {
+					t.Errorf("DetectLinks(%q)[%d] Strong = false, want true", tt.body, i)
+				}
+			}
+		})
+	}
+}
+
+func TestDetectLinks_QuotedFingerQuery_DoesNotCrossLines(t *testing.T) {
+	body := "finger \"opening on prior line\n\"@graph.no"
+	links := DetectLinks([]byte(body), "example.com:79")
+	if len(links) != 1 || links[0].Raw != "@graph.no" {
+		t.Fatalf("DetectLinks(%q) = %#v, want delimiter fallback Raw=%q", body, links, "@graph.no")
+	}
+}
 
 func TestDetectLinks_Forwarding_SameRelay_DrillAllowed(t *testing.T) {
 	// "finger epoch@whois.ano@thebackupbox.net" — origin matches relay.

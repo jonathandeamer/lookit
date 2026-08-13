@@ -143,7 +143,24 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		// Cue word: scan backwards from start across up to 5 words on the
 		// same line for any recognized cue word (handles "email me at user@host").
 		cueWord := findCueWord(text, start)
-		if strings.EqualFold(cueWord, "finger") {
+		parseRaw := raw
+		quoted := false
+		if quotedStart, quotedRaw, quotedParseRaw, ok := quotedAtToken(text, atAbs, end); ok {
+			overlapsConsumed := false
+			for i := quotedStart; i < end; i++ {
+				if consumed[i] {
+					overlapsConsumed = true
+					break
+				}
+			}
+			if !overlapsConsumed {
+				start = quotedStart
+				raw = quotedRaw
+				parseRaw = quotedParseRaw
+				quoted = true
+			}
+		}
+		if !quoted && strings.EqualFold(cueWord, "finger") {
 			if expandedStart, expandedRaw, ok := expandFingerSpan(text, start, end); ok {
 				overlapsConsumed := false
 				for i := expandedStart; i < end; i++ {
@@ -158,11 +175,17 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 				}
 			}
 		}
+		if !quoted {
+			parseRaw = raw
+		}
 
-		link, ok := classifyAtToken(raw, cueWord, origin)
+		link, ok := classifyAtToken(parseRaw, cueWord, origin)
 		if !ok {
 			pos = end
 			continue
+		}
+		if quoted {
+			link.Raw = raw
 		}
 		for i := start; i < end; i++ {
 			consumed[i] = true
@@ -288,6 +311,35 @@ func findCueWord(text string, pos int) string {
 		}
 	}
 	return ""
+}
+
+func quotedAtToken(text string, at, tokenEnd int) (int, string, string, bool) {
+	if at == 0 {
+		return 0, "", "", false
+	}
+	quote := text[at-1]
+	if quote != '\'' && quote != '"' {
+		return 0, "", "", false
+	}
+
+	lineStart := strings.LastIndex(text[:at-1], "\n") + 1
+	relOpen := strings.LastIndexByte(text[lineStart:at-1], quote)
+	if relOpen < 0 {
+		return 0, "", "", false
+	}
+	open := lineStart + relOpen
+	query := text[open+1 : at-1]
+	if query == "" || strings.Contains(query, "@") || strings.ContainsRune(query, rune(quote)) {
+		return 0, "", "", false
+	}
+
+	hostPart := stripTrailingPunct(text[at:tokenEnd])
+	if len(hostPart) <= 1 || strings.Contains(hostPart[1:], "@") {
+		return 0, "", "", false
+	}
+	raw := text[open:at] + hostPart
+	parseRaw := query + hostPart
+	return open, raw, parseRaw, true
 }
 
 func isWordBoundedFinger(text string, start int) bool {

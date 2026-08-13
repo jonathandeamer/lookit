@@ -345,6 +345,10 @@ unquoted words before the opening `q`.
   and does not grow one. After it returns, restore `Link.Raw` to the
   quoted substring. Wire query is `oslo, united states`, not
   `"oslo, united states"`.
+- Quote production is direct one-`@` syntax only: the quoted query contains
+  no `@`, and the host suffix contains no additional `@`. Quoted forwarding
+  is out of scope; existing whitespace-free `user@host@relay` and
+  `finger://` forwarding behavior remains unchanged.
 - Classification still uses `findCueWord` from the original `@` token
   start. A preceding `finger` inside the 5-word window makes it
   strong/drill; without a cue it is policy B (copy-first) but still

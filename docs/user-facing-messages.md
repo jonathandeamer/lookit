@@ -102,8 +102,10 @@ error.
 
 ## TUI Help
 
-These are app-level key binding labels. The expanded help panel is generated
-from enabled bindings, so not every label is visible in every state.
+These are app-level key binding labels. The expanded Help popover shows enabled
+bindings in priority order, so not every label is visible in every state or at
+every terminal height. Its displayed primary gesture does not remove hidden
+runtime aliases, and `? help` remains in the status bar rather than the popover.
 
 | Message | Source | Surface |
 | --- | --- | --- |
@@ -119,6 +121,11 @@ from enabled bindings, so not every label is visible in every state.
 | `↑/↓ move` | `tui/keys.go:38` | Movement help. |
 | `←/→ page` | `tui/keys.go:39` | Page help. |
 | `h home` | `tui/keys.go` | Open the startpage. |
+| `↓ browse` | `tui/keys.go` | Move from the focused target input into the startpage list; Tab remains an accepted alias. |
+| `b bookmark` / `b remove` | `tui/keys.go`, `tui/app.go` | Add or remove the current target in bookmarks. |
+| `L browse links` | `tui/keys.go` | Open the detected-links panel. |
+| `a about lookit` | `tui/keys.go`, `tui/app.go` | Open About from content or from Help, including Help over the focused input. |
+| `f go` | `tui/help.go` | Finger the selected ambiguous Finger link from the links panel. |
 | `tab next link` | `tui/keys.go` | Focus the next detected reader link; n remains an accepted alias. |
 | `shift+tab previous link` | `tui/keys.go` | Focus the previous detected reader link; N remains an accepted alias. |
 

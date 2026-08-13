@@ -2,11 +2,10 @@ package tui
 
 import "charm.land/bubbles/v2/key"
 
-// keyMap holds lookit's app-level key bindings. It is matched with key.Matches
-// and doubles as the help.KeyMap that drives the bubbles/help panel. Scroll,
-// page, and jump bindings are owned by the bubbles viewport/list at runtime.
-// Move and Page appear here so the help panel can advertise them; Jump mirrors
-// the working advanced shortcut but is intentionally omitted from help.
+// keyMap holds lookit's app-level key bindings. It is matched with key.Matches.
+// Scroll, page, and jump bindings are owned by the bubbles viewport/list at
+// runtime. Move and Page appear here so the help panel can advertise them; Jump
+// mirrors the working advanced shortcut but is intentionally omitted from help.
 type keyMap struct {
 	FocusInput key.Binding
 	Back       key.Binding
@@ -70,22 +69,5 @@ func newKeyMap() keyMap {
 		LinkPrev:   key.NewBinding(key.WithKeys("shift+tab", "N"), key.WithHelp("shift+tab", "previous link")),
 		LinkFinger: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "finger link")),
 		LinkPanel:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "browse links")),
-	}
-}
-
-// ShortHelp implements help.KeyMap. (Unused by the bar today, which renders its
-// own focus-aware hints, but required by the interface.)
-func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Open, k.FocusInput, k.Back, k.Help, k.Quit}
-}
-
-// FullHelp implements help.KeyMap — the expanded panel toggled by '?'. Help
-// itself is intentionally omitted: the bottom bar always advertises "? help", so
-// listing it inside the open panel (where '?' actually closes) is redundant.
-func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.Open, k.FocusInput, k.Copy, k.Raw, k.Refresh},
-		{k.Move, k.Page, k.Filter, k.Browse},
-		{k.Bookmark, k.Home, k.Back, k.About, k.Quit},
 	}
 }

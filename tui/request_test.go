@@ -691,8 +691,9 @@ func TestMainContentRefreshStatus(t *testing.T) {
 }
 
 func helpText(m appModel) string {
+	m.common.width, m.common.height = 200, 40
 	m.updateKeymap()
-	return ansi.Strip(m.helpView())
+	return strings.Join(strings.Fields(ansi.Strip(m.helpView())), " ")
 }
 
 func TestRefreshHelpContexts(t *testing.T) {
@@ -761,14 +762,23 @@ func TestListFilteringDoesNotAdvertiseRefreshOrRetry(t *testing.T) {
 	}
 }
 
-func TestRWhileHelpOpenOnlyClosesHelp(t *testing.T) {
-	m := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")})
+func TestRWhileHelpOpenRefreshes(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan\n"),
+	})
+	m.common.width, m.common.height = 120, 24
 	m.help = true
-	m.helpModel.ShowAll = true
-	next, cmd := m.Update(tea.KeyPressMsg{Code: 'r'})
-	got := next.(appModel)
-	if got.help || got.pending != nil || cmd != nil {
-		t.Fatalf("r in help = help %v pending %#v cmd %T", got.help, got.pending, cmd)
+
+	next, replay := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	m = next.(appModel)
+	if m.help || replay == nil {
+		t.Fatalf("first r = help %v replay %T", m.help, replay)
+	}
+	next, _ = m.Update(replay().(tea.KeyPressMsg))
+	m = next.(appModel)
+	if m.pending == nil || m.pending.intent != requestRefresh {
+		t.Fatalf("replayed r pending = %#v, want refresh", m.pending)
 	}
 }
 

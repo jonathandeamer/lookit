@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/key"
@@ -74,28 +73,8 @@ func TestLinkKeyHelpSimplifiesDisplayWithoutRemovingAliases(t *testing.T) {
 	}
 }
 
-func TestKeyMapFullHelpOmitsJumpButKeepsBinding(t *testing.T) {
+func TestJumpBindingRemainsAvailable(t *testing.T) {
 	k := newKeyMap()
-	var all []string
-	for _, group := range k.FullHelp() {
-		for _, b := range group {
-			all = append(all, strings.Join(b.Keys(), ","))
-		}
-	}
-	joined := strings.Join(all, " ")
-	for _, want := range []string{"i", "y", "r", "esc", "q", "left,right,l,pgup,pgdown"} {
-		if !contains(all, want) {
-			t.Fatalf("FullHelp missing %q; got %s", want, joined)
-		}
-	}
-	// '?' is intentionally absent from the panel: the bottom bar always shows
-	// "? help", and inside the open panel '?' actually closes it.
-	if strings.Contains(joined, "?") {
-		t.Fatalf("FullHelp should omit '?' (it lives in the bottom bar); got %s", joined)
-	}
-	if contains(all, "g,G") {
-		t.Fatalf("FullHelp should omit Jump; got %s", joined)
-	}
 	for _, want := range []string{"g", "G"} {
 		if got := k.Jump.Keys(); !contains(got, want) {
 			t.Fatalf("Jump keys = %v, want to retain %q", got, want)
@@ -119,15 +98,6 @@ func TestKeyMapAboutBinding(t *testing.T) {
 	}
 	if h := k.About.Help(); h.Key != "a" || h.Desc != "about lookit" {
 		t.Fatalf("About help = %+v, want {a, about lookit}", h)
-	}
-	var all []string
-	for _, group := range k.FullHelp() {
-		for _, b := range group {
-			all = append(all, strings.Join(b.Keys(), ","))
-		}
-	}
-	if !strings.Contains(strings.Join(all, " "), "a") {
-		t.Fatalf("FullHelp should advertise the about key 'a': %v", all)
 	}
 }
 

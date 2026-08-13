@@ -1034,7 +1034,170 @@ func TestQuestionMarkTogglesHelpOverlay(t *testing.T) {
 
 	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if step.(appModel).help {
-		t.Fatal("any key should close the help overlay")
+		t.Fatal("Esc should go back from Help")
+	}
+}
+
+func TestUnrecognisedKeyLeavesHelpOpenWithoutTyping(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.input.SetValue("alice@")
+	next, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = next.(appModel)
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	got := next.(appModel)
+	if !got.help || cmd != nil || got.input.Value() != "alice@" {
+		t.Fatalf("unknown = help %v cmd %T input %q", got.help, cmd, got.input.Value())
+	}
+}
+
+func TestQuestionMarkAndEscGoBackFromHelpOnly(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n"),
+	})
+	startPos := m.pos
+	for _, msg := range []tea.KeyPressMsg{
+		{Code: '?', Text: "?"},
+		{Code: tea.KeyEsc},
+	} {
+		m.help = true
+		next, cmd := m.Update(msg)
+		got := next.(appModel)
+		if got.help || got.pos != startPos || cmd != nil {
+			t.Fatalf("key %v = help %v pos %d cmd %T", msg, got.help, got.pos, cmd)
+		}
+	}
+}
+
+func TestAboutFromFocusedInputHelpUsesDedicatedTransition(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 120, 24
+	m.input.SetValue("alice@")
+	next, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = next.(appModel)
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	got := next.(appModel)
+	if got.help || got.state != stateAbout || cmd != nil ||
+		got.input.Value() != "alice@" {
+		t.Fatalf("Help a = help %v state %d cmd %T input %q",
+			got.help, got.state, cmd, got.input.Value())
+	}
+}
+
+func TestClippedAndUnadvertisedCommandsDoNotExecuteFromHelp(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n"),
+	})
+	m.common.width, m.common.height = 200, 3
+	m.help = true
+	for _, msg := range []tea.KeyPressMsg{
+		{Code: 'q', Text: "q"},
+		{Code: 'g', Text: "g"},
+	} {
+		next, cmd := m.Update(msg)
+		got := next.(appModel)
+		if !got.help || cmd != nil {
+			t.Fatalf("key %q = help %v cmd %T", msg.Text, got.help, cmd)
+		}
+	}
+}
+
+func TestDisplayedAliasAndDelegatedMoveReplayThroughNormalRouting(t *testing.T) {
+	links := []Link{
+		{Kind: LinkURL, Action: ActionCopy, Raw: "https://one.example"},
+		{Kind: LinkURL, Action: ActionCopy, Raw: "https://two.example"},
+	}
+	entry := Entry{
+		Target: hostTarget(t, "viewer@origin.example"),
+		Body:   []byte(links[0].Raw + "\n" + links[1].Raw + "\n"),
+	}
+	reader := settledReader(t, entry)
+	reader.history[0].links, reader.history[0].linkIdx = links, 1
+	reader.reader.links, reader.reader.focusedLink = links, 1
+	reader.reader.setEntryWithLinks(entry, links)
+	reader.common.width, reader.common.height = 120, 24
+	reader.openHelp()
+	(&reader).updateKeymap()
+
+	next, replay := reader.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
+	reader = next.(appModel)
+	if reader.help || replay == nil {
+		t.Fatal("displayed N alias should close Help and return replay")
+	}
+	next, _ = reader.Update(replay().(tea.KeyPressMsg))
+	if got := next.(appModel).reader.focusedLink; got != 0 {
+		t.Fatalf("replayed N focused link = %d, want 0", got)
+	}
+
+	listed := settledList(t)
+	listed.common.width, listed.common.height = 120, 24
+	listed.list.list.Select(0)
+	listed.openHelp()
+	(&listed).updateKeymap()
+	next, replay = listed.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	listed = next.(appModel)
+	if listed.help || replay == nil {
+		t.Fatal("displayed j alias should close Help and return replay")
+	}
+	next, _ = listed.Update(replay().(tea.KeyPressMsg))
+	if got := next.(appModel).list.list.Index(); got != 1 {
+		t.Fatalf("replayed j selected index = %d, want 1", got)
+	}
+}
+
+func TestQFromHelpReplaysAndQuits(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n"),
+	})
+	m.common.width, m.common.height = 120, 24
+	m.help = true
+	next, replay := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	m = next.(appModel)
+	if m.help || replay == nil {
+		t.Fatal("q should close Help and return replay")
+	}
+	_, quit := m.Update(replay().(tea.KeyPressMsg))
+	if !isQuit(quit) {
+		t.Fatal("replayed q should quit")
+	}
+}
+
+func TestQuestionMarkFromFocusedInputHelpDoesNotType(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.input.SetValue("alice@")
+	next, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = next.(appModel)
+	next, cmd := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	got := next.(appModel)
+	if got.help || cmd != nil || got.input.Value() != "alice@" {
+		t.Fatalf("? = help %v cmd %T input %q", got.help, cmd, got.input.Value())
+	}
+}
+
+func TestFingerLinkActionReplaysFromLinksPanelHelp(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	m := linksPanelModel(t, stubFetch(t), []Link{{
+		Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw,
+		Target: target, Ambiguous: true,
+	}})
+	m.help = true
+	next, replay := m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	m = next.(appModel)
+	if m.help || replay == nil {
+		t.Fatal("f should close Help and return replay")
+	}
+	next, _ = m.Update(replay().(tea.KeyPressMsg))
+	got := next.(appModel)
+	if got.pending == nil || got.pending.target.Raw != target.Raw {
+		t.Fatalf("replayed f pending = %#v, want %q", got.pending, target.Raw)
+	}
+}
+
+func TestForceQuitBypassesHelpReplay(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.help = true
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if !next.(appModel).help || !isQuit(cmd) {
+		t.Fatal("Ctrl+C should quit immediately without mutating Help")
 	}
 }
 
@@ -1104,6 +1267,7 @@ func TestReaderHelpContext(t *testing.T) {
 			Body:   []byte("Plan: hi\n"),
 		}})
 		m = step.(appModel)
+		m.common.width, m.common.height = 200, 40
 		(&m).updateKeymap()
 
 		view := ansi.Strip(m.helpView())
@@ -1118,6 +1282,7 @@ func TestReaderHelpContext(t *testing.T) {
 		m := readerWithFocusedLink(t, stubFetch(t), Link{
 			Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com",
 		})
+		m.common.width, m.common.height = 200, 40
 		(&m).updateKeymap()
 
 		view := ansi.Strip(m.helpView())
@@ -1152,10 +1317,11 @@ func TestReaderHelpContext(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				m := readerWithFocusedLink(t, stubFetch(t), tt.link)
+				m.common.width, m.common.height = 200, 40
 				(&m).updateKeymap()
 
 				view := ansi.Strip(m.helpView())
-				got := strings.Contains(view, "↵ go")
+				got := strings.Contains(strings.ReplaceAll(view, " ", ""), "↵go")
 				if got != tt.wantGo {
 					t.Fatalf("reader help contains ↵ go = %v, want %v:\n%s", got, tt.wantGo, view)
 				}
@@ -1191,15 +1357,16 @@ func TestLinksPanelHelpContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := linksPanelModel(t, stubFetch(t), []Link{tt.link})
+			m.openHelp()
 			(&m).updateKeymap()
 
 			view := ansi.Strip(m.helpView())
-			for _, want := range []string{"move", "filter", "back", "copy"} {
+			for _, want := range []string{"move", "filter", "back", "copy", "about lookit"} {
 				if !strings.Contains(view, want) {
 					t.Fatalf("panel help missing %q:\n%s", want, view)
 				}
 			}
-			for _, unwanted := range []string{"target", "view source", "page", "top/bottom", "about lookit", "quit"} {
+			for _, unwanted := range []string{"target", "view source", "page", "top/bottom", "quit"} {
 				if strings.Contains(view, unwanted) {
 					t.Fatalf("panel help contains non-panel action %q:\n%s", unwanted, view)
 				}
@@ -1245,16 +1412,14 @@ func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
+	m.common.width, m.common.height = 200, 40
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	m = step.(appModel)
 
-	if !m.helpModel.ShowAll {
-		t.Fatal("precondition: help panel should be expanded")
-	}
-	if !sameColor(m.helpModel.Styles.FullKey.GetForeground(), m.common.styles.palette.AccentViolet) {
+	if !sameColor(m.common.styles.help.FullKey.GetForeground(), m.common.styles.palette.AccentViolet) {
 		t.Fatal("help key colour should use accent violet")
 	}
-	if !sameColor(m.helpModel.Styles.FullDesc.GetForeground(), m.common.styles.palette.BarText) {
+	if !sameColor(m.common.styles.help.FullDesc.GetForeground(), m.common.styles.palette.BarText) {
 		t.Fatal("help description colour should use bar text")
 	}
 	view := m.View().Content
@@ -1562,8 +1727,11 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	if sameColor(got.common.styles.palette.BaseBg, oldBg) {
 		t.Fatal("palette base background did not change")
 	}
-	if !sameColor(got.helpModel.Styles.FullKey.GetForeground(), got.common.styles.help.FullKey.GetForeground()) {
-		t.Fatal("help styles were not reapplied")
+	if !sameColor(got.common.styles.help.FullKey.GetForeground(), got.common.styles.palette.AccentViolet) {
+		t.Fatal("help key style was not rebuilt for the new background")
+	}
+	if !sameColor(got.common.styles.help.FullDesc.GetForeground(), got.common.styles.palette.BarText) {
+		t.Fatal("help description style was not rebuilt for the new background")
 	}
 	if !sameColor(got.spin.Style.GetForeground(), got.common.styles.spinner.GetForeground()) {
 		t.Fatal("spinner style was not reapplied")

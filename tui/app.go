@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/spinner"
@@ -17,7 +16,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -121,7 +119,6 @@ type appModel struct {
 	showingLinks bool // L-toggled links panel overlay
 	linksPanel   linksPanel
 	help         bool // help panel open
-	helpModel    help.Model
 	listReady    bool
 }
 
@@ -168,7 +165,6 @@ func newAppWithContext(ctx context.Context, fetch FetchFunc, profile colorprofil
 		inputFocused: true,
 		seeded:       opts.Seed,
 		keys:         newKeyMap(),
-		helpModel:    help.New(),
 		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.spinner)),
 		pos:          -1,
 	}
@@ -177,7 +173,6 @@ func newAppWithContext(ctx context.Context, fetch FetchFunc, profile colorprofil
 	app.about.setBackground(common.darkBackground)
 	app.state = stateStart
 	app.reloadStart()
-	app.helpModel.Styles = st.help
 	app.updateKeymap() // first frame reflects the landing's enabled set
 	return app
 }
@@ -191,7 +186,6 @@ func (m *appModel) setBackground(dark bool) {
 func (m *appModel) applyStyles() {
 	st := m.common.ensureStyles()
 	m.input.SetStyles(st.input)
-	m.helpModel.Styles = st.help
 	m.spin.Style = st.spinner
 	m.reader.styles = st
 	m.about.setBackground(m.common.darkBackground)
@@ -543,18 +537,18 @@ func (m *appModel) closeAbout() {
 	m.resize()
 }
 
-// openHelp shows the full-height help panel.
+// openHelp shows the help panel.
 func (m *appModel) openHelp() {
 	m.help = true
-	m.helpModel.ShowAll = true
-	m.resize()
 }
 
-// closeHelp hides the help panel. The caller re-sizes (or opens the about
-// screen, which sizes itself) depending on where it lands next.
+// closeHelp hides the help panel.
 func (m *appModel) closeHelp() {
 	m.help = false
-	m.helpModel.ShowAll = false
+}
+
+func replayKey(msg tea.KeyPressMsg) tea.Cmd {
+	return func() tea.Msg { return msg }
 }
 
 // enterRaw shows the current node's unprocessed body ("view source") in the
@@ -634,7 +628,6 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			iw = 20
 		}
 		m.input.SetWidth(iw)
-		m.helpModel.SetWidth(msg.Width)
 		m.resize()
 		return m, nil
 
@@ -728,15 +721,25 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		return true, m, tea.Quit
 	}
 
-	// Help panel: any key closes it — except 'a', which opens the about screen.
 	if m.help {
+		switch {
+		case key.Matches(msg, m.keys.Help), key.Matches(msg, m.keys.Back):
+			m.closeHelp()
+			m.resize()
+			return true, m, nil
+		}
+
+		layout := m.helpLayout()
+		if !layout.matches(msg) {
+			return true, m, nil
+		}
 		m.closeHelp()
 		if key.Matches(msg, m.keys.About) {
 			m.openAbout()
 			return true, m, nil
 		}
 		m.resize()
-		return true, m, nil
+		return true, m, replayKey(msg)
 	}
 
 	// About screen: its own keys, ahead of the input-focus branch.
@@ -1216,13 +1219,20 @@ func (m *appModel) copyAddress() tea.Cmd {
 }
 
 // statusBarModel assembles the bottom bar from the current node + history.
-// updateKeymap enables only the bindings usable in the current state. It is the
-// single source of truth with two effects: the expanded '?' help panel skips
-// disabled bindings (bubbles/help), and key.Matches treats a disabled binding as
-// no-match — so a content key is inert (types literally) while the input is
-// focused. It must run before both handleKey (routing) and the render path
-// (help panel); Update and View call it. Pattern: pop's updateKeymap
-// (~/pop/keymap.go).
+// updateKeymap models binding availability in the active interaction layer. It
+// is the single source of truth with two effects: the expanded '?' help panel
+// skips disabled bindings (bubbles/help), and key.Matches treats a disabled
+// binding as no-match — so a content key is inert (types literally) while the
+// input is focused. The Help layout's retained set is the final
+// execute-through-Help gate. It must run before both handleKey (routing) and
+// the render path (help panel); Update and View call it. Pattern: pop's
+// updateKeymap (~/pop/keymap.go).
+func (m appModel) helpFilterActive() bool {
+	return (m.state == stateList && m.list.filtering()) ||
+		(m.state == stateStart && m.start.filtering()) ||
+		(m.showingLinks && m.linksPanel.filtering())
+}
+
 func (m *appModel) updateKeymap() {
 	refreshHelp := m.refreshHelp()
 	m.keys.Refresh.SetHelp(refreshHelp.Key, refreshHelp.Desc)
@@ -1258,8 +1268,13 @@ func (m *appModel) updateKeymap() {
 	// content branches, so they must stay live while typing: Open=Enter (submit
 	// a target / drill a list row), Back=Esc (cancel the edit / history back /
 	// quit at the bare landing), Help='?'.
-	m.keys.Help.SetEnabled(true)
-	m.keys.About.SetEnabled(true)
+	filtering := m.helpFilterActive()
+	m.keys.Help.SetEnabled(m.state != stateAbout && !filtering)
+	m.keys.About.SetEnabled(
+		m.state == stateAbout ||
+			m.help ||
+			(content && !filtering && !m.showingLinks),
+	)
 	inStart := content && m.state == stateStart
 	_, startHasSelection := m.start.selected()
 	startHasSelection = inStart && startHasSelection
@@ -1320,6 +1335,7 @@ func (m *appModel) updateKeymap() {
 		m.keys.Copy.SetEnabled(true)
 		m.keys.Back.SetEnabled(true)
 		m.keys.Quit.SetEnabled(true)
+		m.keys.About.SetEnabled(true)
 	}
 }
 
@@ -1530,136 +1546,12 @@ func (m appModel) startBookmarkAction() string {
 	return "bookmark"
 }
 
-func (m appModel) helpView() string {
-	st := m.common.styles
-	w := m.common.width
-	return fullWidthHelpView(m.helpGroups(), st, w, m.helpModel.FullSeparator)
-}
-
-func (m appModel) helpGroups() [][]key.Binding {
-	if m.showingLinks {
-		groups := [][]key.Binding{{m.keys.Move, m.keys.Filter, m.keys.Back}}
-		var actionsGroup []key.Binding
-		if link, ok := m.linksPanel.selected(); ok {
-			actions := actionsForLink(link)
-			if actions.enter == linkEnterGo {
-				actionsGroup = append(actionsGroup, m.keys.Open)
-			}
-			if actions.finger {
-				actionsGroup = append(actionsGroup, key.NewBinding(
-					key.WithKeys("f"),
-					key.WithHelp("f", "go"),
-				))
-			}
-			if actions.copy {
-				actionsGroup = append(actionsGroup, m.keys.Copy)
-			}
-		}
-		if len(actionsGroup) > 0 {
-			groups = append(groups, actionsGroup)
-		}
-		return groups
-	}
-
-	displayKeys := m.keys
-	if link, ok := m.focusedReaderLink(); ok && actionsForLink(link).enter == linkEnterRefuse {
-		displayKeys.Open.SetEnabled(false)
-	}
-	groups := displayKeys.FullHelp()
-	if m.state == stateReader && !m.showingRaw && m.pos >= 0 && m.pos < len(m.history) && len(m.history[m.pos].links) > 0 {
-		groups = append(groups, []key.Binding{displayKeys.LinkNext, displayKeys.LinkPrev, displayKeys.LinkPanel})
-	}
-	return groups
-}
-
 func (m appModel) topChromeHeight() int {
 	return 1 // one target row; the wordmark now lives only on the about screen
 }
 
 func (m appModel) inputChromeView() string {
 	return m.input.View()
-}
-
-func fullWidthHelpView(groups [][]key.Binding, st styles, width int, separator string) string {
-	var columns [][]string
-	var widths []int
-	maxRows := 0
-	for _, group := range groups {
-		rows := helpColumnRows(group, st)
-		if len(rows) == 0 {
-			continue
-		}
-		columnWidth := maxLineWidth(rows)
-		for i, row := range rows {
-			rows[i] = padStyledLine(row, columnWidth, st.helpBand)
-		}
-		columns = append(columns, rows)
-		widths = append(widths, columnWidth)
-		if len(rows) > maxRows {
-			maxRows = len(rows)
-		}
-	}
-	if maxRows == 0 {
-		return ""
-	}
-
-	lines := make([]string, maxRows)
-	sep := st.help.FullSeparator.Render(separator)
-	for row := range maxRows {
-		var line strings.Builder
-		for col, rows := range columns {
-			if col > 0 {
-				line.WriteString(sep)
-			}
-			if row < len(rows) {
-				line.WriteString(rows[row])
-				continue
-			}
-			line.WriteString(st.helpBand.Render(strings.Repeat(" ", widths[col])))
-		}
-		out := line.String()
-		if width > 0 && lipgloss.Width(out) > width {
-			out = ansi.Truncate(out, width, "...")
-		}
-		lines[row] = padStyledLine(out, width, st.helpBand)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func helpColumnRows(group []key.Binding, st styles) []string {
-	keyWidth := 0
-	for _, binding := range group {
-		if !binding.Enabled() {
-			continue
-		}
-		if w := lipgloss.Width(binding.Help().Key); w > keyWidth {
-			keyWidth = w
-		}
-	}
-	if keyWidth == 0 {
-		return nil
-	}
-
-	var rows []string
-	for _, binding := range group {
-		if !binding.Enabled() {
-			continue
-		}
-		help := binding.Help()
-		key := st.help.FullKey.Render(help.Key + strings.Repeat(" ", keyWidth-lipgloss.Width(help.Key)))
-		rows = append(rows, key+st.helpBand.Render(" ")+st.help.FullDesc.Render(help.Desc))
-	}
-	return rows
-}
-
-func maxLineWidth(lines []string) int {
-	width := 0
-	for _, line := range lines {
-		if w := lipgloss.Width(line); w > width {
-			width = w
-		}
-	}
-	return width
 }
 
 func (m appModel) View() tea.View {
@@ -1702,7 +1594,8 @@ func (m appModel) View() tea.View {
 // overlayHelp draws the help panel over the bottom rows of body, replacing those
 // lines rather than pushing them down. Help lines are full-width opaque bands
 // (see fullWidthHelpView), so a line-level replace suffices — no alpha
-// compositing — and the content underneath keeps its height.
+// compositing — and the content underneath keeps its height. If Help has more
+// lines than the body can hold, retain the leading priority rows.
 func overlayHelp(body, help string) string {
 	if help == "" {
 		return body
@@ -1710,7 +1603,7 @@ func overlayHelp(body, help string) string {
 	bodyLines := strings.Split(body, "\n")
 	helpLines := strings.Split(help, "\n")
 	if n := len(helpLines); n > len(bodyLines) {
-		helpLines = helpLines[n-len(bodyLines):]
+		helpLines = helpLines[:len(bodyLines)]
 	}
 	copy(bodyLines[len(bodyLines)-len(helpLines):], helpLines)
 	return strings.Join(bodyLines, "\n")

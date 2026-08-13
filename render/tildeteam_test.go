@@ -51,13 +51,13 @@ func TestRender_PronounsReflowedOnTildeOnly(t *testing.T) {
 	body := []byte("Pronouns: he/him\n")
 
 	tilde := finger.Target{HostPort: "tilde.team:79", Raw: "@tilde.team"}
-	gotTilde := Render(tilde, body, finger.Meta{Addr: "tilde.team:79"}, nil, colorprofile.NoTTY)
+	gotTilde := Render(tilde, body, nil, colorprofile.NoTTY)
 	if !strings.Contains(gotTilde, "Pronouns:\n  he/him") {
 		t.Errorf("tilde.team render should reflow Pronouns into a block.\n--- got ---\n%s", gotTilde)
 	}
 
 	other := finger.Target{HostPort: "plan.cat:79", Raw: "@plan.cat"}
-	gotOther := Render(other, body, finger.Meta{Addr: "plan.cat:79"}, nil, colorprofile.NoTTY)
+	gotOther := Render(other, body, nil, colorprofile.NoTTY)
 	if !strings.Contains(gotOther, "Pronouns: he/him") || strings.Contains(gotOther, "Pronouns:\n  he/him") {
 		t.Errorf("non-tilde render must leave the Pronouns line inline.\n--- got ---\n%s", gotOther)
 	}
@@ -69,13 +69,13 @@ func TestRender_PronounsHighlightedOnTildeOnly(t *testing.T) {
 	styledLabel := theme.Field.Render("Pronouns:")
 
 	tilde := finger.Target{HostPort: "tilde.team:79", Raw: "@tilde.team"}
-	gotTilde := RenderWithBackground(tilde, body, finger.Meta{Addr: "tilde.team:79"}, nil, colorprofile.TrueColor, true)
+	gotTilde := RenderWithBackground(tilde, body, nil, colorprofile.TrueColor, true)
 	if !strings.Contains(gotTilde, styledLabel) {
 		t.Errorf("tilde.team render should style the Pronouns label.\n--- got ---\n%s", gotTilde)
 	}
 
 	other := finger.Target{HostPort: "plan.cat:79", Raw: "@plan.cat"}
-	gotOther := RenderWithBackground(other, body, finger.Meta{Addr: "plan.cat:79"}, nil, colorprofile.TrueColor, true)
+	gotOther := RenderWithBackground(other, body, nil, colorprofile.TrueColor, true)
 	if strings.Contains(gotOther, styledLabel) {
 		t.Errorf("non-tilde render must NOT style the Pronouns label.\n--- got ---\n%s", gotOther)
 	}

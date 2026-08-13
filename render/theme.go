@@ -14,10 +14,7 @@ import (
 type Theme struct {
 	Profile colorprofile.Profile
 
-	Arrow   lipgloss.Style // "➜"
 	Target  lipgloss.Style // "alice@plan.cat"
-	Latency lipgloss.Style // "123ms"
-	Sparkle lipgloss.Style // success indicator
 	Footer  lipgloss.Style // dim style for subdued notices and CLI help text
 	Warning lipgloss.Style // yellow notices like "truncated"
 	Field   lipgloss.Style // "Login:" labels
@@ -27,33 +24,31 @@ type Theme struct {
 }
 
 type renderPalette struct {
-	Text, Dim, AccentPink, AccentViolet color.Color
-	AccentMint, AccentGold, AccentRed   color.Color
-	BaseBg                              color.Color
+	Text, Dim, AccentPink             color.Color
+	AccentMint, AccentGold, AccentRed color.Color
+	BaseBg                            color.Color
 }
 
 func renderPaletteFor(darkBackground bool) renderPalette {
 	if darkBackground {
 		return renderPalette{
-			Text:         hexColor("#f0edf5"),
-			Dim:          hexColor("#8c8792"),
-			AccentPink:   hexColor("#ff5fa2"),
-			AccentViolet: hexColor("#9878ff"),
-			AccentMint:   hexColor("#38e7ad"),
-			AccentGold:   hexColor("#eed76d"),
-			AccentRed:    hexColor("#ff6f87"),
-			BaseBg:       hexColor("#171719"),
+			Text:       hexColor("#f0edf5"),
+			Dim:        hexColor("#8c8792"),
+			AccentPink: hexColor("#ff5fa2"),
+			AccentMint: hexColor("#38e7ad"),
+			AccentGold: hexColor("#eed76d"),
+			AccentRed:  hexColor("#ff6f87"),
+			BaseBg:     hexColor("#171719"),
 		}
 	}
 	return renderPalette{
-		Text:         hexColor("#25222a"),
-		Dim:          hexColor("#766f7d"),
-		AccentPink:   hexColor("#c92870"),
-		AccentViolet: hexColor("#6d43d6"),
-		AccentMint:   hexColor("#007f62"),
-		AccentGold:   hexColor("#765f00"),
-		AccentRed:    hexColor("#c82f4d"),
-		BaseBg:       hexColor("#fbfafc"),
+		Text:       hexColor("#25222a"),
+		Dim:        hexColor("#766f7d"),
+		AccentPink: hexColor("#c92870"),
+		AccentMint: hexColor("#007f62"),
+		AccentGold: hexColor("#765f00"),
+		AccentRed:  hexColor("#c82f4d"),
+		BaseBg:     hexColor("#fbfafc"),
 	}
 }
 
@@ -114,10 +109,7 @@ func NewThemeWithBackground(p colorprofile.Profile, darkBackground bool) Theme {
 	return Theme{
 		Profile: p,
 		NoColor: noColor,
-		Arrow:   style(pal.AccentViolet, true),
 		Target:  style(pal.AccentPink, true),
-		Latency: style(pal.Dim, false),
-		Sparkle: style(pal.AccentGold, false),
 		Footer:  style(pal.Dim, false),
 		Warning: style(pal.AccentGold, false),
 		Field:   style(pal.AccentPink, false),

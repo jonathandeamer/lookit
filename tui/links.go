@@ -640,11 +640,12 @@ func classifyForwardedAtToken(raw, origin string) (Link, bool) {
 	}, true
 }
 
-// applyLinkOverlay rewrites body, highlighting the focused link and wrapping
-// OSC-8 hyperlinks where the terminal is expected to support them. It operates
-// on the rendered body string (after render.Split) using simple string search:
-// each Link.Raw is looked up left-to-right in the remaining text and replaced
-// in-place, so the order of DetectLinks (document order) matches correctly.
+// applyLinkOverlay rewrites the complete rendered response, highlighting the
+// focused link and wrapping OSC-8 hyperlinks where the terminal is expected to
+// support them. It operates on rendered output using simple string search;
+// links still originate only from the sanitized Entry.Body. Each Link.Raw is
+// looked up left-to-right in the remaining text and replaced in-place, so the
+// order of DetectLinks (document order) matches correctly.
 func applyLinkOverlay(body string, links []Link, focusedIdx int, st styles) string {
 	if len(links) == 0 {
 		return body

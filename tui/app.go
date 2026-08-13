@@ -1379,7 +1379,7 @@ func (m appModel) buildStatusBar() statusBar {
 		return m.startBar(w, st)
 	}
 	node := m.history[m.pos]
-	bar := statusBar{width: w, styles: st}
+	bar := statusBar{width: w, styles: st, latency: formatElapsed(node.entry.Meta.Elapsed)}
 	bar.host, bar.user = breadcrumbParts(node.entry.Target)
 	if m.pos >= 1 {
 		bar.escTarget = m.history[m.pos-1].entry.Target.Raw

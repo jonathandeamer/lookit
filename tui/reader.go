@@ -64,14 +64,14 @@ func (m *readerModel) setSize(width, height int) {
 func (m *readerModel) setProfile(p colorprofile.Profile) {
 	m.profile = p
 	if m.current != nil {
-		m.viewport.SetContent(render.RenderWithBackground(m.current.Target, m.current.Body, m.current.Meta, m.current.Err, m.profile, m.darkBackground))
+		m.viewport.SetContent(render.RenderWithBackground(m.current.Target, m.current.Body, m.current.Err, m.profile, m.darkBackground))
 	}
 }
 
 func (m *readerModel) setBackground(dark bool) {
 	m.darkBackground = dark
 	if m.current != nil {
-		m.viewport.SetContent(render.RenderWithBackground(m.current.Target, m.current.Body, m.current.Meta, m.current.Err, m.profile, m.darkBackground))
+		m.viewport.SetContent(render.RenderWithBackground(m.current.Target, m.current.Body, m.current.Err, m.profile, m.darkBackground))
 	}
 }
 
@@ -82,23 +82,22 @@ func (m *readerModel) setEntry(entry Entry) {
 }
 
 // setEntryWithLinks displays a fetched result and applies the link overlay
-// (focus highlight + OSC-8 hyperlinks) to the body portion of the rendered
-// output. links is the DetectLinks result for this entry; focusedLink is the
-// current focused index (-1 = none).
+// (focus highlight + OSC-8 hyperlinks) to the complete rendered response.
+// links is the DetectLinks result for this entry; focusedLink is the current
+// focused index (-1 = none).
 func (m *readerModel) setEntryWithLinks(entry Entry, links []Link) {
 	m.current = &entry
 	m.links = links
-	rendered := render.RenderWithBackground(entry.Target, entry.Body, entry.Meta, entry.Err, m.profile, m.darkBackground)
-	header, body := render.Split(rendered)
-	body = applyLinkOverlay(body, links, m.focusedLink, m.styles)
-	m.viewport.SetContent(header + body)
-	m.scrollToFocusedLink(header, links)
+	rendered := render.RenderWithBackground(entry.Target, entry.Body, entry.Err, m.profile, m.darkBackground)
+	rendered = applyLinkOverlay(rendered, links, m.focusedLink, m.styles)
+	m.viewport.SetContent(rendered)
+	m.scrollToFocusedLink(links)
 }
 
 // scrollToFocusedLink scrolls the viewport so the focused link is roughly
 // centred vertically. It works by counting newlines in the body bytes before
-// the link's raw token and adding the header line count.
-func (m *readerModel) scrollToFocusedLink(header string, links []Link) {
+// the link's raw token.
+func (m *readerModel) scrollToFocusedLink(links []Link) {
 	if m.focusedLink < 0 || m.focusedLink >= len(links) || m.current == nil {
 		return
 	}
@@ -109,9 +108,7 @@ func (m *readerModel) scrollToFocusedLink(header string, links []Link) {
 		return
 	}
 	bodyLine := strings.Count(bodyText[:pos], "\n")
-	headerLines := strings.Count(header, "\n")
-	targetLine := headerLines + bodyLine
-	offset := targetLine - m.viewport.Height()/2
+	offset := bodyLine - m.viewport.Height()/2
 	if offset < 0 {
 		offset = 0
 	}
@@ -143,13 +140,11 @@ func (m *readerModel) prevLink(count int) {
 }
 
 // setRaw shows the unprocessed response body as plain text ("view source"),
-// bypassing render's chrome and field highlighting.
+// bypassing render's field highlighting and error treatment.
 func (m *readerModel) setRaw(body []byte) {
 	m.viewport.SetContent(string(body))
 }
 
 func renderEntry(profile colorprofile.Profile, darkBackground bool, entry Entry) string {
-	// The status bar pins the byte count and truncation flag and the header
-	// carries the elapsed time, so render itself is footerless.
-	return render.RenderWithBackground(entry.Target, entry.Body, entry.Meta, entry.Err, profile, darkBackground)
+	return render.RenderWithBackground(entry.Target, entry.Body, entry.Err, profile, darkBackground)
 }

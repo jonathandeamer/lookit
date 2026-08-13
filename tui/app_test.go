@@ -1801,6 +1801,34 @@ func TestReaderYCopiesAddressWithFlash(t *testing.T) {
 	}
 }
 
+func TestReaderLinkAliasesRemainAvailable(t *testing.T) {
+	links := []Link{
+		{Kind: LinkURL, Action: ActionCopy, Raw: "https://one.example"},
+		{Kind: LinkURL, Action: ActionCopy, Raw: "https://two.example"},
+	}
+	entry := Entry{
+		Target: hostTarget(t, "viewer@origin.example"),
+		Body:   []byte(links[0].Raw + "\n" + links[1].Raw + "\n"),
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.history = []histNode{{entry: entry, state: stateReader, links: links, linkIdx: 0}}
+	m.pos, m.state, m.inputFocused = 0, stateReader, false
+	m.reader.focusedLink = 0
+	m.reader.setEntryWithLinks(entry, links)
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	m = next.(appModel)
+	if got := m.reader.focusedLink; got != 1 {
+		t.Fatalf("n focused link = %d, want 1", got)
+	}
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
+	m = next.(appModel)
+	if got := m.reader.focusedLink; got != 0 {
+		t.Fatalf("N focused link = %d, want 0", got)
+	}
+}
+
 func TestReaderEnterDefiniteFingersFocusedLink(t *testing.T) {
 	target := hostTarget(t, "alice@tilde.team")
 	fetch, seen := fetchRecorder("Plan: hi\n")

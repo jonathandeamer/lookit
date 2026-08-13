@@ -118,7 +118,9 @@ from enabled bindings, so not every label is visible in every state.
 | `q quit` | `tui/keys.go:36` | Quit binding, disabled while the input is focused. |
 | `↑/↓ move` | `tui/keys.go:38` | Movement help. |
 | `←/→ page` | `tui/keys.go:39` | Page help. |
-| `g/G top/bottom` | `tui/keys.go:40` | Jump help. |
+| `h home` | `tui/keys.go` | Open the startpage. |
+| `tab next link` | `tui/keys.go` | Focus the next detected reader link; n remains an accepted alias. |
+| `shift+tab previous link` | `tui/keys.go` | Focus the previous detected reader link; N remains an accepted alias. |
 
 ## TUI List
 

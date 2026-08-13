@@ -6,8 +6,8 @@ text returned by finger servers. The goal is to make future copy changes or
 message configurability easier by recording the source locations and the
 runtime surface where each message appears.
 
-Line numbers are current as of 2026-08-13 and should be treated as a starting
-point rather than a permanent API.
+Source references are approximate starting points, not a permanent API. Search
+for the named function or message when changing copy because line numbers drift.
 
 ## CLI
 

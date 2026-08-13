@@ -66,38 +66,34 @@ review-tui: build review-fingerd ## record docs/tui-review stills (not part of c
 	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
 	@mkdir -p docs/tui-review/frames
 	@$(REVIEW_FINGERD) & echo $$! > docs/tui-review/frames/fingerd.pid
-	@sleep 0.2
 	@trap 'kill $$(cat docs/tui-review/frames/fingerd.pid) 2>/dev/null; rm -f docs/tui-review/frames/fingerd.pid' EXIT; \
-	for tape in $(REVIEW_CHROME_TAPES); do \
-		name=$$(basename "$$tape" .tape); \
-		echo "recording $$name"; \
-		vhs "$$tape"; \
-		dest=docs/tui-review/frames/$$name; \
-		mkdir -p "$$dest"; \
-		for scene in start-input start-list start-child start-filter help about; do \
-			src=docs/tui-review/frames/$$scene.png; \
-			if [ ! -f "$$src" ]; then \
-				echo "missing $$src (tour.tape Screenshot after a Sleep?)"; \
-				exit 1; \
-			fi; \
-			mv "$$src" "$$dest/"; \
-		done; \
-		rm -f docs/tui-review/frames/_render.gif; \
+	ready=0; \
+	i=0; while [ $$i -lt 50 ]; do \
+		if $(REVIEW_FINGERD) -ping >/dev/null 2>&1; then ready=1; break; fi; \
+		sleep 0.1; i=$$((i+1)); \
 	done; \
-	for tape in $(REVIEW_RESPONSES_TAPES); do \
+	if [ $$ready -eq 0 ]; then \
+		echo "loopback fingerd is not serving the fixture bodies on 2479/2480"; \
+		echo "(port already bound by something else? stale fingerd? run: $(REVIEW_FINGERD) -ping)"; \
+		exit 1; \
+	fi; \
+	for tape in $(REVIEW_CHROME_TAPES) $(REVIEW_RESPONSES_TAPES); do \
 		name=$$(basename "$$tape" .tape); \
-		echo "recording $$name"; \
-		vhs "$$tape"; \
+		tour=$$(awk '/^Source /{print $$2}' "$$tape"); \
+		want=$$(grep -c '^Screenshot ' "$$tour"); \
+		echo "recording $$name ($$want stills)"; \
+		rm -f docs/tui-review/frames/*.png docs/tui-review/frames/_render.gif; \
+		vhs "$$tape" || exit 1; \
+		got=$$(ls docs/tui-review/frames/*.png 2>/dev/null | wc -l | tr -d ' '); \
+		if [ "$$got" != "$$want" ]; then \
+			echo "$$name: recorded $$got stills, $$tour asks for $$want"; \
+			echo "(a Screenshot with no following Sleep writes nothing)"; \
+			exit 1; \
+		fi; \
 		dest=docs/tui-review/frames/$$name; \
 		mkdir -p "$$dest"; \
-		for scene in list reader reader-link links raw reader-input generic truncated error; do \
-			src=docs/tui-review/frames/$$scene.png; \
-			if [ ! -f "$$src" ]; then \
-				echo "missing $$src (responses-tour.tape Screenshot after a Sleep?)"; \
-				exit 1; \
-			fi; \
-			mv "$$src" "$$dest/"; \
-		done; \
+		rm -f "$$dest"/*.png; \
+		mv docs/tui-review/frames/*.png "$$dest/"; \
 		rm -f docs/tui-review/frames/_render.gif; \
 	done
 	@echo "wrote docs/tui-review/frames/{chrome,responses}-{80-dark,100-dark,60-dark,80-light}/"

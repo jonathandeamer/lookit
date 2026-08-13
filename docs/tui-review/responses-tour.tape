@@ -16,7 +16,12 @@ Sleep 1s
 Type "test -x docs/tui-review/fixtures/fingerd/fingerd || go build -o docs/tui-review/fixtures/fingerd/fingerd ./docs/tui-review/fixtures/fingerd"
 Enter
 Sleep 2s
-Type "pgrep -f 'docs/tui-review/fixtures/fingerd/fingerd' >/dev/null || docs/tui-review/fixtures/fingerd/fingerd &"
+# -ping verifies the fixture bodies, so a port held by something else fails
+# the recording instead of being adopted as if it were the fixture.
+Type "docs/tui-review/fixtures/fingerd/fingerd -ping >/dev/null 2>&1 || docs/tui-review/fixtures/fingerd/fingerd &"
+Enter
+Sleep 600ms
+Type "docs/tui-review/fixtures/fingerd/fingerd -ping || exit 1"
 Enter
 Sleep 400ms
 Type "clear"

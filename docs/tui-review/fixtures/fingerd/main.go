@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
@@ -32,7 +33,16 @@ const genericBody = "carol  Carol Review\ndave  Dave Review\n"
 func main() {
 	addr := flag.String("addr", defaultAddr, "listen address (loopback, named listing)")
 	genericAddr := flag.String("generic-addr", defaultGenericAddr, "listen address for the generic listing")
+	ping := flag.Bool("ping", false, "check that both ports serve the fixture bodies, then exit")
 	flag.Parse()
+
+	if *ping {
+		if err := pingBoth(*addr, *genericAddr); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	errc := make(chan error, 2)
 	go func() {
@@ -43,6 +53,41 @@ func main() {
 	}()
 	fmt.Fprintln(os.Stderr, <-errc)
 	os.Exit(1)
+}
+
+// pingBoth checks that both ports answer an empty query with the fixture
+// bodies. `make review-tui` polls this instead of sleeping a fixed interval:
+// a port bound by something else fails the identity check, so a busy port
+// stops the run instead of filling the frames with whatever that other
+// process serves.
+func pingBoth(addr, genericAddr string) error {
+	if err := pingAddr(addr, listBody); err != nil {
+		return fmt.Errorf("named listing: %w", err)
+	}
+	if err := pingAddr(genericAddr, genericBody); err != nil {
+		return fmt.Errorf("generic listing: %w", err)
+	}
+	return nil
+}
+
+func pingAddr(addr, want string) error {
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := io.WriteString(conn, "\r\n"); err != nil {
+		return err
+	}
+	got, err := io.ReadAll(conn)
+	if err != nil {
+		return err
+	}
+	if string(got) != want {
+		return fmt.Errorf("%s answered %q, not the fixture body", addr, got)
+	}
+	return nil
 }
 
 func listenAndServe(addr string, handler func(string) []byte) error {
@@ -58,10 +103,6 @@ func listenAndServe(addr string, handler func(string) []byte) error {
 		}
 		go serveWith(conn, handler)
 	}
-}
-
-func serve(conn net.Conn) {
-	serveWith(conn, responseFor)
 }
 
 func serveWith(conn net.Conn, handler func(string) []byte) {

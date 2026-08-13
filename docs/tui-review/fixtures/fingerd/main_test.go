@@ -70,6 +70,51 @@ func TestResponseForUnknownUserIsExplicit(t *testing.T) {
 	}
 }
 
+func TestPingBothAcceptsTheFixture(t *testing.T) {
+	addr := serveFixture(t, responseFor)
+	generic := serveFixture(t, func(string) []byte { return []byte(genericBody) })
+
+	if err := pingBoth(addr, generic); err != nil {
+		t.Fatalf("pingBoth on the real fixture: %v", err)
+	}
+}
+
+func TestPingBothRejectsAForeignListener(t *testing.T) {
+	addr := serveFixture(t, responseFor)
+	foreign := serveFixture(t, func(string) []byte { return []byte("some other daemon\n") })
+
+	if err := pingBoth(addr, foreign); err == nil {
+		t.Fatal("pingBoth = nil, want an error so a busy port stops the recording")
+	}
+}
+
+func TestPingBothRejectsAClosedPort(t *testing.T) {
+	if err := pingBoth("127.0.0.1:1", "127.0.0.1:1"); err == nil {
+		t.Fatal("pingBoth = nil on a closed port, want a dial error")
+	}
+}
+
+// serveFixture starts the daemon's own accept loop on an ephemeral loopback
+// port and returns its address.
+func serveFixture(t *testing.T, handler func(string) []byte) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go serveWith(conn, handler)
+		}
+	}()
+	return ln.Addr().String()
+}
+
 func TestTruncQueryIsMarkedTruncated(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -81,7 +126,7 @@ func TestTruncQueryIsMarkedTruncated(t *testing.T) {
 		if err != nil {
 			return
 		}
-		serve(conn)
+		serveWith(conn, responseFor)
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

@@ -43,6 +43,85 @@ func threeSections() []startSection {
 	}
 }
 
+func sectionGapSections() []startSection {
+	return []startSection{
+		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+			{target: "@plan.cat", kind: kindCommunity, note: "Classic finger, polished for the present", source: sourceCatalog},
+		}},
+		{id: sectionServices, title: "SERVICES", entries: []startEntry{
+			{target: "date@example.com", kind: kindService, note: "Today’s date, across the years", source: sourceCatalog},
+		}},
+	}
+}
+
+func TestStartSectionGapRendersExactlyOneBlankRow(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		width int
+	}{
+		{name: "wide spacer item", width: 80},
+		{name: "narrow header row", width: 40},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			common := testCommon()
+			common.width = tt.width
+			m := newStart(common, sectionGapSections(), "", "")
+			lines := strings.Split(stripANSIForLandingTest(m.View()), "\n")
+			servicesLine := lineIndexContaining(t, strings.Join(lines, "\n"), "SERVICES")
+			if servicesLine < 2 {
+				t.Fatalf("SERVICES line = %d, want room for content and a gap:\n%s", servicesLine, strings.Join(lines, "\n"))
+			}
+			if got := strings.TrimSpace(lines[servicesLine-1]); got != "" {
+				t.Fatalf("line before SERVICES = %q, want blank:\n%s", got, strings.Join(lines, "\n"))
+			}
+			if got := strings.TrimSpace(lines[servicesLine-2]); got == "" {
+				t.Fatalf("two blank lines before SERVICES, want exactly one:\n%s", strings.Join(lines, "\n"))
+			}
+		})
+	}
+}
+
+func TestStartSectionGapItemOnlyInWideTwoSectionLayout(t *testing.T) {
+	tests := []struct {
+		name     string
+		width    int
+		sections []startSection
+		want     int
+	}{
+		{name: "wide both", width: 80, sections: sectionGapSections(), want: 5},
+		{name: "narrow both", width: 40, sections: sectionGapSections(), want: 4},
+		{name: "wide communities only", width: 80, sections: sectionGapSections()[:1], want: 2},
+		{name: "wide services only", width: 80, sections: sectionGapSections()[1:], want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			common := testCommon()
+			common.width = tt.width
+			m := newStart(common, tt.sections, "", "")
+			if got := len(m.list.Items()); got != tt.want {
+				t.Fatalf("item count = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStartFilterDropsSectionGap(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, sectionGapSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typeStartFilter(t, m, "date")
+
+	if got := len(m.list.VisibleItems()); got != 1 {
+		t.Fatalf("filtered item count = %d, want 1 service match", got)
+	}
+	plain := stripANSIForLandingTest(m.View())
+	if strings.Contains(plain, "COMMUNITIES") || strings.Contains(plain, "SERVICES") {
+		t.Fatalf("filtered view retained section chrome:\n%s", plain)
+	}
+}
+
 func TestStartOverviewWideCountsAssembledRows(t *testing.T) {
 	common := testCommon()
 	common.width = 80
@@ -193,17 +272,19 @@ func TestStartOverviewHighlightsSelectedSectionOnly(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		index  int
+		target string
 		gold   string
 		others []string
 	}{
-		{name: "bookmark", index: 1, gold: "BOOKMARKS", others: []string{"2 communities", "2 services"}},
-		{name: "community", index: 3, gold: "2 communities", others: []string{"BOOKMARKS", "2 services"}},
-		{name: "service", index: 6, gold: "2 services", others: []string{"BOOKMARKS", "2 communities"}},
+		{name: "bookmark", target: "@tilde.team", gold: "BOOKMARKS", others: []string{"2 communities", "2 services"}},
+		{name: "community", target: "@plan.cat", gold: "2 communities", others: []string{"BOOKMARKS", "2 services"}},
+		{name: "service", target: "quake@bbs.airandwave.net", gold: "2 services", others: []string{"BOOKMARKS", "2 communities"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m.list.Select(tt.index)
+			if !m.selectTarget(tt.target) {
+				t.Fatalf("could not select fixture target %q", tt.target)
+			}
 			assertStartOverviewGoldSegment(t, m.overviewView(), common, tt.gold, tt.others...)
 		})
 	}
@@ -374,6 +455,127 @@ func TestStartCursorStepsOverHeaderUpward(t *testing.T) {
 	got, _ := m.selected()
 	if got.target != "@tilde.team" {
 		t.Fatalf("selected = %q, want @tilde.team", got.target)
+	}
+}
+
+func TestStartCursorSkipsSectionGapAndHeader(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, sectionGapSections(), "", "")
+
+	m, _ = m.update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	got, ok := m.selected()
+	if !ok || got.target != "date@example.com" {
+		t.Fatalf("down selected = %+v, %v; want first service", got, ok)
+	}
+
+	m, _ = m.update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	got, ok = m.selected()
+	if !ok || got.target != "@plan.cat" {
+		t.Fatalf("up selected = %+v, %v; want last community", got, ok)
+	}
+}
+
+func TestStartCursorSkipsSectionGapAtPageBoundary(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, sectionGapSections(), "", "")
+	m.list.SetShowPagination(false)
+	m.list.SetSize(common.width, 3)
+	if got := m.list.Paginator.PerPage; got != 2 {
+		t.Fatalf("PerPage = %d, want 2 so the spacer starts the next page", got)
+	}
+
+	m.list.Select(1) // the community, immediately before the spacer's page
+	m, _ = m.update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	if got, ok := m.selected(); !ok || got.target != "date@example.com" {
+		t.Fatalf("down selected = %+v, %v; want first service across the page boundary", got, ok)
+	}
+
+	m, _ = m.update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	if got, ok := m.selected(); !ok || got.target != "@plan.cat" {
+		t.Fatalf("up selected = %+v, %v; want community across the page boundary", got, ok)
+	}
+}
+
+func TestStartSectionGapResponsiveResizePreservesSelection(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, sectionGapSections(), "", "")
+	if !m.selectTarget("date@example.com") {
+		t.Fatal("could not select the service fixture")
+	}
+
+	m.setSize(71, common.bodyHeight())
+	if got := len(m.list.Items()); got != 4 {
+		t.Fatalf("narrow item count = %d, want 4 without a spacer", got)
+	}
+	if got, ok := m.selected(); !ok || got.target != "date@example.com" {
+		t.Fatalf("narrow selected = %+v, %v; want date@example.com", got, ok)
+	}
+
+	m.setSize(72, common.bodyHeight())
+	if got := len(m.list.Items()); got != 5 {
+		t.Fatalf("wide item count = %d, want 5 with a spacer", got)
+	}
+	if got, ok := m.selected(); !ok || got.target != "date@example.com" {
+		t.Fatalf("wide selected = %+v, %v; want date@example.com", got, ok)
+	}
+}
+
+func TestStartSectionGapResponsiveResizePreservesDuplicateOccurrence(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	sections := sectionGapSections()
+	sections = append([]startSection{{
+		id: sectionBookmarks, title: "BOOKMARKS",
+		entries: []startEntry{
+			{target: "@tilde.team", source: sourceBookmark},
+			{target: "@tilde.team", source: sourceBookmark},
+		},
+	}}, sections...)
+	m := newStart(common, sections, "", "")
+
+	seen := 0
+	for index, item := range m.list.Items() {
+		row, ok := item.(startItem)
+		if !ok || !row.selectable() || row.entry.target != "@tilde.team" {
+			continue
+		}
+		if seen == 1 {
+			m.list.Select(index)
+			break
+		}
+		seen++
+	}
+	position, ok := m.captureTogglePosition()
+	if !ok || position.full != (startSectionPosition{section: sectionBookmarks, ordinal: 1}) {
+		t.Fatalf("initial position = %+v, %v; want second bookmark occurrence", position.full, ok)
+	}
+
+	m.setSize(71, common.bodyHeight())
+	position, ok = m.captureTogglePosition()
+	if !ok || position.full != (startSectionPosition{section: sectionBookmarks, ordinal: 1}) {
+		t.Fatalf("resized position = %+v, %v; want second bookmark occurrence", position.full, ok)
+	}
+}
+
+func TestStartSectionGapResponsiveResizeSynchronizesAfterFilterClears(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, sectionGapSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typeStartFilter(t, m, "date")
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	m.setSize(71, common.bodyHeight())
+	if got := len(m.list.Items()); got != 5 {
+		t.Fatalf("filtered resize changed underlying item count to %d, want 5 until the filter clears", got)
+	}
+
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if got := len(m.list.Items()); got != 4 {
+		t.Fatalf("cleared narrow item count = %d, want 4 without a spacer", got)
 	}
 }
 
@@ -758,7 +960,7 @@ func TestStartHasNoCatalogCreditRow(t *testing.T) {
 		name     string
 		sections []startSection
 	}{
-		{name: "catalog on with bookmark", sections: twoSections()},
+		{name: "catalog on with bookmark", sections: threeSections()},
 		{name: "catalog on without bookmarks", sections: twoSections()[1:]},
 		{name: "catalog off with borrowed catalog note", sections: []startSection{{
 			title: "BOOKMARKS",
@@ -786,8 +988,8 @@ func TestStartHasNoCatalogCreditRow(t *testing.T) {
 				if !ok {
 					t.Fatalf("item = %#v, want startItem", item)
 				}
-				if !row.selectable() && row.header == "" {
-					t.Fatalf("non-selectable item = %#v, want a header", row)
+				if !row.selectable() && row.header == "" && !row.spacer {
+					t.Fatalf("non-selectable item = %#v, want a header or section spacer", row)
 				}
 			}
 			if strings.Contains(stripANSIForLandingTest(m.View()), "Catalog inspired by") {

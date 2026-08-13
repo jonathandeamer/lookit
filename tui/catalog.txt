@@ -1,6 +1,12 @@
 # lookit's built-in catalog: places worth starting from.
 #
 # Format: <kind> <target> <note>
+#
+# A note must fit the note column: 48 terminal cells or fewer, which is what
+# the startpage shows at 100 columns. TestCatalogNotesFitTheNoteColumn enforces
+# it. A grouped service child's note is hidden until its row is selected;
+# flattened matches and bookmark rows are listings, so they show the note.
+#
 # Compiled into the binary; users override nothing here. Their own list lives
 # in ~/.config/lookit/bookmarks as one target per line, and "catalog off" there
 # hides all of this.
@@ -12,31 +18,34 @@
 # conclusion the response plainly supports. The spec's catalog tables record the
 # basis for each. Do not describe a host from memory: four notes in an earlier
 # draft were wrong, including one that called tilde.team big when its own banner
-# says small.
+# says small. One exception: wiki@bbs.airandwave.net was catalogued on
+# 2026-08-12 while bbs.airandwave.net was unreachable, from the host's own
+# menu listing "wiki" under "Reference" rather than from an observed response.
 #
 # When refreshing, probe SERIALLY — bbs.airandwave.net rate-limits and a
 # concurrent sweep reports false deaths.
 
 community @plan.cat Simple .plan hosting, also on the web
-community @tilde.team Small public access unix, for teaching and learning
+community @tilde.team Small pubnix for learning and teaching
 community @happynetbox.com .plan files updated via the web
-community ring@thebackupbox.net The finger ring — join by linking it from your response
-community @cosmic.voyage Collaborative science fiction; users crew ships
+community ring@thebackupbox.net A webring, for finger
+community @cosmic.voyage Collaborative science fiction universe
 community @zaibatsu.circumlunar.space Sundogs seeking asylum from the commercial 'net
 
 service @bbs.airandwave.net Over two dozen services, from news to sudoku
-service weather@bbs.airandwave.net Current weather and a 7-day forecast — weather:city@…
 service quake@bbs.airandwave.net Latest earthquakes, M2.5+ past day
-service dict@bbs.airandwave.net Dictionary lookup — dict:word@…
-service urban@bbs.airandwave.net Slang, internet terms and memes — urban:word@…
+service dict@bbs.airandwave.net Dictionary lookup
+service urban@bbs.airandwave.net Slang, internet terms and memes
 service wordsearch:today@bbs.airandwave.net Daily word search puzzle
-service sudoku:easy@bbs.airandwave.net An easy sudoku, fresh each day
-service @graph.no Weather worldwide by place name — finger oslo@graph.no
-service @typed-hole.org A small menu of fingers, from lobste.rs to smog
+service sudoku:easy@bbs.airandwave.net A new, easy sudoku each day
+service wiki@bbs.airandwave.net Wikipedia lookup
+service @graph.no Weather worldwide by place name
+service @typed-hole.org A small menu of finger services
 service textfile@typed-hole.org A lucky dip into textfiles.com
 service cyoa@typed-hole.org Choose your own adventure
-service smog@typed-hole.org Saturday Morning Gemzine — back issues
-service @flanigan.us Four fingers: bonsai, ping, wisdom, calendar
+service smog@typed-hole.org Saturday Morning Gemzine back issues
+service lobsters@typed-hole.org The latest posts from lobste.rs
+service @flanigan.us Four services: bonsai, ping, wisdom, calendar
 service bonsai@flanigan.us A fresh ASCII bonsai, with an aphorism
 service calendar@flanigan.us Today’s date, across the years
 service bot@happynetbox.com Tech news headlines with links, plus a fun fact

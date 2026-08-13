@@ -157,8 +157,9 @@ func groupByHost(listed []startEntry, roots map[string]startEntry, pinned map[st
 			parent.bookmarked = pinned[root.target]
 			out = append(out, parent)
 		}
-		for _, e := range rows {
+		for i, e := range rows {
 			e.child = true
+			e.lastChild = i == len(rows)-1
 			out = append(out, e)
 		}
 	}

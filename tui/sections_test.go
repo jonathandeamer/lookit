@@ -82,6 +82,26 @@ func TestBuildSectionsCatalogOff(t *testing.T) {
 	}
 }
 
+// A bookmarked target that is also a service child in the catalog (grouped
+// under its host root everywhere else) must not carry child/lastChild into
+// BOOKMARKS: bm.targets never passes through groupByHost, the only place
+// those flags are ever set, so a bookmark row is always a listing — full
+// target, full note, no connector — never a group member. smog@typed-hole.org
+// is a real catalog service child, so this exercises the actual assembly
+// path rather than a synthetic fixture.
+func TestBuildSectionsBookmarkedServiceChildIsNotAChildRow(t *testing.T) {
+	bm := bookmarkFile{targets: []string{"smog@typed-hole.org"}}
+	got := buildSections(loadCatalog(), bm)
+	if len(got) == 0 || got[0].id != sectionBookmarks {
+		t.Fatalf("sections = %+v, want a BOOKMARKS section first", got)
+	}
+	for _, e := range got[0].entries {
+		if e.child || e.lastChild {
+			t.Errorf("%s has child=%v lastChild=%v; a BOOKMARKS row is a listing, not a group member", e.target, e.child, e.lastChild)
+		}
+	}
+}
+
 func TestBuildSectionsEmpty(t *testing.T) {
 	if got := buildSections(nil, bookmarkFile{catalogHidden: true}); len(got) != 0 {
 		t.Fatalf("sections = %+v, want none", got)
@@ -168,7 +188,7 @@ func TestServicesGroupUnderHostRoots(t *testing.T) {
 		"quake@bbs.airandwave.net",
 		"sudoku:easy@bbs.airandwave.net",
 		"urban@bbs.airandwave.net",
-		"weather@bbs.airandwave.net",
+		"wiki@bbs.airandwave.net",
 		"wordsearch:today@bbs.airandwave.net",
 		"@flanigan.us",
 		"bonsai@flanigan.us",
@@ -182,6 +202,7 @@ func TestServicesGroupUnderHostRoots(t *testing.T) {
 		"random@happynetbox.com",
 		"@typed-hole.org",
 		"cyoa@typed-hole.org",
+		"lobsters@typed-hole.org",
 		"smog@typed-hole.org",
 		"textfile@typed-hole.org",
 	}
@@ -293,5 +314,86 @@ func TestBookmarkSectionEntriesAreMarkedBookmarked(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("BOOKMARKS section not found")
+	}
+}
+
+// The delegate renders one item at a time and cannot see whether the next row
+// shares a host, so the connector's shape is decided here.
+func TestLastChildMarksTheFinalChildOfEveryGroup(t *testing.T) {
+	sections := buildSections(loadCatalog(), bookmarkFile{})
+	want := map[string]bool{
+		"wordsearch:today@bbs.airandwave.net": true,  // final child of a six-child group
+		"dict@bbs.airandwave.net":             false, // first child of the same group
+		"calendar@flanigan.us":                true,  // final child of a two-child group
+		"bonsai@flanigan.us":                  false, // its non-final sibling
+		"textfile@typed-hole.org":             true,
+		"cyoa@typed-hole.org":                 false,
+		"random@happynetbox.com":              true,
+		"@bbs.airandwave.net":                 false, // a root is not a child
+		"@graph.no":                           false, // no group at all
+		"@happynetbox.com":                    false, // structural parent
+		"wiki@bbs.airandwave.net":             false,
+		"lobsters@typed-hole.org":             false,
+	}
+	seen := make(map[string]bool, len(want))
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		for _, e := range s.entries {
+			if expected, ok := want[e.target]; ok {
+				seen[e.target] = true
+				if e.lastChild != expected {
+					t.Errorf("%s lastChild = %v, want %v", e.target, e.lastChild, expected)
+				}
+			}
+		}
+	}
+	for target := range want {
+		if !seen[target] {
+			t.Errorf("%s never appeared in SERVICES", target)
+		}
+	}
+}
+
+// No service host in the shipped catalog has exactly one child any more —
+// @flanigan.us gained bonsai — but the rule must still hold for one, so this
+// case is built rather than found.
+func TestLastChildMarksTheOnlyChildOfASingleChildGroup(t *testing.T) {
+	catalog := []startEntry{
+		{target: "@example.com", kind: kindService, note: "Root", source: sourceCatalog},
+		{target: "only@example.com", kind: kindService, note: "Only child", source: sourceCatalog},
+	}
+	sections := buildSections(catalog, bookmarkFile{})
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		if len(s.entries) != 2 {
+			t.Fatalf("entries = %+v, want a root and one child", s.entries)
+		}
+		if s.entries[0].lastChild {
+			t.Errorf("root = %+v, want lastChild false", s.entries[0])
+		}
+		if !s.entries[1].child || !s.entries[1].lastChild {
+			t.Errorf("only child = %+v, want child and lastChild true", s.entries[1])
+		}
+		return
+	}
+	t.Fatal("SERVICES section not found")
+}
+
+func TestRemovedWeatherServiceBookmarkStaysTargetOnly(t *testing.T) {
+	const target = "weather@bbs.airandwave.net"
+	got := buildSections(loadCatalog(), bookmarkFile{targets: []string{target}})
+	if len(got) == 0 || got[0].id != sectionBookmarks || len(got[0].entries) != 1 {
+		t.Fatalf("sections = %+v, want one BOOKMARKS entry", got)
+	}
+	entry := got[0].entries[0]
+	if entry.target != target || !entry.bookmarked {
+		t.Fatalf("bookmark = %+v, want retained target %q marked bookmarked", entry, target)
+	}
+	if entry.note != "" || entry.kind != kindUnknown {
+		t.Fatalf("bookmark = %+v, want blank note and kindUnknown after catalog removal", entry)
 	}
 }

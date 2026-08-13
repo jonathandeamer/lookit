@@ -1,0 +1,251 @@
+# Startpage child hints and group glyphs
+
+> **Superseded** by
+> [startpage focus notes](./2026-08-12-startpage-focus-notes-design.md), which
+> removed the hint grammar this spec introduces. The connectors, `lastChild` and
+> the indent it describes all shipped and remain; the hint field, its guards and
+> its search behaviour did not survive. Read this for why children became tokens,
+> and the newer spec for what a child's note column does today.
+
+Grouping services under their host root (see
+`2026-08-12-startpage-entry-grouping-design.md`) fixed the ordering problem and
+left a density one. Every row still carries a description, so the right-hand
+column runs as an unbroken block of prose down the whole SERVICES section —
+twenty lines of it, in which the host's own sentence and its children's
+sentences carry identical visual weight. The eye has nothing to skip.
+
+This spec makes a child row **a token by default**, gives the group's shape to
+glyphs rather than to prose, and surfaces a child's full description only where
+it is wanted: on the row the cursor is on.
+
+It changes the catalog grammar, the delegate, and the catalog copy. It changes
+no ordering, no counting, no bookmark behaviour, and nothing in `finger/`.
+
+## Decisions
+
+### A child may carry an optional short hint
+
+The catalog grammar gains one optional field, delimited by ` | `:
+
+```
+service smog@typed-hole.org Saturday Morning Gemzine — back issues | gemzine back issues
+service quake@bbs.airandwave.net Latest earthquakes, M2.5+ past day
+```
+
+Present, the hint is what the child row shows. Absent, the row is its
+token alone. The **full note stays authoritative**: it feeds filtering, the
+selected row, and every context where the child renders as a listing rather
+than as a group member.
+
+Two rules join `TestCatalogIsWellFormed`, because the catalog ships compiled in
+and a typo cannot be fixed without a release:
+
+- `|` may not appear inside a note. This is the treatment `#` already gets: the
+  parser would eat the rest of the line, so the grammar forbids the character
+  rather than growing an escape.
+- A hint is valid only where a token is actually rendered:
+  `kind == kindService && entryToken(target) != ""`. "Not a root" is too loose —
+  a queried community such as `ring@thebackupbox.net` is non-root but is never
+  grouped, and neither is a future `person` entry, so a hint on either is dead
+  text that would silently never appear.
+
+**Authoring rule.** A hint exists to rescue a token that does not say what it
+is. It is lowercase, two or three words, and written for its slot — not the
+first clause of the note. If a token is self-evident, it gets no hint; a hint
+on every child would rebuild the wall this spec removes.
+
+Of the twenty service entries, four are host roots and sixteen are children.
+(The rendered SERVICES section is twenty-one rows: the structural copy of the
+dual-role `@happynetbox.com` community entry heads its group.) By that rule
+seven of those sixteen earn a hint today, each traceable to the entry's existing
+note:
+
+| Entry | Hint |
+|---|---|
+| `cyoa@typed-hole.org` | pick-a-path stories |
+| `smog@typed-hole.org` | gemzine back issues |
+| `textfile@typed-hole.org` | random textfiles.com |
+| `1@happynetbox.com` | interactive fiction |
+| `bot@happynetbox.com` | tech news headlines |
+| `random@happynetbox.com` | a random profile |
+| `originsfinger@happynetbox.com` | how finger began |
+
+The other nine — `bonsai`, `dict`, `quake`, `urban`, `weather`, `sudoku:easy`,
+`wordsearch:today`, `calendar` and `browserversion` — say what they are.
+
+### Children are drawn with connectors, not indentation alone
+
+A child's prefix becomes three spaces, a connector, and a space: `   ├ ` for
+every child but the last of its group, `   └ ` for the last. Text lands at
+column 5 instead of column 2. The optional hint in the note column renders in
+the same style as any other note; what sets it apart as a label rather than
+descriptive content is brevity — it is short, and its siblings' note columns
+are empty. (The original design intended to dim the connector itself; colouring the connector
+separately would require splitting the target field into two styled spans and
+re-deriving the filter match offsets across them, which proved costlier than the
+visual benefit justified. This tradeoff was recorded as a deliberate call during
+implementation — see Task 5, step 6 in the implementation plan.)
+
+```
+SERVICES ─────────────────────────────────────
+@bbs.airandwave.net   Over two dozen services…
+   ├ dict
+   ├ quake
+   ├ sudoku:easy
+   ├ urban
+   ├ weather
+   └ wordsearch:today
+@flanigan.us          Four fingers: bonsai, p…
+   ├ bonsai
+   └ calendar
+@graph.no             Weather worldwide by pl…
+@typed-hole.org       A small menu of fingers…
+   ├ cyoa             pick-a-path stories
+   ├ smog             gemzine back issues
+   └ textfile         random textfiles.com
+```
+
+**Last-child detection happens at assembly.** The delegate renders one item at a
+time and cannot see whether the next row belongs to the same host, so
+`groupByHost` sets a `lastChild bool` beside the existing `child` and
+`structural` flags. Deciding it at render time would mean reaching back into the
+list from inside the delegate.
+
+Rejected alongside: a blank line between groups (the connectors already bound
+the group, and it cost four rows), and putting the host row in the gold accent
+(the accent means "the section your cursor is in" elsewhere in this screen, and
+overloading it would blur that).
+
+### The selected child shows its full note in place
+
+The highlighted child's note column swaps from its hint to its full note, in
+normal weight. Nothing expands and nothing shifts.
+
+This replaces a per-row expansion, which is not available: `bubbles` computes
+`Paginator.PerPage` as `availHeight / (delegate.Height() + delegate.Spacing())`
+(`list.go:793`) and pads short pages using the same fixed height
+(`list.go:1233-1235`). One row rendering two lines while `Height()` reports one
+overflows the page and corrupts that arithmetic. The uniform alternative —
+every row two lines, second line blank unless selected — would halve the
+density this spec exists to buy back.
+
+## Rendering
+
+The note column by row state:
+
+| Row | Note column |
+|---|---|
+| Host parent, community row, structural parent | full note (unchanged) |
+| Child, unselected, with a hint | the hint, in the normal note style |
+| Child, unselected, no hint | empty |
+| Child, selected | its full note, normal weight |
+| Child in a flattened view (filter active, query non-empty) | full note |
+| Bookmarked child in BOOKMARKS | full note |
+
+**In a flattened view the connectors go away.** A flattened child drops its
+connector and shows its full target and full note, because it is a listing again
+rather than a member of a visible group. Inside a group a child is a token; in a
+flattened view it is an address.
+
+**Flattened means an active filter with a non-empty query** — not merely
+`FilterState() != Unfiltered`. Bubble Tea has two filtering states, and only one
+of them flattens anything: with `/` pressed and the query still empty, the list
+returns every item and the section headers are still on screen, so the groups
+are intact and children must keep their tokens and connectors. Once a character
+is typed, headers and structural rows drop out and the view really is flat.
+
+The predicate already exists: reviewing this spec surfaced the same defect in
+the grouping work, where `startRowTarget` keyed off `isFiltered` alone and
+expanded every child the instant `/` was pressed. That was fixed there rather
+than here (`fix(startpage): flatten child rows only once a query is typed`), so
+`renderEntry` computes `flattened = (Filtering || FilterApplied) && query != ""`
+today. This spec adds one reader: the connector, which appears and disappears
+with the token it decorates.
+
+**In BOOKMARKS a child has no parent**, so it renders as a listing there too:
+full target, full note, no connector.
+
+**The narrow two-line layout mirrors the wide one.** The first line carries the
+connector; the second carries the hint, the full note when selected, or
+nothing. The second line aligns under the token at column 5, not under the
+connector.
+
+**Truncation is unchanged.** The prefix is part of the target string, so
+`ansi.Truncate` and the column arithmetic in `startColumnWidths` treat it as
+they treat any other characters. The prefix costs children three columns of
+token width.
+
+## Filtering
+
+`FilterValue` appends the hint — `target + " " + note + " " + hint` — **only on a
+child row**, so a row can only be matched by text that row can display.
+
+The gate matters because a bookmarked child is built from the same catalog
+entry: `buildSections` copies the entry into BOOKMARKS, where it is not a child
+and renders its full target and full note. Without the gate, a bookmarked
+`cyoa@typed-hole.org` would match `pick-a-path` — text that appears nowhere on
+its row — which would change bookmark behaviour this spec claims to leave alone.
+
+One case survives deliberately: typing a hint word matches a child that, once
+the filter is applied, shows its full note instead of the hint. That is the
+behaviour worth having — the user is typing what they read a moment earlier, and
+a hint whose words appear nowhere in the note (`pick-a-path` against "Choose
+your own adventure") would otherwise be unsearchable.
+
+Match highlighting keeps its existing split against target and note. A match
+index landing past the note region — inside the appended hint — is **dropped**
+rather than mis-highlighted, the same defensive shape `splitStartMatches`
+already uses for indices that fall in the separator.
+
+## Unaffected
+
+The overview and status-bar counts; `structural` rows and the rules that hide
+them from flattened views; `bookmarked` state and the `b` hint; `i`/copy
+actions; ordering; community rows; the reader.
+
+## Testing
+
+- **Parser:** ` | ` splits note from hint; an entry with no hint parses with an
+  empty hint; `|` inside a note fails `TestCatalogIsWellFormed`; a hint on a
+  root entry fails it too.
+- **Assembly:** `lastChild` is true for the final child of every group and false
+  on non-final children and on every row that is not a child, including host
+  roots and structural parents. Against the real catalog, `bonsai@flanigan.us`
+  is non-final and `calendar@flanigan.us` is final. The single-child case needs
+  a **synthetic catalog fixture**: adding `bonsai` left no real service group
+  with one child, and the rule must still hold for one.
+- **Delegate, one case per row state** in the table above: token-only child;
+  hinted child; selected child showing its full note; flattened child
+  showing full target and full note with no connector.
+- **The two filtering states:** with `/` pressed and the query empty, children
+  keep their tokens and connectors and the headers stay; after one character is
+  typed, they become addresses with full notes and no connectors. The token half
+  of this is already covered by
+  `TestEmptyFilterKeepsChildTokensAndQueryExpandsThem`; extend it to the
+  connector rather than writing a second test.
+- **Narrow layout:** the second line carries hint / full note / nothing, aligned
+  to the token column.
+- **Filtering:** a word that appears only in a hint finds its child row; the
+  same word does **not** match that target's BOOKMARKS copy, which displays no
+  hint; and highlight offsets stay within the target and note.
+- **Existing test to update:** the child-indent differential test hardened in
+  the grouping branch asserts child = sibling + 2 leading spaces. It becomes an
+  assertion about the connector prefix — and stays differential, so it cannot
+  pass vacuously if the prefix disappears.
+
+## Deliberately out of scope
+
+- **A hint on every child.** The authoring rule is the design; a hint per row
+  would restore the wall.
+- **A detail line under the list, or the note in the status bar.** Considered
+  and dropped in favour of the in-place swap, which costs no rows.
+- **A multi-column grid of child tokens.** The densest option, and the closest
+  to what a finger host's own user list looks like, but `bubbles/list` selects
+  vertically — a grid would mean hand-rolling selection, paging and filtering.
+- **Any change to ordering, counting, or bookmark semantics.**
+
+## Branching
+
+This work stacks on `feat/startpage-entry-grouping`, which is complete but
+unmerged. Branch and PR against that branch, not `main`, so it is reviewed
+against the grouping it builds on.

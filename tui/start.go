@@ -243,6 +243,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	descStyle = startStyleWithinWidth(descStyle, m.Width())
 
 	rowTarget := startRowTarget(item.entry, flattened)
+	rowNote := startRowNote(item.entry, isSelected, flattened)
 
 	var targetMatches, noteMatches []int
 	if flattened {
@@ -253,7 +254,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 		frame := titleStyle.GetHorizontalFrameSize()
 		targetWidth, noteWidth := startColumnWidths(m.Width(), frame)
 		target := renderStartField(rowTarget, targetWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
-		note := renderStartField(item.entry.note, noteWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
+		note := renderStartField(rowNote, noteWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
 		target = padStartField(target, targetWidth, startInlineStyle(titleStyle))
 		row := target + note
 		if showShelf {
@@ -272,9 +273,8 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	if descWidth < 0 {
 		descWidth = 0
 	}
-	rowNote := item.entry.note
-	if item.entry.child && !flattened {
-		rowNote = "  " + rowNote
+	if item.entry.child && !flattened && rowNote != "" {
+		rowNote = "     " + rowNote
 	}
 	target := renderStartField(rowTarget, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
 	note := renderStartField(rowNote, descWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
@@ -295,16 +295,34 @@ func startColumnWidths(width, frame int) (int, int) {
 }
 
 // startRowTarget is the target column's text. A child shows only its query
-// token, indented, because the parent row above it states the host — but once
-// the view flattens, the parent may be off screen, so the full address returns.
-// Flattened is not the same as "a filter is active": see renderEntry.
+// token, prefixed by a connector that gives the group its shape, because the
+// parent row above it states the host — but once the view flattens, the parent
+// may be off screen, so the full address returns and the connector goes with
+// it. Flattened is not the same as "a filter is active": see renderEntry.
 func startRowTarget(entry startEntry, flattened bool) string {
-	if entry.child && !flattened {
-		return "  " + entryToken(entry.target)
+	if !entry.child || flattened {
+		return entry.target
 	}
-	return entry.target
+	connector := "├"
+	if entry.lastChild {
+		connector = "└"
+	}
+	return "   " + connector + " " + entryToken(entry.target)
 }
 
+// startRowNote is the note column's text. A child is silent by default, so the
+// section reads as a list of tokens rather than a wall of prose; its note
+// returns on the row the cursor is on, and wherever the child renders as a
+// listing rather than a member of a visible group.
+func startRowNote(entry startEntry, selected, flattened bool) string {
+	if !entry.child || selected || flattened {
+		return entry.note
+	}
+	return ""
+}
+
+// splitStartMatches maps filter-match offsets in FilterValue onto the target
+// and note fields.
 func splitStartMatches(matches []int, target string) (targetMatches, noteMatches []int) {
 	noteOffset := len(target) + 1
 	for _, match := range matches {

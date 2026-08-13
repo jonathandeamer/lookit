@@ -956,60 +956,147 @@ func TestStartApplyStylesKeepsSectionHeaders(t *testing.T) {
 	}
 }
 
-func TestStartRowTargetShortensChildrenUnlessFiltered(t *testing.T) {
-	child := startEntry{target: "dict@bbs.airandwave.net", child: true}
-	if got, want := startRowTarget(child, false), "  dict"; got != want {
-		t.Errorf("unfiltered child = %q, want %q", got, want)
-	}
-	// Filtering removes the parent that supplies the host, so the row must
-	// carry its full address again.
-	if got, want := startRowTarget(child, true), "dict@bbs.airandwave.net"; got != want {
-		t.Errorf("filtered child = %q, want %q", got, want)
-	}
-	parent := startEntry{target: "@bbs.airandwave.net"}
-	if got, want := startRowTarget(parent, false), "@bbs.airandwave.net"; got != want {
-		t.Errorf("parent = %q, want %q", got, want)
-	}
-}
-
-// In the narrow two-line layout the note sits under the target, so an
-// unindented note would hang left of its own row.
-func TestNarrowChildRowIndentsBothLines(t *testing.T) {
+func TestNarrowChildRowAlignsSelectedNoteUnderToken(t *testing.T) {
 	common := testCommon()
 	common.width = 40
+	common.contentFocused = true
 	st := common.ensureStyles()
 	d := newStartDelegate(common, st)
 	if d.Height() != 2 {
 		t.Fatalf("delegate height = %d at width 40, want the two-line layout", d.Height())
 	}
-	l := list.New([]list.Item{
-		startItem{entry: startEntry{target: "dict@bbs.airandwave.net", note: "Dictionary lookup", child: true}, section: sectionServices},
-		startItem{entry: startEntry{target: "other@example.com", note: "Other row"}, section: sectionServices},
-		startItem{entry: startEntry{target: "third@example.com", note: "Third row"}, section: sectionServices},
-	}, d, 40, 4)
-	// Render both rows unselected so the selection shelf's border and padding do
-	// not get mistaken for the child's own two-space indent. The base list style
-	// already left-pads every row by two spaces (tui/styles.go NormalTitle/
-	// NormalDesc), so asserting a bare "starts with two spaces" would pass even
-	// if the child-specific indent were dropped entirely. Compare the child's
-	// leading-space count against its non-child sibling's instead, so only the
-	// feature under test — the extra indent — can satisfy the assertion.
-	l.Select(2) // a third row, so neither rendered row below carries the selection shelf
-	var childBuf, siblingBuf strings.Builder
-	d.Render(&childBuf, l, 0, l.Items()[0])
-	d.Render(&siblingBuf, l, 1, l.Items()[1])
-	childLines := strings.Split(ansi.Strip(childBuf.String()), "\n")
-	siblingLines := strings.Split(ansi.Strip(siblingBuf.String()), "\n")
-	if len(childLines) != len(siblingLines) {
-		t.Fatalf("child rendered %d lines, sibling %d; want equal", len(childLines), len(siblingLines))
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "dict@bbs.airandwave.net", note: "Dictionary lookup",
+			child: true, lastChild: true,
+		}, section: sectionServices},
 	}
-	for i := range childLines {
-		childIndent := len(childLines[i]) - len(strings.TrimLeft(childLines[i], " "))
-		siblingIndent := len(siblingLines[i]) - len(strings.TrimLeft(siblingLines[i], " "))
-		if got, want := childIndent, siblingIndent+2; got != want {
-			t.Errorf("line %d indent = %d, want %d (sibling %d + the child's own 2): child %q, sibling %q",
-				i, got, want, siblingIndent, childLines[i], siblingLines[i])
-		}
+	l := list.New(items, d, 40, 4)
+	l.Select(0)
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	lines := strings.Split(ansi.Strip(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("selected child rendered %d lines, want 2: %q", len(lines), lines)
+	}
+	targetByte := strings.Index(lines[0], "dict")
+	noteByte := strings.Index(lines[1], "Dictionary lookup")
+	if targetByte < 0 || noteByte < 0 {
+		t.Fatalf("rendered lines = %q, want token and note", lines)
+	}
+	targetColumn := lipgloss.Width(lines[0][:targetByte])
+	noteColumn := lipgloss.Width(lines[1][:noteByte])
+	if noteColumn != targetColumn {
+		t.Fatalf("note column = %d, token column = %d: %q", noteColumn, targetColumn, lines)
+	}
+}
+
+// bubbles/list derives pagination from one fixed delegate height, so the
+// narrow two-line layout can't grow only for a selected row: an unselected
+// child's second line is dead space rather than tighter spacing.
+func TestNarrowChildRowLeavesTheNoteLineBlankWhenUnselected(t *testing.T) {
+	common := testCommon()
+	common.width = 46
+	common.contentFocused = true
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	if d.Height() != 2 {
+		t.Fatalf("delegate height = %d at width 46, want the two-line layout", d.Height())
+	}
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "dict@bbs.airandwave.net", note: "Dictionary lookup",
+			child: true, lastChild: true,
+		}, section: sectionServices},
+		startItem{entry: startEntry{
+			target: "wtr@bbs.airandwave.net", note: "Weather report",
+			child: true, lastChild: true,
+		}, section: sectionServices},
+	}
+	l := list.New(items, d, 46, 4)
+	l.Select(1) // select the other row so item 0 renders unselected
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	lines := strings.Split(ansi.Strip(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("unselected child rendered %d lines, want 2: %q", len(lines), lines)
+	}
+	if !strings.Contains(lines[0], "dict") {
+		t.Fatalf("first line = %q, want the connector and token", lines[0])
+	}
+	if strings.TrimSpace(lines[1]) != "" {
+		t.Fatalf("second line = %q, want blank when unselected", lines[1])
+	}
+}
+
+// The wide single-line layout is the macOS default and was once revertible with
+// the suite still green, so it is asserted on rendered output rather than on
+// startRowNote alone.
+func TestWideChildRowShowsItsNoteOnlyWhenSelected(t *testing.T) {
+	const note = "Latest earthquakes, M2.5+ past day"
+	common := testCommon()
+	common.width = 100
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	if d.Height() != 1 {
+		t.Fatalf("delegate height = %d at width 100, want the one-line layout", d.Height())
+	}
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "quake@bbs.airandwave.net", note: note,
+			child: true,
+		}, section: sectionServices},
+		startItem{entry: startEntry{
+			target: "urban@bbs.airandwave.net", note: note,
+			child: true, lastChild: true,
+		}, section: sectionServices},
+	}
+	l := list.New(items, d, 100, 6)
+
+	l.Select(1) // row 0 unselected
+	var unselected strings.Builder
+	d.Render(&unselected, l, 0, items[0])
+	unselectedLine := ansi.Strip(unselected.String())
+	if strings.Contains(unselectedLine, note) {
+		t.Errorf("unselected child row = %q, want an empty note column", unselectedLine)
+	}
+	if !strings.Contains(unselectedLine, "quake") {
+		t.Errorf("unselected child row = %q, want its token", unselectedLine)
+	}
+
+	l.Select(0) // row 0 selected
+	var selected strings.Builder
+	d.Render(&selected, l, 0, items[0])
+	if got := ansi.Strip(selected.String()); !strings.Contains(got, note) {
+		t.Errorf("selected child row = %q, want its full note", got)
+	}
+}
+
+// Selection is the cursor's row, not which pane takes keys. A selected child
+// keeps its note while the target input is focused and the inactive shelf is
+// drawn — otherwise the note would blink out every time focus moved.
+func TestSelectedChildKeepsItsNoteWithoutContentFocus(t *testing.T) {
+	const note = "Latest earthquakes, M2.5+ past day"
+	common := testCommon()
+	common.width = 100
+	common.contentFocused = false
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "quake@bbs.airandwave.net", note: note,
+			child: true, lastChild: true,
+		}, section: sectionServices},
+	}
+	l := list.New(items, d, 100, 4)
+	l.Select(0)
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	if got := ansi.Strip(buf.String()); !strings.Contains(got, note) {
+		t.Fatalf("selected child without content focus = %q, want its full note", got)
 	}
 }
 
@@ -1069,7 +1156,7 @@ func TestEmptyFilterKeepsChildTokensAndQueryExpandsThem(t *testing.T) {
 		if strings.Contains(plain, "dict@bbs.airandwave.net") {
 			t.Errorf("child expanded to its full address while its group is still on screen:\n%s", plain)
 		}
-		if !strings.Contains(plain, "  dict") {
+		if !strings.Contains(plain, "├ dict") {
 			t.Errorf("child token missing:\n%s", plain)
 		}
 	})
@@ -1109,5 +1196,75 @@ func TestCountsIgnoreStructuralRows(t *testing.T) {
 	}
 	if got := startCounts(items); got.services != 1 {
 		t.Fatalf("services = %d, want 1 — the structural copy is not a listing", got.services)
+	}
+}
+
+func TestStartRowTargetDrawsConnectors(t *testing.T) {
+	mid := startEntry{target: "dict@bbs.airandwave.net", child: true}
+	last := startEntry{target: "wordsearch:today@bbs.airandwave.net", child: true, lastChild: true}
+	root := startEntry{target: "@bbs.airandwave.net"}
+	if got, want := startRowTarget(mid, false), "   ├ dict"; got != want {
+		t.Errorf("mid child = %q, want %q", got, want)
+	}
+	if got, want := startRowTarget(last, false), "   └ wordsearch:today"; got != want {
+		t.Errorf("last child = %q, want %q", got, want)
+	}
+	if got, want := startRowTarget(root, false), "@bbs.airandwave.net"; got != want {
+		t.Errorf("root = %q, want %q", got, want)
+	}
+	// Flattened: no parent above it, so the address returns and the connector
+	// goes with it.
+	if got, want := startRowTarget(mid, true), "dict@bbs.airandwave.net"; got != want {
+		t.Errorf("flattened child = %q, want %q", got, want)
+	}
+}
+
+func TestStartRowNotePerState(t *testing.T) {
+	const note = "Saturday Morning Gemzine — back issues"
+	child := startEntry{target: "smog@typed-hole.org", note: note, child: true}
+	root := startEntry{target: "@typed-hole.org", note: "A small menu of fingers, from lobste.rs to smog"}
+
+	tests := []struct {
+		name      string
+		entry     startEntry
+		selected  bool
+		flattened bool
+		want      string
+	}{
+		{name: "unselected child shows nothing", entry: child, want: ""},
+		{name: "selected child shows its note", entry: child, selected: true, want: note},
+		{name: "flattened child shows its note", entry: child, flattened: true, want: note},
+		{name: "root always shows its note", entry: root, want: root.note},
+		{name: "selected root is unchanged", entry: root, selected: true, want: root.note},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := startRowNote(tt.entry, tt.selected, tt.flattened); got != tt.want {
+				t.Fatalf("startRowNote = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFilterValueIsTargetAndNote(t *testing.T) {
+	entry := startEntry{target: "cyoa@typed-hole.org", note: "Choose your own adventure", child: true}
+	item := startItem{entry: entry}
+	if got, want := item.FilterValue(), "cyoa@typed-hole.org Choose your own adventure"; got != want {
+		t.Errorf("child FilterValue = %q, want %q", got, want)
+	}
+	structural := startItem{entry: startEntry{target: "@happynetbox.com", structural: true}}
+	if got := structural.FilterValue(); got != "" {
+		t.Errorf("structural FilterValue = %q, want empty", got)
+	}
+}
+
+func TestSplitStartMatchesMapsTargetAndNote(t *testing.T) {
+	target := "cyoa@typed-hole.org"
+	targetMatches, noteMatches := splitStartMatches([]int{0, len(target) + 1}, target)
+	if len(targetMatches) != 1 || targetMatches[0] != 0 {
+		t.Errorf("targetMatches = %v, want [0]", targetMatches)
+	}
+	if len(noteMatches) != 1 || noteMatches[0] != 0 {
+		t.Errorf("noteMatches = %v, want [0]", noteMatches)
 	}
 }

@@ -471,3 +471,15 @@ func TestShortenHomePath(t *testing.T) {
 		})
 	}
 }
+
+// The catalog grammar is <kind> <target> <note>. Everything after the target is
+// the note, including a "|", which is ordinary text now the hint field is gone.
+func TestParseCatalogLineKeepsTheWholeNote(t *testing.T) {
+	entry, err := parseCatalogLine("service smog@typed-hole.org Saturday Morning Gemzine | back issues")
+	if err != nil {
+		t.Fatalf("parseCatalogLine = %v", err)
+	}
+	if got, want := entry.note, "Saturday Morning Gemzine | back issues"; got != want {
+		t.Fatalf("note = %q, want %q", got, want)
+	}
+}

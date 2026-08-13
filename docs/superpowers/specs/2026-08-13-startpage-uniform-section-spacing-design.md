@@ -9,7 +9,11 @@ each header are:
 | Layout | Above first header | Above COMMUNITIES | Above SERVICES |
 |---|---|---|---|
 | Wide (>= 72 cols) | 2 | 0 | 1 |
-| Narrow (< 72 cols) | 3 | 1 | 1 |
+| Narrow (< 72 cols) | 3 | 1 or 2 | 1 or 2 |
+
+The narrow values vary with content, not structure — see the amendment below.
+The original draft of this table recorded them as a flat 1, which was a
+measurement taken from a fixture whose rows happened to be described.
 
 Three different values in the primary layout. The last community row runs
 straight into the SERVICES header's predecessor while SERVICES itself gets a
@@ -54,15 +58,38 @@ The mechanism differs per layout because the quanta do.
 header, so no leading spacer is assembled. A spacer item precedes every header
 after the first. The result is 1 / 1 / 1 — exactly uniform.
 
-**Narrow.** `renderHeader` already emits a blank as the first of its two rows,
-for every header. No spacer items are assembled at all, which removes today's
-two-row leading spacer. The result is 2 / 1 / 1.
+**Narrow.** `renderHeader` emits the blank as the first of its two rows, and no
+spacer items are assembled at all — which removes today's two-row leading
+spacer. The header emits that blank only when the row above is not already
+empty, which `headerNeedsBlank` decides. The result is 1 / 1 / 1, the same as
+wide.
 
-The narrow top boundary keeps one extra row, and stops there deliberately. A
-spacer costs two rows in that layout, so adding one overshoots. Suppressing the
-first header's own blank does not help either: the item slot is a fixed two
-rows, so the blank moves *below* the header rather than disappearing. Two is
-the minimum reachable value, down from three.
+### Amendment: narrow reaches 1, and the gap was content-dependent
+
+An earlier draft of this spec claimed narrow could only reach 2 / 1 / 1,
+because suppressing the first header's own blank would move the blank *below*
+the header rather than removing it. That was asserted, not measured, and it is
+wrong: `bubbles/list` pads the joined page to the available height but does not
+pad individual items, so a header that renders one line in a two-row slot
+genuinely occupies one line and the rows below shift up.
+
+Measuring also exposed a defect the original table missed. The narrow gap was
+never 3 / 1 / 1; it was 3 / 1 / 1 *or* 3 / 1 / 2, depending on whether the last
+entry of the preceding section carried a note. A two-row entry with no note —
+an unclassified bookmark, or a grouped child whose note stays hidden until
+selected — renders its second row empty, and the header's own blank then landed
+on top of it. Section spacing therefore depended on whether a row happened to
+be described, which is not a property spacing rules should have.
+
+`headerNeedsBlank` fixes both. A two-row header spends its first row on a blank
+only when the row above is not already blank. Two cases mean it is: the top of
+a page, where bubbles' own title row sits above and is empty unless the filter
+prompt is in it; and an entry whose second row rendered empty. A selected row
+never counts as blank, because the selection shelf draws its border down both
+rows.
+
+Both layouts therefore land on the same number, and the invariant holds without
+qualification: exactly one blank row above every section header, at every width.
 
 ## Assembly
 
@@ -101,6 +128,13 @@ even though there are more of them. `FilterValue` returns empty, so any
 non-empty filter drops every spacer and leaves a flat, gap-free result.
 Spacers are excluded from overview and status-bar counts by `countsAsListing`.
 
+## Outcome
+
+Implemented 2026-08-13. Measured after the change: 1 / 1 / 1 at every width,
+with entries described or not. Net vertical cost is zero rows wide and one row
+saved narrow, so the pagination pressure named in the visual review is
+unchanged.
+
 ## Scope
 
 `tui/start.go` and its tests. No change to catalog data, `buildSections`,
@@ -115,8 +149,9 @@ decision, and stays honest if the mechanism changes again.
 - Wide, three sections: the line above each header is blank, and the line
   above that is not — except at the first header, where the line above the
   blank is the overview.
-- Narrow, three sections: one blank above COMMUNITIES and SERVICES, two above
-  the first header.
+- Narrow: one blank above every header, run against both a fixture whose
+  entries carry notes and one whose entries do not — the two cases that used to
+  disagree.
 - A single section (`catalog off`, leaving only BOOKMARKS) assembles no
   spacers at either width.
 - A non-empty filter contains no spacers and no headers.

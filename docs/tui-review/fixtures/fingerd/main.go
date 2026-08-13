@@ -30,6 +30,27 @@ const truncBody = "Login: trunc\nName: Trunc Review\nPlan:\nThis line is cut mid
 // Two spaced columns, no "online" cue, so ParseUsers takes the generic path.
 const genericBody = "carol  Carol Review\ndave  Dave Review\n"
 
+// longPlanLines is longer than the tallest tape (30 rows) so the reader is
+// scrollable and the status bar carries a scroll percentage. Lines are
+// numbered so a tape can Wait on a line that is on screen at every height:
+// after scrolling down scrollStill lines, line scrollStill+1 is the top row
+// whether the viewport is 20 or 30 rows tall.
+const longPlanLines = 60
+
+// scrollStill is how far docs/tui-review/responses-tour.tape scrolls before
+// taking reader-scroll.png. Keep it under longPlanLines minus the tallest
+// viewport so the wait line cannot scroll off the top.
+const scrollStill = 12
+
+func longPlanBody() []byte {
+	var b strings.Builder
+	b.WriteString("Login: longplan\nName: Long Review\nPlan:\n")
+	for i := 1; i <= longPlanLines; i++ {
+		fmt.Fprintf(&b, "line %03d of a plan long enough to scroll\n", i)
+	}
+	return []byte(b.String())
+}
+
 func main() {
 	addr := flag.String("addr", defaultAddr, "listen address (loopback, named listing)")
 	genericAddr := flag.String("generic-addr", defaultGenericAddr, "listen address for the generic listing")
@@ -132,6 +153,8 @@ func responseFor(line string) []byte {
 		return []byte(listBody)
 	case "alice":
 		return []byte(aliceBody)
+	case "longplan":
+		return longPlanBody()
 	case "trunc":
 		return []byte(truncBody)
 	default:

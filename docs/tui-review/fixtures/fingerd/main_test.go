@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -67,6 +68,30 @@ func TestResponseForUnknownUserIsExplicit(t *testing.T) {
 	got := responseFor("eve")
 	if !bytes.Contains(got, []byte("No such user")) {
 		t.Fatalf("unknown user body %q, want an explicit miss", got)
+	}
+}
+
+// The reader-scroll still waits on the line that sits at the top of the
+// viewport after scrollStill scrolls; it has to exist, and the body has to
+// outlast the tallest tape so the reader is scrollable at all.
+func TestLongPlanScrollsAtEveryTapeHeight(t *testing.T) {
+	const tallestTapeRows = 30
+
+	got := responseFor("longplan")
+	lines := strings.Split(strings.TrimSuffix(string(got), "\n"), "\n")
+	if len(lines) <= tallestTapeRows {
+		t.Fatalf("long plan is %d lines, want more than the tallest tape (%d rows)", len(lines), tallestTapeRows)
+	}
+	want := fmt.Sprintf("line %03d of", scrollStill+1)
+	if !strings.Contains(string(got), want) {
+		t.Fatalf("long plan body has no %q for the tape to wait on", want)
+	}
+	if scrollStill+tallestTapeRows > longPlanLines {
+		t.Fatalf("scrolling %d lines can push line %d off the top of a %d-row viewport",
+			scrollStill, scrollStill+1, tallestTapeRows)
+	}
+	if strings.Contains(string(got), "://") {
+		t.Fatal("long plan must carry no links; tab-focus would change the still")
 	}
 }
 

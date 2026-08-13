@@ -3,7 +3,7 @@
 
 Require vhs
 
-Output docs/tui-review/frames/_render.gif
+Output docs/tui-review/frames/_render.txt
 
 Set Width 914
 Set Height 533

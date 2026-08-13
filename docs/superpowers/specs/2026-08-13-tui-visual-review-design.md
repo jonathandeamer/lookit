@@ -38,6 +38,24 @@ to `docs/wordmark-design/`.
   `auto-detected`, and `partial (truncated)`. No product fetch seam and no
   live hosts. A Go scene book that dumps `View()` stays deferred.
 
+## Amendments after first use
+
+Recorded here rather than left as drift; the README is the current guide.
+
+- **Stills are `Wait` → `Sleep` → `Screenshot`.** The design assumed `Wait`
+  made a still trustworthy. It does not: VHS matches the wait against the live
+  terminal but writes the PNG from a lagging frame queue, so the first
+  recordings banked a blank `list.png` and a `generic.png` of the previous
+  screen while exiting 0. Every capture now sleeps 1500ms between the two.
+- **Recorded output is verified, not just counted.** `verify-frames.sh` fails
+  a directory containing a blank or duplicated still.
+- **`XDG_CONFIG_HOME` points at a throwaway copy** of the fixture, not the
+  fixture itself, so stills that exercise bookmark writes are possible at all.
+- **Scenes added:** `b` bookmarking and `catalog off` (chrome), the help
+  overlay on a landed reader and a mid-scroll reader (responses).
+- **Contact sheets** (`make review-sheet`) tile each tape into one image, so a
+  review triages eight sheets instead of opening 76 stills.
+
 ## Non-goals
 
 - ASCII/txt goldens as the aesthetic test.

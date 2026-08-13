@@ -59,6 +59,19 @@ flattened, and nothing otherwise. Everyone else always shows their note.
 | Child in a flattened view (filter active, query non-empty) | full note |
 | Bookmarked child in BOOKMARKS | full note |
 
+**"Selected" means the cursor's row, whether or not content has keyboard
+focus.** The two are distinct states in this app: when the target input is
+focused, the list keeps its selected row and renders it with the inactive shelf
+(`tui/start.go`, the `showShelf`/`contentFocused` branch). The note appears in
+that state too. Tying it to `contentFocused` instead would make a child's note
+blink out when the user clicks into the input and back when they leave it —
+motion that says nothing about the row. Selection is the cursor's position;
+focus is which pane takes keys.
+
+The word "focus" in this spec's title means the cursor resting on a row, not
+`contentFocused`. The rule is expressed in terms of **selection** everywhere it
+matters.
+
 ```
 SERVICES ─────────────────────────────────────
 @bbs.airandwave.net   Over two dozen services…
@@ -74,27 +87,45 @@ SERVICES ───────────────────────�
 
 ### Notes are capped at 48 characters
 
-A focused child's note must not truncate. The note column is half the width, so
-at **100 columns** the budget is about 48 characters — comfortable on any laptop
-terminal, including a half-screen split.
+A build-gate test caps **every** catalog note at 48 **terminal cells**. The cap
+covers community and root notes too, because those are on screen at all times,
+and it holds future copy to the same rule rather than relying on someone
+remembering it.
 
-A build-gate test caps **every** catalog note at 48 characters. The cap covers
-community and root notes too, because those are on screen at all times, and it
-holds future copy to the same rule rather than relying on someone remembering
-it.
+**The guarantee is scoped: no truncation at 100 columns or wider.** The note
+column is half the width less the frame, so 100 columns yields about 48 cells —
+comfortable on any laptop terminal, including a half-screen split. Below that it
+is not a promise and cannot be: the wide single-line layout starts at
+`startWideMinWidth` (72), where the note column is roughly 35 cells, and at the
+classic 80 columns it is about 39. A 48-cell note still truncates below roughly
+97 columns, exactly as every note does today. The cap makes a stated width safe;
+it does not make truncation impossible.
+
+**The unit is display width, not runes or bytes.** Rendering truncates by
+terminal cells (`ansi.Truncate`), and a 48-rune note can occupy more than 48
+cells — a CJK character or an emoji takes two. The test measures with
+`ansi.StringWidth` (or `lipgloss.Width`), the same accounting the renderer uses.
+Counting runes would pass copy that still truncates; counting bytes would reject
+the em dashes and the typographic apostrophe in `Today’s date, across the
+years`.
 
 The 50/50 column split is unchanged. Narrowing the target column was considered
 — with children as bare tokens it is mostly empty — but it would move every
 section's layout to solve a copy problem, and the flattened view still needs
 room for a full target (`wordsearch:today@bbs.airandwave.net` is 35 characters).
 
-### Three copy changes
+### Four copy changes
 
 | Target | Was | Now |
 |---|---|---|
 | `ring@thebackupbox.net` | The finger ring — join by linking it from your response (55) | **A webring, for finger** (21) |
 | `@graph.no` | Weather worldwide by place name — finger oslo@graph.no (54) | **Weather worldwide by place name** (31) |
+| `@tilde.team` | Small public access unix, for teaching and learning (51) | **Small public access unix, for learning** (38) |
 | `weather@bbs.airandwave.net` | Current weather and a 7-day forecast — weather:city@… (53) | **removed from the catalog** |
+
+`@tilde.team` still quotes its own banner, which reads *"we're a small public
+access unix system with a goal of teaching and learning"* — the rewrite drops
+two words from that quotation and keeps it traceable.
 
 `weather@bbs.airandwave.net` goes rather than shrinks: `@graph.no` already
 serves weather worldwide, and the catalog has settled this case before —
@@ -107,8 +138,12 @@ Both rewrites drop an inline usage example (`finger oslo@graph.no`,
 `weather:city@…`). That is a deliberate trade: the syntax is in each service's
 own response, and the startpage's job is to say what a thing is.
 
-After these, the longest notes are `bot@happynetbox.com` and `@typed-hole.org`
-at 47 characters — one below the cap.
+After these, four notes sit at 47 cells — `bot@happynetbox.com`,
+`@zaibatsu.circumlunar.space`, `@typed-hole.org` and `@cosmic.voyage` — one
+below the cap. That margin is thin by accident rather than design: the audit
+that produced this list measured **every** note by display width, which is how
+`@tilde.team` surfaced after an earlier pass over service children alone missed
+it. Re-run that audit, not a spot check, when adding copy.
 
 ## Consequences
 
@@ -133,13 +168,18 @@ at 47 characters — one below the cap.
 
 ## Testing
 
-- **The cap:** every catalog note is 48 characters or fewer, measured in runes,
-  not bytes — `Today’s date, across the years` carries a typographic apostrophe
-  and the em-dash notes would otherwise over-count.
+- **The cap:** every catalog note measures 48 cells or fewer under
+  `ansi.StringWidth`. Include a fixture case proving the measure is display
+  width — a note of 48 runes that is wider than 48 cells must fail the gate, or
+  the test is measuring the wrong thing.
 - **Focus behaviour:** an unselected child's note column is empty; the same row
   selected shows its full note; a non-child row always shows its note. At least
   one case asserted on rendered output in the wide layout, not only on the pure
   function.
+- **Selection without content focus:** a selected child with `contentFocused`
+  false — the inactive-shelf state — still shows its note. This is the state the
+  rule's wording could most easily be read the other way, so it gets its own
+  case.
 - **Removal:** no catalog line contains `|`; `startEntry` has no `hint` field;
   `FilterValue` on a child equals `target + " " + note`.
 - **Counts and ordering:** the fixtures above, at their new values.

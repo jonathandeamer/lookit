@@ -1267,6 +1267,7 @@ func TestReaderHelpContext(t *testing.T) {
 			Body:   []byte("Plan: hi\n"),
 		}})
 		m = step.(appModel)
+		m.common.width, m.common.height = 200, 40
 		(&m).updateKeymap()
 
 		view := ansi.Strip(m.helpView())
@@ -1281,6 +1282,7 @@ func TestReaderHelpContext(t *testing.T) {
 		m := readerWithFocusedLink(t, stubFetch(t), Link{
 			Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com",
 		})
+		m.common.width, m.common.height = 200, 40
 		(&m).updateKeymap()
 
 		view := ansi.Strip(m.helpView())
@@ -1315,10 +1317,11 @@ func TestReaderHelpContext(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				m := readerWithFocusedLink(t, stubFetch(t), tt.link)
+				m.common.width, m.common.height = 200, 40
 				(&m).updateKeymap()
 
 				view := ansi.Strip(m.helpView())
-				got := strings.Contains(view, "↵ go")
+				got := strings.Contains(strings.ReplaceAll(view, " ", ""), "↵go")
 				if got != tt.wantGo {
 					t.Fatalf("reader help contains ↵ go = %v, want %v:\n%s", got, tt.wantGo, view)
 				}

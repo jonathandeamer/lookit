@@ -691,8 +691,9 @@ func TestMainContentRefreshStatus(t *testing.T) {
 }
 
 func helpText(m appModel) string {
+	m.common.width, m.common.height = 200, 40
 	m.updateKeymap()
-	return ansi.Strip(m.helpView())
+	return strings.Join(strings.Fields(ansi.Strip(m.helpView())), " ")
 }
 
 func TestRefreshHelpContexts(t *testing.T) {

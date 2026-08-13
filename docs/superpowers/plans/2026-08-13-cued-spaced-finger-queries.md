@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- This is PR 2 of 3. It depends on PR 1 (`schemeURLRe` restoration) and must be implemented on a fresh branch from updated `origin/main` after PR 1 is merged.
-- Suggested branch/worktree after syncing `main`: `feat/cued-finger-queries` at `.worktrees/feat-cued-finger-queries`.
+- This is PR 2 of 3. It depends on PR 1 (`schemeURLRe` restoration). While PR 1 awaits human merge, implement PR 2 locally on `feat/cued-finger-queries`, stacked from `fix/catalog-finger-links`; do not push the stacked branch. After PR 1 is squash-merged, rebase only the PR-2 commits onto updated `origin/main` before the first push.
+- Use branch/worktree `feat/cued-finger-queries` at `.worktrees/feat-cued-finger-queries`.
 - It has no logical dependency on quote grouping. Its ASCII quote/backtick guard keeps valid and malformed quoted text on today's delimiter-bounded fallback until PR 3 groups the one accepted production.
 - Do not change `cueKind` or `findCueWord`: the existing nearest recognized cue in the five-field same-line window continues to determine classification.
 - Do not change `classifyAtToken`, `classifyForwardedAtToken`, `domainSane`, `isDelim`, `loginRe`, `harvestableLogin`, or `appendHarvestedTargets`.
@@ -33,17 +33,17 @@
 - Consumes: `DetectLinks(body []byte, originHostPort string) []Link`, existing `Link` fields, `parseUserList(body []byte, originHostPort string) (parsedUserList, bool)`, and `loginRe`.
 - Produces: failing tests for the exact expansion predicate and harvest neutrality.
 
-- [ ] **Step 1: Create the isolated PR-2 branch after PR 1 merges**
+- [ ] **Step 1: Create the isolated local PR-2 branch from PR 1**
 
-From `/Users/jonathan/lookit`, run each command separately:
+While PR 1 awaits human merge, from `/Users/jonathan/lookit` run:
 
 ```bash
 git fetch origin
-git log -1 --oneline origin/main
-git worktree add .worktrees/feat-cued-finger-queries -b feat/cued-finger-queries origin/main
+git log -1 --oneline fix/catalog-finger-links
+git worktree add .worktrees/feat-cued-finger-queries -b feat/cued-finger-queries fix/catalog-finger-links
 ```
 
-Confirm the displayed `origin/main` commit contains PR 1, then switch all remaining commands in this plan to `/Users/jonathan/lookit/.worktrees/feat-cued-finger-queries`. Establish the baseline:
+Confirm the displayed branch tip is PR 1, then switch all remaining commands in this plan to `/Users/jonathan/lookit/.worktrees/feat-cued-finger-queries`. Establish the baseline:
 
 ```bash
 go mod download
@@ -51,6 +51,8 @@ go test ./...
 ```
 
 Expected: the new worktree is clean and the full baseline passes before adding PR-2 tests.
+
+After PR 1 is squash-merged, fetch `origin`, rebase only the PR-2 commits onto updated `origin/main`, and verify again before the first push. This avoids publishing a stacked branch that would later require a force-push.
 
 - [ ] **Step 2: Add successful expansion cases**
 

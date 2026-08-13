@@ -408,6 +408,166 @@ func TestDetectLinks_ColonBearingFingerAddresses(t *testing.T) {
 	}
 }
 
+func TestDetectLinks_CuedSpacedFingerQuery(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		raw      string
+		query    string
+		hostPort string
+	}{
+		{"urban spaced", "finger urban:old school@bbs.airandwave.net", "urban:old school@bbs.airandwave.net", "urban:old school", "bbs.airandwave.net:79"},
+		{"intervening prose", "finger please try urban:old school@bbs.airandwave.net", "please try urban:old school@bbs.airandwave.net", "please try urban:old school", "bbs.airandwave.net:79"},
+		{"case insensitive", "FINGER urban:old school@bbs.airandwave.net", "urban:old school@bbs.airandwave.net", "urban:old school", "bbs.airandwave.net:79"},
+		{"port pinned", "finger urban:old school@bbs.airandwave.net:70", "urban:old school@bbs.airandwave.net:70", "urban:old school", "bbs.airandwave.net:79"},
+		{"trailing punctuation", "finger urban:old school@bbs.airandwave.net.", "urban:old school@bbs.airandwave.net", "urban:old school", "bbs.airandwave.net:79"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			links := DetectLinks([]byte(tt.body), "example.com:79")
+			if len(links) != 1 {
+				t.Fatalf("DetectLinks(%q) returned %d links, want 1: %#v", tt.body, len(links), links)
+			}
+			link := links[0]
+			if link.Raw != tt.raw || link.Kind != LinkFinger || link.Action != ActionDrill ||
+				!link.Strong || link.Ambiguous || link.Blocked != "" ||
+				link.Target.Query != tt.query || link.Target.HostPort != tt.hostPort {
+				t.Fatalf("DetectLinks(%q)[0] = %#v, want Raw=%q strong drill Query=%q HostPort=%q",
+					tt.body, link, tt.raw, tt.query, tt.hostPort)
+			}
+		})
+	}
+}
+
+func TestDetectLinks_CuedSpacedFingerQueryBoundaries(t *testing.T) {
+	t.Run("separate commands on one line", func(t *testing.T) {
+		for _, body := range []string{
+			"finger alice@one.example finger bob@two.example",
+			"finger alice@one.example\tfinger bob@two.example",
+		} {
+			links := DetectLinks([]byte(body), "example.com:79")
+			if len(links) != 2 || links[0].Raw != "alice@one.example" || links[1].Raw != "bob@two.example" {
+				t.Fatalf("DetectLinks(%q) = %#v, want two separate commands", body, links)
+			}
+			for _, link := range links {
+				if link.Kind != LinkFinger || !link.Strong || link.Action != ActionDrill {
+					t.Fatalf("DetectLinks(%q) contains non-drillable command %#v", body, link)
+				}
+			}
+		}
+	})
+
+	t.Run("shared cue never synthesizes forwarding", func(t *testing.T) {
+		links := DetectLinks([]byte("finger alice@example.com then bob@other.host"), "example.com:79")
+		if len(links) != 2 || links[0].Raw != "alice@example.com" || links[1].Raw != "bob@other.host" {
+			t.Fatalf("links = %#v, want two independent addresses", links)
+		}
+		for _, link := range links {
+			if link.Kind != LinkFinger || !link.Strong || link.Action != ActionDrill ||
+				link.Forwarded || strings.Count(link.Raw, "@") != 1 {
+				t.Fatalf("expanded span synthesized forwarding: %#v", link)
+			}
+		}
+	})
+
+	t.Run("phase-1 consumed span blocks expansion", func(t *testing.T) {
+		body := "finger see https://example.com then urban:old school@bbs.airandwave.net"
+		links := DetectLinks([]byte(body), "example.com:79")
+		if len(links) != 2 {
+			t.Fatalf("DetectLinks(%q) = %#v, want URL and Finger links", body, links)
+		}
+		if links[0].Kind != LinkURL || links[0].Raw != "https://example.com" || !links[0].Strong {
+			t.Fatalf("first link = %#v, want strong URL", links[0])
+		}
+		if links[1].Kind != LinkFinger || links[1].Raw != "school@bbs.airandwave.net" ||
+			links[1].Action != ActionDrill || !links[1].Strong || links[1].Ambiguous {
+			t.Fatalf("second link = %#v, want unexpanded strong Finger token", links[1])
+		}
+	})
+
+	t.Run("second bounded finger cue blocks expansion", func(t *testing.T) {
+		body := "finger foo finger@other.host"
+		links := DetectLinks([]byte(body), "example.com:79")
+		if len(links) != 1 || links[0].Raw != "finger@other.host" || links[0].Kind != LinkFinger ||
+			links[0].Action != ActionDrill || !links[0].Strong || links[0].Ambiguous {
+			t.Fatalf("DetectLinks(%q) = %#v, want fallback strong Finger token", body, links)
+		}
+	})
+
+	t.Run("multibyte prefix preserves expansion", func(t *testing.T) {
+		body := "☃ finger urban:old school@bbs.airandwave.net"
+		links := DetectLinks([]byte(body), "example.com:79")
+		if len(links) != 1 || links[0].Raw != "urban:old school@bbs.airandwave.net" ||
+			links[0].Target.Query != "urban:old school" || links[0].Target.HostPort != "bbs.airandwave.net:79" ||
+			links[0].Kind != LinkFinger || links[0].Action != ActionDrill || !links[0].Strong {
+			t.Fatalf("DetectLinks(%q) = %#v, want byte-offset-safe expanded Finger link", body, links)
+		}
+	})
+
+	t.Run("uncued spaces are not grouped", func(t *testing.T) {
+		links := DetectLinks([]byte("urban:old school@bbs.airandwave.net"), "example.com:79")
+		if len(links) != 1 || links[0].Raw != "school@bbs.airandwave.net" ||
+			links[0].Strong || !links[0].Ambiguous || links[0].Action != ActionCopy {
+			t.Fatalf("links = %#v, want only policy-B school@bbs.airandwave.net", links)
+		}
+	})
+
+	t.Run("fingerprint is not a cue", func(t *testing.T) {
+		links := DetectLinks([]byte("fingerprint urban:old school@bbs.airandwave.net"), "example.com:79")
+		if len(links) != 1 || links[0].Raw != "school@bbs.airandwave.net" || links[0].Strong {
+			t.Fatalf("links = %#v, want unexpanded policy-B address", links)
+		}
+	})
+
+	t.Run("punctuated finger fields are not cues", func(t *testing.T) {
+		for _, body := range []string{
+			"finger: urban:old school@bbs.airandwave.net",
+			"(finger) urban:old school@bbs.airandwave.net",
+		} {
+			links := DetectLinks([]byte(body), "example.com:79")
+			if len(links) != 1 || links[0].Raw != "school@bbs.airandwave.net" || links[0].Strong {
+				t.Fatalf("DetectLinks(%q) = %#v, want unexpanded policy-B address", body, links)
+			}
+		}
+	})
+
+	t.Run("quote-like syntax is never expanded", func(t *testing.T) {
+		tests := []struct {
+			body string
+			raw  string
+		}{
+			{`finger "oslo@graph.no`, "oslo@graph.no"},
+			{`finger "oslo, united states@graph.no"`, "states@graph.no"},
+			{`finger "oslo, united states" @graph.no`, "@graph.no"},
+			{`finger "oslo'@graph.no`, "@graph.no"},
+			{"finger `oslo, united states`@graph.no", "@graph.no"},
+		}
+		for _, tt := range tests {
+			links := DetectLinks([]byte(tt.body), "example.com:79")
+			if len(links) != 1 || links[0].Raw != tt.raw {
+				t.Fatalf("DetectLinks(%q) = %#v, want delimiter fallback Raw=%q", tt.body, links, tt.raw)
+			}
+		}
+	})
+
+	t.Run("nearer email cue wins", func(t *testing.T) {
+		links := DetectLinks([]byte("finger email alice@example.com"), "example.com:79")
+		if len(links) != 1 || links[0].Raw != "alice@example.com" || links[0].Kind != LinkEmail ||
+			links[0].Action != ActionCopy || !links[0].Strong {
+			t.Fatalf("links = %#v, want cue-classified email without expansion", links)
+		}
+	})
+
+	t.Run("cue outside five fields does not expand", func(t *testing.T) {
+		body := "finger one two three four five six alice@example.com"
+		links := DetectLinks([]byte(body), "example.com:79")
+		if len(links) != 1 || links[0].Raw != "alice@example.com" || links[0].Strong {
+			t.Fatalf("links = %#v, want policy-B alice@example.com", links)
+		}
+	})
+}
+
 // ---- OSC-8 matrix ----
 
 func TestDetectLinks_OSC8_OnlyHTTPAndMailto(t *testing.T) {

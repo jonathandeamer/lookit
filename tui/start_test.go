@@ -136,6 +136,32 @@ func TestStartSectionSpacingIsUniformWhenNarrow(t *testing.T) {
 	}
 }
 
+// TestStartUniformSpacingResizeKeepsFirstRowOfSection crosses the 72-column
+// boundary with the selection on a section's first row — the position most
+// exposed to a spacer being inserted directly above it. Three sections mean
+// two spacers appear and disappear together.
+func TestStartUniformSpacingResizeKeepsFirstRowOfSection(t *testing.T) {
+	const target = "quake@bbs.airandwave.net" // the first SERVICES row
+
+	common := testCommon()
+	common.width = 100
+	common.height = 40
+	m := newStart(common, threeSections(), "", "")
+	if !m.selectTarget(target) {
+		t.Fatalf("could not select %s", target)
+	}
+
+	m.setSize(71, common.bodyHeight())
+	if got, ok := m.selected(); !ok || got.target != target {
+		t.Fatalf("after narrowing, selected = %+v, %v; want %s", got, ok, target)
+	}
+
+	m.setSize(100, common.bodyHeight())
+	if got, ok := m.selected(); !ok || got.target != target {
+		t.Fatalf("after widening, selected = %+v, %v; want %s", got, ok, target)
+	}
+}
+
 func TestStartSingleSectionAssemblesNoSpacer(t *testing.T) {
 	sections := []startSection{{
 		id: sectionBookmarks, title: "BOOKMARKS",

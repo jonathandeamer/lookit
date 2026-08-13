@@ -276,6 +276,7 @@ func (m *appModel) restoreRefreshView(view refreshViewState) {
 
 // restore rebuilds the active sub-model from a node (no network).
 func (m *appModel) restore(n histNode) {
+	m.setAddress(n.entry.Target.Raw)
 	if n.state == stateReader {
 		m.state = stateReader
 		m.reader.links = n.links
@@ -320,7 +321,7 @@ func (m *appModel) gotoStart() tea.Cmd {
 	m.state = stateStart
 	m.reader.current = nil
 	m.reloadStart()
-	m.input.SetValue("") // drop the stale target; 'i' should open on an empty row
+	m.setAddress("") // drop the stale target; 'i' should open on an empty row
 	m.resize()
 	if _, ok := m.start.selected(); !ok {
 		m.setInputFocused(true)
@@ -497,11 +498,21 @@ func (m *appModel) setInputFocused(focused bool) {
 	m.common.contentFocused = !focused
 }
 
+func (m *appModel) setAddress(raw string) {
+	m.input.SetValue(raw)
+}
+
+func (m *appModel) restoreVisibleAddress() {
+	raw := ""
+	if m.pos >= 0 && m.pos < len(m.history) {
+		raw = m.history[m.pos].entry.Target.Raw
+	}
+	m.setAddress(raw)
+}
+
 func (m *appModel) focusInput() tea.Cmd {
 	m.clearRequestFailure()
-	if m.pos >= 0 {
-		m.input.SetValue(m.history[m.pos].entry.Target.Raw)
-	}
+	m.restoreVisibleAddress()
 	m.setInputFocused(true)
 	m.input.CursorEnd()
 	m.resize()
@@ -773,6 +784,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			if m.pos < 0 {
 				return true, m, tea.Quit
 			}
+			m.restoreVisibleAddress()
 			m.blurInput()
 			return true, m, nil
 		}
@@ -1015,6 +1027,7 @@ func routeEntry(entry Entry) routedEntry {
 }
 
 func (m *appModel) showRouted(routed routedEntry) {
+	m.setAddress(routed.node.entry.Target.Raw)
 	m.setInputFocused(false)
 	m.input.Blur()
 	m.showingRaw = false

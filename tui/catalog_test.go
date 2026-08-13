@@ -144,8 +144,7 @@ func TestCatalogNotesFitTheNoteColumn(t *testing.T) {
 // delimiter; a hint line surviving the removal would silently become part of
 // the note instead of failing loudly, so this guards against a leftover.
 // Comment lines are skipped, matching catalogNoteCommentLines/catalogNoteWidths:
-// the parser strips comments too, and the header documents the old grammar in
-// prose rather than data.
+// comment lines are not data, and every guard in this file skips them.
 func TestCatalogCarriesNoHints(t *testing.T) {
 	for i, raw := range strings.Split(string(catalogData), "\n") {
 		record := strings.TrimSpace(raw)

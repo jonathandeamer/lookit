@@ -992,6 +992,45 @@ func TestNarrowChildRowAlignsSelectedNoteUnderToken(t *testing.T) {
 	}
 }
 
+// bubbles/list derives pagination from one fixed delegate height, so the
+// narrow two-line layout can't grow only for a selected row: an unselected
+// child's second line is dead space rather than tighter spacing.
+func TestNarrowChildRowLeavesTheNoteLineBlankWhenUnselected(t *testing.T) {
+	common := testCommon()
+	common.width = 46
+	common.contentFocused = true
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	if d.Height() != 2 {
+		t.Fatalf("delegate height = %d at width 46, want the two-line layout", d.Height())
+	}
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "dict@bbs.airandwave.net", note: "Dictionary lookup",
+			child: true, lastChild: true,
+		}, section: sectionServices},
+		startItem{entry: startEntry{
+			target: "wtr@bbs.airandwave.net", note: "Weather report",
+			child: true, lastChild: true,
+		}, section: sectionServices},
+	}
+	l := list.New(items, d, 46, 4)
+	l.Select(1) // select the other row so item 0 renders unselected
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	lines := strings.Split(ansi.Strip(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("unselected child rendered %d lines, want 2: %q", len(lines), lines)
+	}
+	if !strings.Contains(lines[0], "dict") {
+		t.Fatalf("first line = %q, want the connector and token", lines[0])
+	}
+	if strings.TrimSpace(lines[1]) != "" {
+		t.Fatalf("second line = %q, want blank when unselected", lines[1])
+	}
+}
+
 // The wide single-line layout is the macOS default and was once revertible with
 // the suite still green, so it is asserted on rendered output rather than on
 // startRowNote alone.

@@ -6,6 +6,7 @@
 # the startpage shows at 100 columns. TestCatalogNotesFitTheNoteColumn enforces
 # it. A grouped service child's note is hidden until its row is selected;
 # flattened matches and bookmark rows are listings, so they show the note.
+#
 # Compiled into the binary; users override nothing here. Their own list lives
 # in ~/.config/lookit/bookmarks as one target per line, and "catalog off" there
 # hides all of this.
@@ -17,7 +18,9 @@
 # conclusion the response plainly supports. The spec's catalog tables record the
 # basis for each. Do not describe a host from memory: four notes in an earlier
 # draft were wrong, including one that called tilde.team big when its own banner
-# says small.
+# says small. One exception: wiki@bbs.airandwave.net was catalogued on
+# 2026-08-12 while bbs.airandwave.net was unreachable, from the host's own
+# menu listing "wiki" under "Reference" rather than from an observed response.
 #
 # When refreshing, probe SERIALLY — bbs.airandwave.net rate-limits and a
 # concurrent sweep reports false deaths.

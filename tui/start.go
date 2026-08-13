@@ -211,7 +211,7 @@ func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		return
 	}
 	if it.header != "" {
-		d.renderHeader(w, m.Width(), it.header)
+		d.renderHeader(w, m.Width(), it.header, d.headerNeedsBlank(m, index))
 		return
 	}
 	if !it.selectable() {
@@ -220,8 +220,59 @@ func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	d.renderEntry(w, m, index, it)
 }
 
-func (d startDelegate) renderHeader(w io.Writer, width int, header string) {
-	if d.Height() == 2 {
+// headerNeedsBlank reports whether a two-row header must spend its first row on
+// a blank to satisfy the one-blank-row-above-every-header rule. It must not
+// when the row above already renders empty, or the gap doubles.
+//
+// Two cases produce an already-blank row. At the top of a page bubbles' own
+// title row sits directly above, and it is empty unless the filter prompt is
+// in it. And a two-row entry whose note is absent — an unclassified bookmark,
+// or a grouped child whose note stays hidden until selected — leaves its
+// second row empty, which is why the gap used to depend on whether the last
+// entry of a section happened to carry a note.
+//
+// The one-row layout never needs this: its headers occupy a single row and the
+// gap is a spacer item instead.
+func (d startDelegate) headerNeedsBlank(m list.Model, index int) bool {
+	if d.Height() == 1 {
+		return false
+	}
+	items := m.VisibleItems()
+	start, _ := m.Paginator.GetSliceBounds(len(items))
+	if index <= start {
+		return m.FilterState() == list.Filtering
+	}
+	if index-1 >= len(items) {
+		return true
+	}
+	prev, ok := items[index-1].(startItem)
+	if !ok {
+		return true
+	}
+	return !d.rowEndsBlank(m, index-1, prev)
+}
+
+// rowEndsBlank reports whether a two-row row's second terminal row renders as
+// empty space. A selected row never does: the selection shelf draws its border
+// down both rows.
+func (d startDelegate) rowEndsBlank(m list.Model, index int, it startItem) bool {
+	if it.spacer {
+		return true
+	}
+	if it.header != "" || !it.selectable() {
+		return false
+	}
+	isSelected := index == m.Index()
+	if isSelected && m.FilterState() != list.Filtering {
+		return false
+	}
+	emptyFilter := m.FilterState() == list.Filtering && m.FilterValue() == ""
+	flattened := (m.FilterState() == list.Filtering || m.FilterState() == list.FilterApplied) && !emptyFilter
+	return startRowNote(it.entry, isSelected, flattened) == ""
+}
+
+func (d startDelegate) renderHeader(w io.Writer, width int, header string, needsBlank bool) {
+	if needsBlank {
 		fmt.Fprint(w, "\n") //nolint:errcheck
 	}
 	label := ansi.Truncate(header+" ", width, "…")

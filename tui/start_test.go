@@ -94,6 +94,64 @@ func TestStartSectionSpacingIsUniformWhenWide(t *testing.T) {
 	}
 }
 
+// TestStartSectionSpacingIsUniformWhenNarrow covers the two-row layout, where
+// the gap comes from the header's own first row rather than a spacer item.
+//
+// Both fixtures matter. threeSections' entries carry no note, so their second
+// row renders empty; twoSections' entries fill both rows. Before
+// headerNeedsBlank the first case produced two blank rows above a header and
+// the second produced one, which made section spacing depend on whether the
+// last entry of a section happened to be described.
+func TestStartSectionSpacingIsUniformWhenNarrow(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		sections []startSection
+		titles   []string
+	}{
+		{"entries without notes", threeSections(), []string{"BOOKMARKS", "COMMUNITIES", "SERVICES"}},
+		{"entries with notes", twoSections(), []string{"BOOKMARKS", "COMMUNITIES"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			common := testCommon()
+			common.width = 45
+			common.height = 40
+			m := newStart(common, tt.sections, "", "")
+
+			plain := stripANSIForLandingTest(m.View())
+			lines := strings.Split(plain, "\n")
+
+			for _, title := range tt.titles {
+				header := startHeaderLineIndex(t, lines, title)
+				if header < 2 {
+					t.Fatalf("%s header at line %d, want room for a gap above it:\n%s", title, header, plain)
+				}
+				if got := strings.TrimSpace(lines[header-1]); got != "" {
+					t.Errorf("line above %s = %q, want one blank row:\n%s", title, got, plain)
+				}
+				if got := strings.TrimSpace(lines[header-2]); got == "" {
+					t.Errorf("two blank rows above %s, want exactly one:\n%s", title, plain)
+				}
+			}
+		})
+	}
+}
+
+func TestStartSingleSectionAssemblesNoSpacer(t *testing.T) {
+	sections := []startSection{{
+		id: sectionBookmarks, title: "BOOKMARKS",
+		entries: []startEntry{{target: "@tilde.team", source: sourceBookmark}},
+	}}
+	for _, width := range []int{45, 80, 100} {
+		items := startItems(sections, width)
+		for i, item := range items {
+			row, ok := item.(startItem)
+			if ok && row.spacer {
+				t.Errorf("width %d: item %d is a spacer, want none in a single-section page", width, i)
+			}
+		}
+	}
+}
+
 func TestStartItemsBeginsWithTheFirstHeader(t *testing.T) {
 	items := startItems(sectionGapSections(), 80)
 	if len(items) == 0 {

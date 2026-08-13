@@ -9,8 +9,14 @@ GORELEASER_VERSION := v2.16.0
 GO_LICENSES_VERSION := v1.6.0
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
+REVIEW_TAPES := \
+	docs/tui-review/chrome-80-dark.tape \
+	docs/tui-review/chrome-100-dark.tape \
+	docs/tui-review/chrome-60-dark.tape \
+	docs/tui-review/chrome-80-light.tape
+
 .PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean \
-	notices release-check release-snapshot release
+	notices release-check release-snapshot release review-tui
 
 build: ## build the binary
 	go build -o $(BINARY) .
@@ -42,6 +48,29 @@ vuln: ## scan dependencies for known vulnerabilities
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 check: vet fmt-check lint race ## run the full CI gate set
+
+review-tui: build ## record docs/tui-review chrome stills (not part of check)
+	@command -v vhs >/dev/null || { echo "vhs not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
+	@command -v ttyd >/dev/null || { echo "ttyd not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
+	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
+	@mkdir -p docs/tui-review/frames
+	@for tape in $(REVIEW_TAPES); do \
+		name=$$(basename "$$tape" .tape); \
+		echo "recording $$name"; \
+		vhs "$$tape"; \
+		dest=docs/tui-review/frames/$$name; \
+		mkdir -p "$$dest"; \
+		for scene in start-input start-list start-filter help about; do \
+			src=docs/tui-review/frames/$$scene.png; \
+			if [ ! -f "$$src" ]; then \
+				echo "missing $$src (tour.tape Screenshot after a Sleep?)"; \
+				exit 1; \
+			fi; \
+			mv "$$src" "$$dest/"; \
+		done; \
+		rm -f docs/tui-review/frames/_render.gif; \
+	done
+	@echo "wrote docs/tui-review/frames/{chrome-80-dark,chrome-100-dark,chrome-60-dark,chrome-80-light}/"
 
 hooks: ## install git hooks (commit-msg: Conventional Commits); run once per clone
 	git config core.hooksPath .githooks

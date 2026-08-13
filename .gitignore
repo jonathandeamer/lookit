@@ -12,3 +12,6 @@
 
 # Visual brainstorm companion artifacts
 .superpowers/
+
+# VHS review frames (regenerate with `make review-tui`)
+docs/tui-review/frames/

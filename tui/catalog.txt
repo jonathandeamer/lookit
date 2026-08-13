@@ -33,7 +33,7 @@ community @cosmic.voyage Collaborative science fiction universe
 community @zaibatsu.circumlunar.space Sundogs seeking asylum from the commercial 'net
 
 service @bbs.airandwave.net Over two dozen services, from news to sudoku
-service quake@bbs.airandwave.net Latest earthquakes, M2.5+ past day
+service quake@bbs.airandwave.net Earthquakes in the past day
 service dict@bbs.airandwave.net Dictionary lookup
 service urban@bbs.airandwave.net Slang, internet terms and memes
 service wordsearch:today@bbs.airandwave.net Daily word search puzzle
@@ -46,7 +46,7 @@ service textfile@typed-hole.org A lucky dip into textfiles.com
 service cyoa@typed-hole.org Choose your own adventure
 service smog@typed-hole.org Saturday Morning Gemzine back issues
 service lobsters@typed-hole.org The latest posts from lobste.rs
-service @flanigan.us Four services: bonsai, ping, wisdom, calendar
+service @flanigan.us ASCII bonsai, almanac and other small toys
 service bonsai@flanigan.us A fresh ASCII bonsai, with an aphorism
 service calendar@flanigan.us On this day in history
 service bot@happynetbox.com Tech news headlines with links, plus a fun fact

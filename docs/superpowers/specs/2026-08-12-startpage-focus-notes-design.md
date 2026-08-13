@@ -38,6 +38,11 @@ Leaving a dormant field in a data file that ships compiled in would be a trap:
 the next person to edit the catalog would find a documented grammar that
 nothing reads, and the guards protecting it would keep running for no reason.
 
+A pipe guard still survives, under a new name and a different rationale:
+`TestCatalogCarriesNoHints` (`tui/catalog_test.go`) checks that no catalog line
+contains `|`, not to enforce a grammar — there is no grammar left to enforce —
+but to catch a leftover hint line that the removal missed.
+
 `splitStartMatches` also loses the `note` parameter added in the hints work. It
 existed to drop match offsets landing in the appended hint; with `FilterValue`
 back to `target + " " + note`, there is no third field and no offset to clamp.
@@ -84,6 +89,21 @@ SERVICES ───────────────────────�
    ├ bonsai
    └ calendar
 ```
+
+### The narrow layout leaves a blank second line on unselected children
+
+Below `startWideMinWidth` the delegate is two rows tall: token on the first
+line, note on the second. An unselected child has no note, so its second line
+renders blank — at a narrow width, the SERVICES section becomes a run of
+children each followed by an empty row.
+
+This is accepted, not worked around. `bubbles/list` derives its pagination
+from one fixed delegate height (`Paginator.PerPage = availHeight /
+(delegate.Height() + delegate.Spacing())`), so the delegate cannot report a
+shorter height for an unselected row without also changing how many items fit
+per page. `TestNarrowChildRowLeavesTheNoteLineBlankWhenUnselected` records the
+blank line as expected output rather than leaving it an unexamined side effect
+of the widget.
 
 ### Notes are capped at 48 characters
 
@@ -158,7 +178,7 @@ The same catalog edit adds one child under each of two existing service hosts:
 
 | Target | Note | Basis |
 |---|---|---|
-| `wiki@bbs.airandwave.net` | **Wikipedia lookup** | the service is a Wikipedia lookup; the maintainer approved this direct description |
+| `wiki@bbs.airandwave.net` | **Wikipedia lookup** | catalogued from the host's own menu, which lists `wiki` under "Reference", while `bbs.airandwave.net` was unreachable on 2026-08-12 — not from an observed response; the maintainer approved this direct description |
 | `lobsters@typed-hole.org` | **The latest posts from lobste.rs** | the live response is a list of current Lobste.rs posts; the host menu describes it as Lobste.rs stories |
 
 Both notes are below 48 cells. They are ordinary children: no hint field, no

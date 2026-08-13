@@ -34,7 +34,7 @@
 - Consumes: nothing from earlier tasks.
 - Produces: `startEntry.hint string` — the short label a child row shows instead of its note; empty when the entry has none.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tui/bookmarks_test.go`:
 
@@ -89,12 +89,12 @@ func TestParseCatalogLineRejectsEmptyHintHalves(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them to make sure they fail**
+- [x] **Step 2: Run them to make sure they fail**
 
 Run: `go test ./tui/ -run 'TestParseCatalogLineSplitsHint|TestParseCatalogLineRejectsEmptyHint' -count=1`
 Expected: FAIL — `entry.hint undefined`.
 
-- [ ] **Step 3: Add the field**
+- [x] **Step 3: Add the field**
 
 In `tui/bookmarks.go`, add to `startEntry` after `source` (keep the existing comment block above the struct):
 
@@ -102,7 +102,7 @@ In `tui/bookmarks.go`, add to `startEntry` after `source` (keep the existing com
 	hint string // short label a child row shows in place of its note; "" when absent
 ```
 
-- [ ] **Step 4: Split the note in the parser**
+- [x] **Step 4: Split the note in the parser**
 
 In `tui/bookmarks.go`, replace the final `return` of `parseCatalogLine`:
 
@@ -132,17 +132,17 @@ func splitCatalogNote(field string) (note, hint string, err error) {
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `go test ./tui/ -run 'TestParseCatalogLine' -count=1 -v`
 Expected: PASS, including the pre-existing `parseCatalogLine` tests.
 
-- [ ] **Step 6: Run the full gate**
+- [x] **Step 6: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tui/bookmarks.go tui/bookmarks_test.go
@@ -165,7 +165,7 @@ reach a user who cannot fix it.
 - Consumes: `startEntry.hint` from Task 1; `entryHost`/`entryToken` (already in `tui/sections.go`).
 - Produces: nothing later tasks call.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tui/catalog_test.go`:
 
@@ -217,7 +217,7 @@ func TestCatalogNotesContainNoPipe(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them**
+- [x] **Step 2: Run them**
 
 Run: `go test ./tui/ -run 'TestCatalogHint|TestCatalogNotesContainNoPipe' -count=1 -v`
 Expected: PASS — the catalog has no hints yet, so these guards pass vacuously
@@ -225,12 +225,12 @@ today. That is expected and fine: Task 3 adds the hints they protect. Confirm
 `TestCatalogHintValidationRejectsNonChildren` passes, which proves the condition
 itself detects a misplaced hint.
 
-- [ ] **Step 3: Run the full gate**
+- [x] **Step 3: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tui/catalog_test.go
@@ -249,7 +249,7 @@ git commit -m "test(catalog): guard hint placement and pipe use"
 - Consumes: the parser from Task 1 and the guards from Task 2.
 - Produces: catalog data the delegate tasks render.
 
-- [ ] **Step 1: Add the hints**
+- [x] **Step 1: Add the hints**
 
 In `tui/catalog.txt`, append ` | <hint>` to exactly these seven service lines,
 leaving every other line untouched. Do not reorder anything — display order is
@@ -276,12 +276,12 @@ Leave the other nine children — `bonsai`, `dict`, `quake`, `urban`, `weather`,
 hints: their tokens say what they are, and a hint on every child rebuilds the
 wall this work removes.
 
-- [ ] **Step 2: Verify the guards now have something to protect**
+- [x] **Step 2: Verify the guards now have something to protect**
 
 Run: `go test ./tui/ -run TestCatalog -count=1 -v`
 Expected: PASS, with all seven hints landing on service children.
 
-- [ ] **Step 3: Prove the placement guard bites**
+- [x] **Step 3: Prove the placement guard bites**
 
 Temporarily move one hint onto a root line — append ` | menu of fingers` to the
 `service @typed-hole.org …` line — and run:
@@ -290,12 +290,12 @@ Run: `go test ./tui/ -run TestCatalogHintsOnlyOnServiceChildren -count=1`
 Expected: FAIL naming `@typed-hole.org`. Remove the temporary hint and confirm
 PASS. Record both outputs in your report.
 
-- [ ] **Step 4: Run the full gate**
+- [x] **Step 4: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tui/catalog.txt
@@ -314,7 +314,7 @@ git commit -m "feat(catalog): add short hints for seven opaque service tokens"
 - Consumes: `groupByHost(listed []startEntry, roots map[string]startEntry, pinned map[string]bool) []startEntry`.
 - Produces: `startEntry.lastChild bool` — true for the final child of every group, false on non-final children and on every non-child row.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tui/sections_test.go`:
 
@@ -384,12 +384,12 @@ func TestLastChildMarksTheOnlyChildOfASingleChildGroup(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them to make sure they fail**
+- [x] **Step 2: Run them to make sure they fail**
 
 Run: `go test ./tui/ -run TestLastChildMarks -count=1`
 Expected: FAIL — `e.lastChild undefined`.
 
-- [ ] **Step 3: Add the field**
+- [x] **Step 3: Add the field**
 
 In `tui/bookmarks.go`, add to `startEntry` beneath `child`:
 
@@ -397,7 +397,7 @@ In `tui/bookmarks.go`, add to `startEntry` beneath `child`:
 	lastChild  bool // final child of its group; draws "└" instead of "├"
 ```
 
-- [ ] **Step 4: Set it while grouping**
+- [x] **Step 4: Set it while grouping**
 
 In `tui/sections.go`, replace the child loop at the end of `groupByHost`:
 
@@ -409,17 +409,17 @@ In `tui/sections.go`, replace the child loop at the end of `groupByHost`:
 		}
 ```
 
-- [ ] **Step 5: Run the test**
+- [x] **Step 5: Run the test**
 
 Run: `go test ./tui/ -run TestLastChildMarks -count=1 -v`
 Expected: PASS.
 
-- [ ] **Step 6: Run the full gate**
+- [x] **Step 6: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tui/bookmarks.go tui/sections.go tui/sections_test.go
@@ -441,7 +441,7 @@ note column shows the hint, the full note, or nothing depending on state.
 - Consumes: `startEntry.hint` (Task 1), `startEntry.lastChild` (Task 4), and the existing `flattened` predicate in `renderEntry`.
 - Produces: `func startRowNote(entry startEntry, selected, flattened bool) string` — the note column's text for a row.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tui/start_test.go`:
 
@@ -510,13 +510,13 @@ func TestBookmarkedChildRendersAsAListing(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them to make sure they fail**
+- [x] **Step 2: Run them to make sure they fail**
 
 Run: `go test ./tui/ -run 'TestStartRowTargetDrawsConnectors|TestStartRowNotePerState|TestBookmarkedChildRendersAsAListing' -count=1`
 Expected: FAIL — `undefined: startRowNote`, and the connector assertions fail
 against the current two-space indent.
 
-- [ ] **Step 3: Draw the connector**
+- [x] **Step 3: Draw the connector**
 
 In `tui/start.go`, replace `startRowTarget`:
 
@@ -538,7 +538,7 @@ func startRowTarget(entry startEntry, flattened bool) string {
 }
 ```
 
-- [ ] **Step 4: Choose the note**
+- [x] **Step 4: Choose the note**
 
 Append to `tui/start.go`:
 
@@ -556,7 +556,7 @@ func startRowNote(entry startEntry, selected, flattened bool) string {
 }
 ```
 
-- [ ] **Step 5: Use both in `renderEntry`**
+- [x] **Step 5: Use both in `renderEntry`**
 
 In `tui/start.go`, `renderEntry` already computes `isSelected` and `flattened`.
 Below the existing `rowTarget` line add:
@@ -587,7 +587,7 @@ Five spaces, not two: the second line aligns under the token at column 5, not
 under the connector. Leaving the old `rowNote :=` in place is a redeclaration
 and will not compile, which is the fastest way to notice you missed it.
 
-- [ ] **Step 6: Dim the connector and the hint**
+- [x] **Step 6: Dim the connector and the hint**
 
 Still in `renderEntry`, after the style selection block that sets
 `titleStyle`/`descStyle`, the connector must read as rule-work and an unselected
@@ -605,12 +605,12 @@ The connector inherits `titleStyle`; colouring it separately would mean
 splitting the target field into two styled spans and re-deriving the match
 offsets across them, which buys less than it costs. Leave it inheriting.
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 Run: `go test ./tui/ -run 'TestStartRow|TestBookmarkedChild' -count=1 -v`
 Expected: PASS.
 
-- [ ] **Step 8: Reconcile the existing rendering tests**
+- [x] **Step 8: Reconcile the existing rendering tests**
 
 Run: `go test ./tui/ -count=1`
 
@@ -627,12 +627,12 @@ Two known fixtures move:
 
 For any other failure, read what the test protects before editing it.
 
-- [ ] **Step 9: Run the full gate**
+- [x] **Step 9: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add tui/start.go tui/start_test.go
@@ -651,7 +651,7 @@ git commit -m "feat(startpage): draw child connectors and quiet child notes"
 - Consumes: `startEntry.hint` (Task 1).
 - Produces: nothing later tasks call.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tui/start_test.go`:
 
@@ -725,13 +725,13 @@ func TestHintWordFindsItsChildButNotItsBookmark(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them to make sure they fail**
+- [x] **Step 2: Run them to make sure they fail**
 
 Run: `go test ./tui/ -run 'TestFilterValueIncludesHint|TestSplitStartMatchesDropsHint|TestHintWordFinds' -count=1`
 Expected: FAIL — the hint is absent from `FilterValue`, and `splitStartMatches`
 takes two arguments, not three.
 
-- [ ] **Step 3: Append the hint for child rows only**
+- [x] **Step 3: Append the hint for child rows only**
 
 In `tui/start.go`, replace `FilterValue`:
 
@@ -758,7 +758,7 @@ func (i startItem) FilterValue() string {
 }
 ```
 
-- [ ] **Step 4: Drop match offsets that land in the hint**
+- [x] **Step 4: Drop match offsets that land in the hint**
 
 In `tui/start.go`, give `splitStartMatches` the note so it knows where the note
 ends:
@@ -789,19 +789,19 @@ Update its single caller in `renderEntry`:
 		targetMatches, noteMatches = splitStartMatches(m.MatchesForItem(index), item.entry.target, item.entry.note)
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `go test ./tui/ -run 'TestFilterValue|TestSplitStartMatches|TestHintWordFinds' -count=1 -v`
 Expected: PASS.
 
-- [ ] **Step 6: Run the full gate**
+- [x] **Step 6: Run the full gate**
 
 Run: `make check`
 Expected: pass. `TestFilteredChildRendersFullTargetWithMatchHighlight` exercises
 the highlight path and must stay green — if it fails, the offsets are wrong, not
 the test.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tui/start.go tui/start_test.go tui/app_test.go
@@ -819,7 +819,7 @@ git commit -m "feat(startpage): make child hints searchable"
 - Consumes: everything above.
 - Produces: nothing.
 
-- [ ] **Step 1: Document the grammar where it is authored**
+- [x] **Step 1: Document the grammar where it is authored**
 
 In `tui/catalog.txt`, the header comment currently reads
 `# Format: <kind> <target> <note>`. Replace that line with:
@@ -834,7 +834,7 @@ In `tui/catalog.txt`, the header comment currently reads
 # TestCatalogHintsOnlyOnServiceChildren.
 ```
 
-- [ ] **Step 2: Update the architecture note**
+- [x] **Step 2: Update the architecture note**
 
 In `CLAUDE.md`, in the `appModel`/`stateStart` bullet, after the sentence about
 structural rows, add:
@@ -849,12 +849,12 @@ row is findable by what it displays and no other row is findable by a hint it
 never shows.
 ```
 
-- [ ] **Step 3: Run the full gate**
+- [x] **Step 3: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 4: Verify in a real terminal**
+- [x] **Step 4: Verify in a real terminal**
 
 Run: `make build && ./lookit`
 
@@ -865,7 +865,7 @@ pressing `/` alone changes nothing; typing a query expands children to addresses
 with full notes and no connectors. If you cannot run an interactive terminal,
 say so in your report and leave this for the human.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tui/catalog.txt CLAUDE.md

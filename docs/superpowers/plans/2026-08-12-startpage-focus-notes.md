@@ -39,7 +39,7 @@ code, and its rewrites are what let the gate pass.
 - Consumes: nothing from earlier tasks.
 - Produces: `func catalogNoteWidths(data []byte) map[string]int` — target to note width in cells, used by the gate test.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tui/catalog_test.go`:
 
@@ -115,7 +115,7 @@ func TestRemovedWeatherServiceBookmarkStaysTargetOnly(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them and read the failures**
+- [x] **Step 2: Run them and read the failures**
 
 Run: `go test ./tui/ -run 'TestCatalogNote|TestRemovedWeatherServiceBookmarkStaysTargetOnly' -count=1`
 Expected: `TestCatalogNoteWidthMeasuresCellsNotRunes` PASSES.
@@ -137,7 +137,7 @@ strips as part of this task. The hints must go now rather than in Task 4: leave
 them and this gate stays red for a reason that has nothing to do with note
 length.
 
-- [ ] **Step 3: Strip the seven hints, rewrite three notes, replace one service, and add another**
+- [x] **Step 3: Strip the seven hints, rewrite three notes, replace one service, and add another**
 
 First delete the ` | <hint>` suffix from all seven lines that carry one —
 `cyoa@typed-hole.org`, `smog@typed-hole.org`, `textfile@typed-hole.org`,
@@ -173,7 +173,7 @@ service lobsters@typed-hole.org The latest posts from lobste.rs
 already serves weather worldwide; `@bbs.airandwave.net`'s own response still
 advertises `weather` in its menu.
 
-- [ ] **Step 4: Run the catalog tests**
+- [x] **Step 4: Run the catalog tests**
 
 Run: `go test ./tui/ -run 'TestCatalog|TestRemovedWeatherServiceBookmarkStaysTargetOnly' -count=1 -v`
 Expected: PASS. The weather bookmark remains as a target-only BOOKMARKS row,
@@ -181,7 +181,7 @@ now with a blank note and `kindUnknown`. Note `TestCatalogIsWellFormed` requires
 at least 20 entries; the catalog now holds 27, so it still passes. Both new
 notes also pass the 48-cell gate.
 
-- [ ] **Step 5: Fix the count and ordering fixtures**
+- [x] **Step 5: Fix the count and ordering fixtures**
 
 Run: `go test ./tui/ -count=1`
 
@@ -213,12 +213,12 @@ set change:
 
 If any other test fails, read what it protects before editing it.
 
-- [ ] **Step 6: Run the full gate**
+- [x] **Step 6: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tui/catalog.txt tui/catalog_test.go tui/sections_test.go tui/app_test.go
@@ -238,7 +238,7 @@ git commit -m "feat(catalog): refresh services and cap note widths"
 - Consumes: `startRowNote(entry startEntry, selected, flattened bool) string`, unchanged signature.
 - Produces: the same function, with the hint branch gone.
 
-- [ ] **Step 1: Rewrite the state and rendered-output tests**
+- [x] **Step 1: Rewrite the state and rendered-output tests**
 
 In `tui/start_test.go`, replace the body of `TestStartRowNotePerState` (it
 currently has hinted cases) with the following. The synthetic legacy hint is
@@ -398,7 +398,7 @@ func TestSelectedChildKeepsItsNoteWithoutContentFocus(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the focused tests and verify the behavior change is red**
+- [x] **Step 2: Run the focused tests and verify the behavior change is red**
 
 Run: `go test ./tui/ -run 'TestStartRowNotePerState|TestNarrowChildRowAlignsSelectedNoteUnderToken|TestWideChildRowShowsItsNoteOnlyWhenSelected|TestSelectedChildKeepsItsNoteWithoutContentFocus' -count=1`
 
@@ -407,7 +407,7 @@ Expected: FAIL in `TestStartRowNotePerState` and
 returns the synthetic legacy hint on an unselected child. The narrow alignment
 and inactive-shelf cases already describe behavior that survives, so they pass.
 
-- [ ] **Step 3: Simplify the implementation**
+- [x] **Step 3: Simplify the implementation**
 
 In `tui/start.go`, replace `startRowNote`:
 
@@ -424,12 +424,12 @@ func startRowNote(entry startEntry, selected, flattened bool) string {
 }
 ```
 
-- [ ] **Step 4: Run the focused tests**
+- [x] **Step 4: Run the focused tests**
 
 Run: `go test ./tui/ -run 'TestStartRowNotePerState|TestNarrowChildRowAlignsSelectedNoteUnderToken|TestWideChildRowShowsItsNoteOnlyWhenSelected|TestSelectedChildKeepsItsNoteWithoutContentFocus' -count=1 -v`
 Expected: PASS.
 
-- [ ] **Step 5: Prove the wide-layout test still bites**
+- [x] **Step 5: Prove the wide-layout test still bites**
 
 Temporarily change the wide branch of `renderEntry` in `tui/start.go` to pass
 `item.entry.note` where it passes `rowNote`, then run:
@@ -438,14 +438,14 @@ Run: `go test ./tui/ -run TestWideChildRowShowsItsNoteOnlyWhenSelected -count=1`
 Expected: FAIL on the unselected case. Restore `rowNote`, re-run, and confirm
 PASS. Put both outputs in the implementation report; do not commit the mutation.
 
-- [ ] **Step 6: Run the full gate**
+- [x] **Step 6: Run the full gate**
 
 Run: `make check`
 Expected: pass. All tests whose assertions depended on rendering a catalog hint
 were rewritten in Step 1; `entry.hint` still exists for the parser and search
 path until Tasks 3 and 4 remove those independently.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tui/start.go tui/start_test.go
@@ -464,7 +464,7 @@ git commit -m "feat(startpage): show a child's note only when its row is selecte
 - Consumes: nothing new.
 - Produces: `func splitStartMatches(matches []int, target string) (targetMatches, noteMatches []int)` — back to two parameters.
 
-- [ ] **Step 1: Rewrite the two hint tests**
+- [x] **Step 1: Rewrite the two hint tests**
 
 In `tui/start_test.go`, replace `TestFilterValueIncludesHintOnlyOnChildRows`
 entirely with:
@@ -501,12 +501,12 @@ func TestSplitStartMatchesMapsTargetAndNote(t *testing.T) {
 In `tui/app_test.go`, delete `TestHintWordFindsItsChildButNotItsBookmark`
 (around line 3685) — it tests a feature that no longer exists.
 
-- [ ] **Step 2: Run them to make sure they fail**
+- [x] **Step 2: Run them to make sure they fail**
 
 Run: `go test ./tui/ -run 'TestFilterValueIsTargetAndNote|TestSplitStartMatchesMapsTargetAndNote' -count=1`
 Expected: FAIL — `splitStartMatches` still wants three arguments.
 
-- [ ] **Step 3: Drop the hint from `FilterValue`**
+- [x] **Step 3: Drop the hint from `FilterValue`**
 
 In `tui/start.go`, replace `FilterValue`:
 
@@ -524,7 +524,7 @@ func (i startItem) FilterValue() string {
 }
 ```
 
-- [ ] **Step 4: Narrow `splitStartMatches` back**
+- [x] **Step 4: Narrow `splitStartMatches` back**
 
 In `tui/start.go`, replace it:
 
@@ -550,18 +550,18 @@ and update its one caller in `renderEntry`:
 		targetMatches, noteMatches = splitStartMatches(m.MatchesForItem(index), item.entry.target)
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `go test ./tui/ -run 'TestFilterValue|TestSplitStartMatches|TestFilteredChildRendersFullTargetWithMatchHighlight' -count=1 -v`
 Expected: PASS, including the pre-existing highlight test — if that one fails,
 the offsets are wrong, not the test.
 
-- [ ] **Step 6: Run the full gate**
+- [x] **Step 6: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tui/start.go tui/start_test.go tui/app_test.go
@@ -586,7 +586,7 @@ guards come out together.
 - Consumes: nothing.
 - Produces: `startEntry` without a `hint` field; `parseCatalogLine` returning the whole third field as the note.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tui/bookmarks_test.go`:
 
@@ -615,7 +615,7 @@ func TestCatalogCarriesNoHints(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `go test ./tui/ -run 'TestParseCatalogLineKeepsTheWholeNote|TestCatalogCarriesNoHints' -count=1`
 Expected: `TestParseCatalogLineKeepsTheWholeNote` FAILS — `splitCatalogNote`
@@ -624,7 +624,7 @@ still cuts the note at the `|`, so it returns only "Saturday Morning Gemzine".
 and Task 3 removed the last hint reader; it is a guard against a leftover, not
 a red test.
 
-- [ ] **Step 3: Remove the field and the splitter**
+- [x] **Step 3: Remove the field and the splitter**
 
 In `tui/bookmarks.go`, delete the `hint` line from `startEntry`, delete
 `splitCatalogNote` entirely, and restore `parseCatalogLine`'s final return:
@@ -634,7 +634,7 @@ In `tui/bookmarks.go`, delete the `hint` line from `startEntry`, delete
 }
 ```
 
-- [ ] **Step 4: Delete the hint guards**
+- [x] **Step 4: Delete the hint guards**
 
 In `tui/catalog_test.go`, delete `hintIsMisplaced`,
 `TestCatalogHintsOnlyOnServiceChildren`, `TestCatalogHintValidationRejectsNonChildren`,
@@ -652,7 +652,7 @@ Leave `catalogNoteCommentLines` and its `#` guard alone — that rule stands.
 In `tui/bookmarks_test.go`, delete `TestParseCatalogLineSplitsHintFromNote` and
 `TestParseCatalogLineRejectsEmptyHintHalves`.
 
-- [ ] **Step 5: Remove the two synthetic legacy-hint fields and scan for leftovers**
+- [x] **Step 5: Remove the two synthetic legacy-hint fields and scan for leftovers**
 
 Run:
 
@@ -689,13 +689,13 @@ rg -n '\bhint\s*:' tui/start_test.go tui/bookmarks_test.go
 Expected: both commands produce no output. The status-bar `hints` identifier is
 plural and deliberately does not match either expression.
 
-- [ ] **Step 6: Run the full gate**
+- [x] **Step 6: Run the full gate**
 
 Run: `make check`
 Expected: pass. Compilation is the real test here: `entry.hint` no longer
 exists, so any surviving reference fails the build.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tui/bookmarks.go tui/bookmarks_test.go tui/catalog_test.go tui/start_test.go
@@ -715,7 +715,7 @@ git commit -m "refactor(catalog): remove the hint grammar"
 - Consumes: everything above.
 - Produces: nothing.
 
-- [ ] **Step 1: Correct the catalog header**
+- [x] **Step 1: Correct the catalog header**
 
 In `tui/catalog.txt`, the header comment currently documents the hint field.
 Replace that block with:
@@ -729,7 +729,7 @@ Replace that block with:
 # flattened matches and bookmark rows are listings, so they show the note.
 ```
 
-- [ ] **Step 2: Correct the architecture note**
+- [x] **Step 2: Correct the architecture note**
 
 In `CLAUDE.md`, the `appModel`/`stateStart` bullet describes the hint. Replace
 the hint sentence with:
@@ -742,7 +742,7 @@ pinned into BOOKMARKS. Catalog notes are capped at 48 terminal cells so a
 selected note does not truncate at 100 columns.
 ```
 
-- [ ] **Step 3: Mark the hints spec superseded**
+- [x] **Step 3: Mark the hints spec superseded**
 
 At the top of `docs/superpowers/specs/2026-08-12-startpage-child-hints-design.md`,
 directly under the title, add:
@@ -758,12 +758,12 @@ directly under the title, add:
 
 Leave the rest of that spec as written — it is a point-in-time record.
 
-- [ ] **Step 4: Run the full gate**
+- [x] **Step 4: Run the full gate**
 
 Run: `make check`
 Expected: pass.
 
-- [ ] **Step 5: Verify in a real terminal**
+- [x] **Step 5: Verify in a real terminal**
 
 Run: `make build && ./lookit`
 
@@ -773,7 +773,7 @@ reveals its note with no row movement; the note is still there after pressing
 children to addresses with their notes. If you cannot run an interactive
 terminal, say so in your report and leave this for the human.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add CLAUDE.md tui/catalog.txt docs/superpowers/specs/2026-08-12-startpage-child-hints-design.md

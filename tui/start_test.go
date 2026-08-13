@@ -1213,31 +1213,21 @@ func TestStartRowNotePerState(t *testing.T) {
 	}
 }
 
-func TestFilterValueIncludesHintOnlyOnChildRows(t *testing.T) {
-	entry := startEntry{target: "cyoa@typed-hole.org", note: "Choose your own adventure", hint: "pick-a-path stories"}
-
-	child := startItem{entry: entry}
-	child.entry.child = true
-	if got, want := child.FilterValue(), "cyoa@typed-hole.org Choose your own adventure pick-a-path stories"; got != want {
+func TestFilterValueIsTargetAndNote(t *testing.T) {
+	entry := startEntry{target: "cyoa@typed-hole.org", note: "Choose your own adventure", child: true}
+	item := startItem{entry: entry}
+	if got, want := item.FilterValue(), "cyoa@typed-hole.org Choose your own adventure"; got != want {
 		t.Errorf("child FilterValue = %q, want %q", got, want)
 	}
-
-	// The same catalog entry copied into BOOKMARKS is not a child and shows no
-	// hint, so it must not be findable by one.
-	pinned := startItem{entry: entry}
-	pinned.entry.source = sourceBookmark
-	pinned.entry.bookmarked = true
-	if got, want := pinned.FilterValue(), "cyoa@typed-hole.org Choose your own adventure"; got != want {
-		t.Errorf("bookmark FilterValue = %q, want %q", got, want)
+	structural := startItem{entry: startEntry{target: "@happynetbox.com", structural: true}}
+	if got := structural.FilterValue(); got != "" {
+		t.Errorf("structural FilterValue = %q, want empty", got)
 	}
 }
 
-// Matches are offsets into FilterValue. A match inside the appended hint lies
-// past the note, and must be dropped rather than highlighted at a wrong column.
-func TestSplitStartMatchesDropsHintOffsets(t *testing.T) {
-	target, note := "cyoa@typed-hole.org", "Choose your own adventure"
-	hintOffset := len(target) + 1 + len(note) + 1
-	targetMatches, noteMatches := splitStartMatches([]int{0, len(target) + 1, hintOffset, hintOffset + 3}, target, note)
+func TestSplitStartMatchesMapsTargetAndNote(t *testing.T) {
+	target := "cyoa@typed-hole.org"
+	targetMatches, noteMatches := splitStartMatches([]int{0, len(target) + 1}, target)
 	if len(targetMatches) != 1 || targetMatches[0] != 0 {
 		t.Errorf("targetMatches = %v, want [0]", targetMatches)
 	}

@@ -46,20 +46,11 @@ func (i startItem) countsAsListing() bool {
 // Structural rows return "" for a second reason: filtering removes the section
 // headers that distinguish a parent copy from the listing it duplicates, so
 // without this a filter would show two identical selectable rows.
-//
-// A child appends its hint, so a row is findable by the text it displays. The
-// gate is deliberate: the same catalog entry copied into BOOKMARKS is not a
-// child and shows its full note, so matching it on hint text would match on
-// something the row never shows.
 func (i startItem) FilterValue() string {
 	if !i.selectable() || i.entry.structural {
 		return ""
 	}
-	value := i.entry.target + " " + i.entry.note
-	if i.entry.child && i.entry.hint != "" {
-		value += " " + i.entry.hint
-	}
-	return value
+	return i.entry.target + " " + i.entry.note
 }
 
 func (i startItem) Title() string {
@@ -256,7 +247,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 
 	var targetMatches, noteMatches []int
 	if flattened {
-		targetMatches, noteMatches = splitStartMatches(m.MatchesForItem(index), item.entry.target, item.entry.note)
+		targetMatches, noteMatches = splitStartMatches(m.MatchesForItem(index), item.entry.target)
 	}
 
 	if d.Height() == 1 {
@@ -331,17 +322,13 @@ func startRowNote(entry startEntry, selected, flattened bool) string {
 }
 
 // splitStartMatches maps filter-match offsets in FilterValue onto the target
-// and note fields. Offsets past the note lie inside the appended hint, which
-// the row may not be displaying; they are dropped rather than highlighted at a
-// column that means something else.
-func splitStartMatches(matches []int, target, note string) (targetMatches, noteMatches []int) {
+// and note fields.
+func splitStartMatches(matches []int, target string) (targetMatches, noteMatches []int) {
 	noteOffset := len(target) + 1
-	noteEnd := noteOffset + len(note)
 	for _, match := range matches {
-		switch {
-		case match < noteOffset-1:
+		if match < noteOffset-1 {
 			targetMatches = append(targetMatches, match)
-		case match >= noteOffset && match < noteEnd:
+		} else if match >= noteOffset {
 			noteMatches = append(noteMatches, match-noteOffset)
 		}
 	}

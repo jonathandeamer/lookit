@@ -1,5 +1,12 @@
 # Startpage child hints and group glyphs
 
+> **Superseded** by
+> [startpage focus notes](./2026-08-12-startpage-focus-notes-design.md), which
+> removed the hint grammar this spec introduces. The connectors, `lastChild` and
+> the indent it describes all shipped and remain; the hint field, its guards and
+> its search behaviour did not survive. Read this for why children became tokens,
+> and the newer spec for what a child's note column does today.
+
 Grouping services under their host root (see
 `2026-08-12-startpage-entry-grouping-design.md`) fixed the ordering problem and
 left a density one. Every row still carries a description, so the right-hand

@@ -1,12 +1,11 @@
 # lookit's built-in catalog: places worth starting from.
 #
-# Format: <kind> <target> <note>[ | <hint>]
+# Format: <kind> <target> <note>
 #
-# The optional hint is the short label a service child shows in its row; the
-# note stays authoritative and appears when the row is selected, filtered, or
-# bookmarked. Write a hint only where the token does not say what it is —
-# lowercase, two or three words. A hint on anything but a service child fails
-# TestCatalogHintsOnlyOnServiceChildren.
+# A note must fit the note column: 48 terminal cells or fewer, which is what
+# the startpage shows at 100 columns. TestCatalogNotesFitTheNoteColumn enforces
+# it. A grouped service child's note is hidden until its row is selected;
+# flattened matches and bookmark rows are listings, so they show the note.
 # Compiled into the binary; users override nothing here. Their own list lives
 # in ~/.config/lookit/bookmarks as one target per line, and "catalog off" there
 # hides all of this.

@@ -4,8 +4,10 @@
 # Build artifacts
 /dist/
 
-# Local worktrees
+# Local worktrees. Only the worktrees dir under .claude/ — not .claude/
+# itself, which should stay free for shared project settings.
 .worktrees/
+.claude/worktrees/
 
 # OS junk
 .DS_Store

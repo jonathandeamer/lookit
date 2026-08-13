@@ -143,6 +143,21 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		// Cue word: scan backwards from start across up to 5 words on the
 		// same line for any recognized cue word (handles "email me at user@host").
 		cueWord := findCueWord(text, start)
+		if strings.EqualFold(cueWord, "finger") {
+			if expandedStart, expandedRaw, ok := expandFingerSpan(text, start, end); ok {
+				overlapsConsumed := false
+				for i := expandedStart; i < end; i++ {
+					if consumed[i] {
+						overlapsConsumed = true
+						break
+					}
+				}
+				if !overlapsConsumed {
+					start = expandedStart
+					raw = expandedRaw
+				}
+			}
+		}
 
 		link, ok := classifyAtToken(raw, cueWord, origin)
 		if !ok {
@@ -273,6 +288,41 @@ func findCueWord(text string, pos int) string {
 		}
 	}
 	return ""
+}
+
+func isWordBoundedFinger(text string, start int) bool {
+	const cue = "finger"
+	if start < 0 || start+len(cue) > len(text) || !strings.EqualFold(text[start:start+len(cue)], cue) {
+		return false
+	}
+	return (start == 0 || !isWordChar(text[start-1])) &&
+		(start+len(cue) == len(text) || !isWordChar(text[start+len(cue)]))
+}
+
+func lastFingerCue(text string, lineStart, before int) int {
+	for start := before - len("finger"); start >= lineStart; start-- {
+		if isWordBoundedFinger(text, start) {
+			return start
+		}
+	}
+	return -1
+}
+
+func expandFingerSpan(text string, tokenStart, tokenEnd int) (int, string, bool) {
+	lineStart := strings.LastIndex(text[:tokenStart], "\n") + 1
+	cueStart := lastFingerCue(text, lineStart, tokenStart)
+	if cueStart < 0 {
+		return tokenStart, "", false
+	}
+
+	afterCue := text[cueStart+len("finger") : tokenEnd]
+	raw := strings.TrimSpace(afterCue)
+	if raw == "" || strings.Count(raw, "@") != 1 ||
+		lastFingerCue(raw, 0, len(raw)) >= 0 || strings.ContainsAny(raw, "\"'`") {
+		return tokenStart, "", false
+	}
+	leading := strings.Index(afterCue, raw)
+	return cueStart + len("finger") + leading, raw, true
 }
 
 // canonicalHost strips the port suffix and lowercases the host.

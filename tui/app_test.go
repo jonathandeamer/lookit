@@ -1354,6 +1354,7 @@ func TestLinksPanelHelpContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := linksPanelModel(t, stubFetch(t), []Link{tt.link})
+			m.openHelp()
 			(&m).updateKeymap()
 
 			view := ansi.Strip(m.helpView())

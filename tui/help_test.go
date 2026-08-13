@@ -112,14 +112,26 @@ func helpContextModels(t *testing.T) map[string]appModel {
 	panel := linksPanelModel(t, stubFetch(t), []Link{
 		{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"},
 	})
+	linkTarget := hostTarget(t, "alice@tilde.team")
+	ambiguousPanel := linksPanelModel(t, stubFetch(t), []Link{{
+		Kind: LinkFinger, Action: ActionCopy, Raw: linkTarget.Raw,
+		Target: linkTarget, Ambiguous: true,
+	}})
+	definitePanel := linksPanelModel(t, stubFetch(t), []Link{{
+		Kind: LinkFinger, Action: ActionDrill, Raw: linkTarget.Raw,
+		Target: linkTarget,
+	}})
 
 	return map[string]appModel{
 		"focused input":    focused,
 		"start content":    start,
+		"user list":        settledList(t),
 		"reader no links":  noLinks,
 		"reader with link": linked,
 		"raw view":         raw,
 		"links URL":        panel,
+		"links ambiguous":  ambiguousPanel,
+		"links definite":   definitePanel,
 	}
 }
 
@@ -127,10 +139,13 @@ func TestHelpLayoutsByContext(t *testing.T) {
 	wants := map[string]string{
 		"focused input":    "↵,esc,↓,a",
 		"start content":    "↑/↓,↵,esc,i,←/→,/,b,a,q",
+		"user list":        "↑/↓,↵,esc,i,h,←/→,/,v,r,y,b,a,q",
 		"reader no links":  "↑/↓,esc,i,h,←/→,v,r,y,b,a,q",
 		"reader with link": "↑/↓,↵,esc,i,h,←/→,tab,shift+tab,v,r,y,b,L,a,q",
 		"raw view":         "↑/↓,esc,i,h,←/→,v,y,b,a,q",
 		"links URL":        "↑/↓,esc,y,/,a",
+		"links ambiguous":  "↑/↓,esc,f,y,/,a",
+		"links definite":   "↑/↓,esc,↵,y,/,a",
 	}
 	for name, m := range helpContextModels(t) {
 		t.Run(name, func(t *testing.T) {
@@ -174,10 +189,28 @@ func TestHelpAdmissionMatchesRetainedBindingsAcrossContexts(t *testing.T) {
 				clone.common.width, clone.common.height = 200, 40
 				clone.openHelp()
 				(&clone).updateKeymap()
-				want := clone.helpLayout().matches(msg)
-				next, _ := clone.Update(msg)
-				if got := next.(appModel).help; got == want {
-					t.Errorf("key %v leaves Help=%v, want %v", msg, got, !want)
+				retained := clone.helpLayout().matches(msg)
+				next, cmd := clone.Update(msg)
+				got := next.(appModel)
+				if !retained {
+					if !got.help || cmd != nil {
+						t.Errorf("unmatched key %v = help %v cmd %T", msg, got.help, cmd)
+					}
+					continue
+				}
+				if key.Matches(msg, clone.keys.About) {
+					if got.help || got.state != stateAbout || cmd != nil {
+						t.Errorf("About key %v = help %v state %d cmd %T", msg, got.help, got.state, cmd)
+					}
+					continue
+				}
+				if got.help || cmd == nil {
+					t.Errorf("retained key %v = help %v cmd %T", msg, got.help, cmd)
+					continue
+				}
+				replay, ok := cmd().(tea.KeyPressMsg)
+				if !ok || replay != msg {
+					t.Errorf("retained key %v replay = %#v", msg, replay)
 				}
 			}
 		})

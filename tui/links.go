@@ -218,15 +218,16 @@ func isOSC8Openable(raw string) bool {
 
 // Compiled regexes used by the scanner.
 var (
-	// schemeURLRe matches any scheme-prefixed URL token, including both
-	// the scheme://... form (finger, http, https, gemini, gopher, ircs, …)
-	// and the scheme:path form without // (e.g. mailto:user@host).
-	// Authority must be non-empty for the :// form — the caller's post-filter
-	// drops bare "https://" with no host.
-	// Parens/brackets are allowed in the URL body (e.g. Wikipedia URLs); the
-	// trailing-punct stripper removes unbalanced closing delimiters afterwards.
+	// schemeURLRe matches explicit scheme:// URLs and mailto: addresses. The
+	// colon-only alternative is deliberately limited to mailto:; other
+	// label:value text must remain available to the @-token scanner because Finger
+	// services commonly use query shapes such as wiki:article@host.
+	//
+	// Both alternatives retain the shipped URL body class. Parentheses and square
+	// brackets may therefore appear inside a URL; stripTrailingPunct removes only
+	// trailing sentence punctuation and unbalanced closing delimiters.
 	schemeURLRe = regexp.MustCompile(
-		`(?i)[A-Za-z][A-Za-z0-9+.\-]{1,30}:(?://[^\s<>"` + "`" + `]+|[^\s<>"` + "`" + `/][^\s<>"` + "`" + `]*)`)
+		`(?i)(?:[A-Za-z][A-Za-z0-9+.\-]{1,30}://[^\s<>"` + "`" + `]+|mailto:[^\s<>"` + "`" + `]+)`)
 
 	// ipv4Re matches a bare IPv4 dotted-quad (used inside domainSane).
 	ipv4Re = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)

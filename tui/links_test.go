@@ -185,6 +185,74 @@ func TestDetectLinks_Rule1_IRCS(t *testing.T) {
 	}
 }
 
+func TestDetectLinks_URLGrammar(t *testing.T) {
+	t.Run("supported forms remain one consumed link", func(t *testing.T) {
+		tests := []struct {
+			body     string
+			raw      string
+			kind     LinkKind
+			query    string
+			hostPort string
+			action   LinkAction
+			osc8     bool
+		}{
+			{"visit https://example.com/foo", "https://example.com/foo", LinkURL, "", "", ActionCopy, true},
+			{"read gemini://rawtext.club/~alice", "gemini://rawtext.club/~alice", LinkURL, "", "", ActionCopy, false},
+			{"send to mailto:alice@example.com now", "mailto:alice@example.com", LinkEmail, "", "", ActionCopy, true},
+			{"MAILTO:alice@example.com", "MAILTO:alice@example.com", LinkEmail, "", "", ActionCopy, true},
+			{"mailto:alice(work)@example.com", "mailto:alice(work)@example.com", LinkEmail, "", "", ActionCopy, true},
+			{"finger://bbs.airandwave.net/wiki:foo", "finger://bbs.airandwave.net/wiki:foo", LinkFinger, "wiki:foo", "bbs.airandwave.net:79", ActionDrill, false},
+			{"http://user:pass@example.com/x", "http://user:pass@example.com/x", LinkURL, "", "", ActionCopy, true},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.body, func(t *testing.T) {
+				links := DetectLinks([]byte(tt.body), "example.com:79")
+				if len(links) != 1 {
+					t.Fatalf("DetectLinks(%q) returned %d links, want 1: %#v", tt.body, len(links), links)
+				}
+				link := links[0]
+				if link.Raw != tt.raw || link.Kind != tt.kind || !link.Strong || link.Action != tt.action {
+					t.Fatalf("DetectLinks(%q)[0] = %#v", tt.body, link)
+				}
+				if link.Target.Query != tt.query || link.Target.HostPort != tt.hostPort {
+					t.Fatalf("target = %#v, want Query=%q HostPort=%q", link.Target, tt.query, tt.hostPort)
+				}
+				if got := isOSC8Openable(link.Raw); got != tt.osc8 {
+					t.Fatalf("isOSC8Openable(%q) = %v, want %v", link.Raw, got, tt.osc8)
+				}
+			})
+		}
+	})
+
+	t.Run("unsupported colon-only schemes produce no links", func(t *testing.T) {
+		for _, body := range []string{
+			"mailto:",
+			"tel:+15550000",
+			"data:text/plain,hello",
+			"magnet:?xt=urn:btih:abc",
+			"Timezone: UTC",
+			"label:value",
+		} {
+			t.Run(body, func(t *testing.T) {
+				links := DetectLinks([]byte(body), "example.com:79")
+				if len(links) != 0 {
+					t.Fatalf("DetectLinks(%q) returned unexpected links %#v", body, links)
+				}
+			})
+		}
+	})
+
+	t.Run("hostless shorthand remains plain text", func(t *testing.T) {
+		links := DetectLinks([]byte("Try @bonsai"), "example.com:79")
+		for _, link := range links {
+			if link.Kind == LinkFinger {
+				t.Fatalf("DetectLinks returned Finger link for @bonsai: %#v", link)
+			}
+		}
+	})
+}
+
 // ---- Rule 2 — cue word ----
 
 func TestDetectLinks_Rule2_FingerCue(t *testing.T) {
@@ -296,6 +364,47 @@ func TestDetectLinks_Rule4_BareUserAtHost(t *testing.T) {
 	}
 	if l.Target.HostPort == "" {
 		t.Errorf("Target.HostPort is empty, want populated for Finger link")
+	}
+}
+
+func TestDetectLinks_ColonBearingFingerAddresses(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		raw       string
+		query     string
+		hostPort  string
+		strong    bool
+		ambiguous bool
+		action    LinkAction
+	}{
+		{"cued weather", "finger weather:seattle@bbs.airandwave.net", "weather:seattle@bbs.airandwave.net", "weather:seattle", "bbs.airandwave.net:79", true, false, ActionDrill},
+		{"cued quake", "finger quake:1@bbs.airandwave.net", "quake:1@bbs.airandwave.net", "quake:1", "bbs.airandwave.net:79", true, false, ActionDrill},
+		{"cued dict", "finger dict:word@bbs.airandwave.net", "dict:word@bbs.airandwave.net", "dict:word", "bbs.airandwave.net:79", true, false, ActionDrill},
+		{"cued urban", "finger urban:yeet@bbs.airandwave.net", "urban:yeet@bbs.airandwave.net", "urban:yeet", "bbs.airandwave.net:79", true, false, ActionDrill},
+		{"cued wiki", "finger wiki:albert_einstein:1@bbs.airandwave.net", "wiki:albert_einstein:1@bbs.airandwave.net", "wiki:albert_einstein:1", "bbs.airandwave.net:79", true, false, ActionDrill},
+		{"cued sudoku", "finger sudoku:print:utf8:easy@bbs.airandwave.net", "sudoku:print:utf8:easy@bbs.airandwave.net", "sudoku:print:utf8:easy", "bbs.airandwave.net:79", true, false, ActionDrill},
+		{"uncued weather", "weather:seattle@bbs.airandwave.net", "weather:seattle@bbs.airandwave.net", "weather:seattle", "bbs.airandwave.net:79", false, true, ActionCopy},
+		{"uncued wiki", "wiki:albert_einstein:1@bbs.airandwave.net", "wiki:albert_einstein:1@bbs.airandwave.net", "wiki:albert_einstein:1", "bbs.airandwave.net:79", false, true, ActionCopy},
+		{"uncued sudoku", "sudoku:print:utf8:easy@bbs.airandwave.net", "sudoku:print:utf8:easy@bbs.airandwave.net", "sudoku:print:utf8:easy", "bbs.airandwave.net:79", false, true, ActionCopy},
+		{"cued one-letter prefix", "finger o:oslo@graph.no", "o:oslo@graph.no", "o:oslo", "graph.no:79", true, false, ActionDrill},
+		{"uncued one-letter prefix", "o:oslo@graph.no", "o:oslo@graph.no", "o:oslo", "graph.no:79", false, true, ActionCopy},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			links := DetectLinks([]byte(tt.body), "example.com:79")
+			if len(links) != 1 {
+				t.Fatalf("DetectLinks(%q) returned %d links, want 1: %#v", tt.body, len(links), links)
+			}
+			link := links[0]
+			if link.Raw != tt.raw || link.Kind != LinkFinger || link.Action != tt.action ||
+				link.Strong != tt.strong || link.Ambiguous != tt.ambiguous ||
+				link.Target.Query != tt.query || link.Target.HostPort != tt.hostPort {
+				t.Fatalf("DetectLinks(%q)[0] = %#v, want Raw=%q Kind=LinkFinger Action=%v Strong=%v Ambiguous=%v Query=%q HostPort=%q",
+					tt.body, link, tt.raw, tt.action, tt.strong, tt.ambiguous, tt.query, tt.hostPort)
+			}
+		})
 	}
 }
 

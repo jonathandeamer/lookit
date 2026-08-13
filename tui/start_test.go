@@ -54,6 +54,18 @@ func sectionGapSections() []startSection {
 	}
 }
 
+func TestStartItemsAlwaysBeginsWithSpacer(t *testing.T) {
+	sections := sectionGapSections()
+	items := startItems(sections, 80)
+	if len(items) == 0 {
+		t.Fatal("got 0 items, want at least a spacer")
+	}
+	first, ok := items[0].(startItem)
+	if !ok || !first.spacer {
+		t.Fatalf("first item = %+v, want spacer: true", items[0])
+	}
+}
+
 func TestStartSectionGapRendersExactlyOneBlankRow(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
@@ -88,10 +100,10 @@ func TestStartSectionGapItemOnlyInWideTwoSectionLayout(t *testing.T) {
 		sections []startSection
 		want     int
 	}{
-		{name: "wide both", width: 80, sections: sectionGapSections(), want: 5},
-		{name: "narrow both", width: 40, sections: sectionGapSections(), want: 4},
-		{name: "wide communities only", width: 80, sections: sectionGapSections()[:1], want: 2},
-		{name: "wide services only", width: 80, sections: sectionGapSections()[1:], want: 2},
+		{name: "wide both", width: 80, sections: sectionGapSections(), want: 6},
+		{name: "narrow both", width: 40, sections: sectionGapSections(), want: 5},
+		{name: "wide communities only", width: 80, sections: sectionGapSections()[:1], want: 3},
+		{name: "wide services only", width: 80, sections: sectionGapSections()[1:], want: 3},
 	}
 
 	for _, tt := range tests {
@@ -486,7 +498,7 @@ func TestStartCursorSkipsSectionGapAtPageBoundary(t *testing.T) {
 		t.Fatalf("PerPage = %d, want 2 so the spacer starts the next page", got)
 	}
 
-	m.list.Select(1) // the community, immediately before the spacer's page
+	m.list.Select(2) // the community, immediately before the spacer's page
 	m, _ = m.update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if got, ok := m.selected(); !ok || got.target != "date@example.com" {
 		t.Fatalf("down selected = %+v, %v; want first service across the page boundary", got, ok)
@@ -507,16 +519,16 @@ func TestStartSectionGapResponsiveResizePreservesSelection(t *testing.T) {
 	}
 
 	m.setSize(71, common.bodyHeight())
-	if got := len(m.list.Items()); got != 4 {
-		t.Fatalf("narrow item count = %d, want 4 without a spacer", got)
+	if got := len(m.list.Items()); got != 5 {
+		t.Fatalf("narrow item count = %d, want 5 without a section spacer", got)
 	}
 	if got, ok := m.selected(); !ok || got.target != "date@example.com" {
 		t.Fatalf("narrow selected = %+v, %v; want date@example.com", got, ok)
 	}
 
 	m.setSize(72, common.bodyHeight())
-	if got := len(m.list.Items()); got != 5 {
-		t.Fatalf("wide item count = %d, want 5 with a spacer", got)
+	if got := len(m.list.Items()); got != 6 {
+		t.Fatalf("wide item count = %d, want 6 with a section spacer", got)
 	}
 	if got, ok := m.selected(); !ok || got.target != "date@example.com" {
 		t.Fatalf("wide selected = %+v, %v; want date@example.com", got, ok)
@@ -569,13 +581,13 @@ func TestStartSectionGapResponsiveResizeSynchronizesAfterFilterClears(t *testing
 	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	m.setSize(71, common.bodyHeight())
-	if got := len(m.list.Items()); got != 5 {
-		t.Fatalf("filtered resize changed underlying item count to %d, want 5 until the filter clears", got)
+	if got := len(m.list.Items()); got != 6 {
+		t.Fatalf("filtered resize changed underlying item count to %d, want 6 until the filter clears", got)
 	}
 
 	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if got := len(m.list.Items()); got != 4 {
-		t.Fatalf("cleared narrow item count = %d, want 4 without a spacer", got)
+	if got := len(m.list.Items()); got != 5 {
+		t.Fatalf("cleared narrow item count = %d, want 5 without a section spacer", got)
 	}
 }
 
@@ -584,7 +596,7 @@ func TestStartCursorSkipsHeaderAtPageBoundary(t *testing.T) {
 	common.width = 40
 	common.height = 8 // force pagination at a width that uses the two-row delegate
 	m := newStart(common, twoSections(), "", "")
-	m.list.Select(2) // the COMMUNITIES header, on a later page
+	m.list.Select(3) // the COMMUNITIES header, on a later page
 	m.skipNonEntry(1)
 	got, ok := m.selected()
 	if !ok || got.target != "@plan.cat" {
@@ -811,7 +823,7 @@ func TestStartDelegateWidthVariants(t *testing.T) {
 
 			d := newStartDelegate(common, common.ensureStyles())
 			var header strings.Builder
-			d.Render(&header, m.list, 0, m.list.Items()[0])
+			d.Render(&header, m.list, 1, m.list.Items()[1])
 			if got := len(strings.Split(header.String(), "\n")); got != d.Height() {
 				t.Fatalf("header rows = %d, delegate height = %d: %q", got, d.Height(), header.String())
 			}

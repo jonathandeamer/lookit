@@ -9,8 +9,23 @@ GORELEASER_VERSION := v2.16.0
 GO_LICENSES_VERSION := v1.6.0
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
+REVIEW_CHROME_TAPES := \
+	docs/tui-review/chrome-80-dark.tape \
+	docs/tui-review/chrome-100-dark.tape \
+	docs/tui-review/chrome-60-dark.tape \
+	docs/tui-review/chrome-80-light.tape
+
+REVIEW_RESPONSES_TAPES := \
+	docs/tui-review/responses-80-dark.tape \
+	docs/tui-review/responses-100-dark.tape \
+	docs/tui-review/responses-60-dark.tape \
+	docs/tui-review/responses-80-light.tape
+
+REVIEW_FINGERD := out/fingerd
+
 .PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean \
-	notices release-check release-snapshot release
+	notices release-check release-snapshot release review-tui review-fingerd \
+	review-sheet
 
 build: ## build the binary
 	go build -o $(BINARY) .
@@ -43,6 +58,64 @@ vuln: ## scan dependencies for known vulnerabilities
 
 check: vet fmt-check lint race ## run the full CI gate set
 
+review-fingerd: ## build the loopback finger server used by responses tapes
+	@mkdir -p $(dir $(REVIEW_FINGERD))
+	go build -o $(REVIEW_FINGERD) ./docs/tui-review/fixtures/fingerd
+
+review-tui: build review-fingerd ## record the visual-review stills into out/ (not part of check)
+	@command -v vhs >/dev/null || { echo "vhs not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
+	@command -v ttyd >/dev/null || { echo "ttyd not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
+	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install vhs ffmpeg ttyd)"; exit 1; }
+	@mkdir -p out/tui-review
+	@$(REVIEW_FINGERD) & echo $$! > out/tui-review/fingerd.pid
+	@trap 'kill $$(cat out/tui-review/fingerd.pid) 2>/dev/null; rm -f out/tui-review/fingerd.pid' EXIT; \
+	ready=0; \
+	i=0; while [ $$i -lt 50 ]; do \
+		if $(REVIEW_FINGERD) -ping >/dev/null 2>&1; then ready=1; break; fi; \
+		sleep 0.1; i=$$((i+1)); \
+	done; \
+	if [ $$ready -eq 0 ]; then \
+		echo "loopback fingerd is not serving the fixture bodies on 2479/2480"; \
+		echo "(port already bound by something else? stale fingerd? run: $(REVIEW_FINGERD) -ping)"; \
+		exit 1; \
+	fi; \
+	for tape in $(REVIEW_CHROME_TAPES) $(REVIEW_RESPONSES_TAPES); do \
+		name=$$(basename "$$tape" .tape); \
+		tour=$$(awk '/^Source /{print $$2}' "$$tape"); \
+		want=$$(grep -c '^Screenshot ' "$$tour"); \
+		echo "recording $$name ($$want stills)"; \
+		rm -f out/tui-review/*.png out/tui-review/_render.txt; \
+		vhs "$$tape" || exit 1; \
+		got=$$(ls out/tui-review/*.png 2>/dev/null | wc -l | tr -d ' '); \
+		if [ "$$got" != "$$want" ]; then \
+			echo "$$name: recorded $$got stills, $$tour asks for $$want"; \
+			echo "(a Screenshot with no following Sleep writes nothing)"; \
+			exit 1; \
+		fi; \
+		dest=out/tui-review/$$name; \
+		mkdir -p "$$dest"; \
+		rm -f "$$dest"/*.png; \
+		mv out/tui-review/*.png "$$dest/"; \
+		rm -f out/tui-review/_render.txt; \
+		sh docs/tui-review/verify-frames.sh "$$dest" || exit 1; \
+	done
+	@$(MAKE) --no-print-directory review-sheet
+	@echo "wrote out/tui-review/{chrome,responses}-{80-dark,100-dark,60-dark,80-light}/"
+
+review-sheet: ## tile each recorded directory into one contact sheet
+	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install ffmpeg)"; exit 1; }
+	@for dir in out/tui-review/*/; do \
+		name=$$(basename "$$dir"); \
+		case "$$name" in xdg) continue ;; esac; \
+		n=$$(ls "$$dir"*.png 2>/dev/null | wc -l | tr -d ' '); \
+		[ "$$n" -gt 0 ] || continue; \
+		rows=$$(( ($$n + 3) / 4 )); \
+		ffmpeg -y -loglevel error -pattern_type glob -i "$$dir*.png" \
+			-filter_complex "scale=iw/2:ih/2,tile=4x$$rows:padding=6:margin=6:color=0x101014" \
+			-frames:v 1 "out/tui-review/$$name-sheet.png" || exit 1; \
+		echo "$$name-sheet.png: $$(ls "$$dir" | tr '\n' ' ')"; \
+	done
+
 hooks: ## install git hooks (commit-msg: Conventional Commits); run once per clone
 	git config core.hooksPath .githooks
 	@echo "git hooks installed (core.hooksPath -> .githooks)"
@@ -52,7 +125,7 @@ tidy: ## tidy go.mod/go.sum
 
 clean: ## remove build artifacts
 	rm -f $(BINARY)
-	rm -rf dist
+	rm -rf dist out
 
 notices: ## regenerate THIRD_PARTY_NOTICES.md from dependency licenses (rerun after dep changes)
 	@tmp=$$(mktemp -d); \

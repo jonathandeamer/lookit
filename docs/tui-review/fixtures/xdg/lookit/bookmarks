@@ -1,0 +1,5 @@
+# Fixture for docs/tui-review tapes. One known bookmark so the BOOKMARKS
+# section is on screen; the catalog stays visible. Tapes point
+# XDG_CONFIG_HOME at this tree so a developer's real bookmarks never leak
+# into a review frame.
+jonathan@tilde.team

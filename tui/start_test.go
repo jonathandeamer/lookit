@@ -54,15 +54,138 @@ func sectionGapSections() []startSection {
 	}
 }
 
-func TestStartItemsAlwaysBeginsWithSpacer(t *testing.T) {
-	sections := sectionGapSections()
-	items := startItems(sections, 80)
+// startHeaderLineIndex finds the rendered section header for title. The
+// overview line also contains "BOOKMARKS", so match the header's trailing
+// rule rather than the word alone.
+func startHeaderLineIndex(t *testing.T, lines []string, title string) int {
+	t.Helper()
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), title+" ─") {
+			return i
+		}
+	}
+	t.Fatalf("no %s header line in:\n%s", title, strings.Join(lines, "\n"))
+	return -1
+}
+
+// TestStartSectionSpacingIsUniformWhenWide asserts the decision (one blank row
+// above every header) rather than the mechanism (how many spacer items exist),
+// so it stays honest if the assembly changes again.
+func TestStartSectionSpacingIsUniformWhenWide(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	common.height = 40
+	m := newStart(common, threeSections(), "", "")
+
+	plain := stripANSIForLandingTest(m.View())
+	lines := strings.Split(plain, "\n")
+
+	for _, title := range []string{"BOOKMARKS", "COMMUNITIES", "SERVICES"} {
+		header := startHeaderLineIndex(t, lines, title)
+		if header < 2 {
+			t.Fatalf("%s header at line %d, want room for a gap above it:\n%s", title, header, plain)
+		}
+		if got := strings.TrimSpace(lines[header-1]); got != "" {
+			t.Errorf("line above %s = %q, want one blank row:\n%s", title, got, plain)
+		}
+		if got := strings.TrimSpace(lines[header-2]); got == "" {
+			t.Errorf("two blank rows above %s, want exactly one:\n%s", title, plain)
+		}
+	}
+}
+
+// TestStartSectionSpacingIsUniformWhenNarrow covers the two-row layout, where
+// the gap comes from the header's own first row rather than a spacer item.
+//
+// Both fixtures matter. threeSections' entries carry no note, so their second
+// row renders empty; twoSections' entries fill both rows. Before
+// headerNeedsBlank the first case produced two blank rows above a header and
+// the second produced one, which made section spacing depend on whether the
+// last entry of a section happened to be described.
+func TestStartSectionSpacingIsUniformWhenNarrow(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		sections []startSection
+		titles   []string
+	}{
+		{"entries without notes", threeSections(), []string{"BOOKMARKS", "COMMUNITIES", "SERVICES"}},
+		{"entries with notes", twoSections(), []string{"BOOKMARKS", "COMMUNITIES"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			common := testCommon()
+			common.width = 45
+			common.height = 40
+			m := newStart(common, tt.sections, "", "")
+
+			plain := stripANSIForLandingTest(m.View())
+			lines := strings.Split(plain, "\n")
+
+			for _, title := range tt.titles {
+				header := startHeaderLineIndex(t, lines, title)
+				if header < 2 {
+					t.Fatalf("%s header at line %d, want room for a gap above it:\n%s", title, header, plain)
+				}
+				if got := strings.TrimSpace(lines[header-1]); got != "" {
+					t.Errorf("line above %s = %q, want one blank row:\n%s", title, got, plain)
+				}
+				if got := strings.TrimSpace(lines[header-2]); got == "" {
+					t.Errorf("two blank rows above %s, want exactly one:\n%s", title, plain)
+				}
+			}
+		})
+	}
+}
+
+// TestStartUniformSpacingResizeKeepsFirstRowOfSection crosses the 72-column
+// boundary with the selection on a section's first row — the position most
+// exposed to a spacer being inserted directly above it. Three sections mean
+// two spacers appear and disappear together.
+func TestStartUniformSpacingResizeKeepsFirstRowOfSection(t *testing.T) {
+	const target = "quake@bbs.airandwave.net" // the first SERVICES row
+
+	common := testCommon()
+	common.width = 100
+	common.height = 40
+	m := newStart(common, threeSections(), "", "")
+	if !m.selectTarget(target) {
+		t.Fatalf("could not select %s", target)
+	}
+
+	m.setSize(71, common.bodyHeight())
+	if got, ok := m.selected(); !ok || got.target != target {
+		t.Fatalf("after narrowing, selected = %+v, %v; want %s", got, ok, target)
+	}
+
+	m.setSize(100, common.bodyHeight())
+	if got, ok := m.selected(); !ok || got.target != target {
+		t.Fatalf("after widening, selected = %+v, %v; want %s", got, ok, target)
+	}
+}
+
+func TestStartSingleSectionAssemblesNoSpacer(t *testing.T) {
+	sections := []startSection{{
+		id: sectionBookmarks, title: "BOOKMARKS",
+		entries: []startEntry{{target: "@tilde.team", source: sourceBookmark}},
+	}}
+	for _, width := range []int{45, 80, 100} {
+		items := startItems(sections, width)
+		for i, item := range items {
+			row, ok := item.(startItem)
+			if ok && row.spacer {
+				t.Errorf("width %d: item %d is a spacer, want none in a single-section page", width, i)
+			}
+		}
+	}
+}
+
+func TestStartItemsBeginsWithTheFirstHeader(t *testing.T) {
+	items := startItems(sectionGapSections(), 80)
 	if len(items) == 0 {
-		t.Fatal("got 0 items, want at least a spacer")
+		t.Fatal("got 0 items, want at least a header")
 	}
 	first, ok := items[0].(startItem)
-	if !ok || !first.spacer {
-		t.Fatalf("first item = %+v, want spacer: true", items[0])
+	if !ok || first.header == "" {
+		t.Fatalf("first item = %+v, want a header: bubbles' reserved filter row supplies the gap above it", items[0])
 	}
 }
 
@@ -93,17 +216,17 @@ func TestStartSectionGapRendersExactlyOneBlankRow(t *testing.T) {
 	}
 }
 
-func TestStartSectionGapItemOnlyInWideTwoSectionLayout(t *testing.T) {
+func TestStartSpacerItemCounts(t *testing.T) {
 	tests := []struct {
 		name     string
 		width    int
 		sections []startSection
 		want     int
 	}{
-		{name: "wide both", width: 80, sections: sectionGapSections(), want: 6},
-		{name: "narrow both", width: 40, sections: sectionGapSections(), want: 5},
-		{name: "wide communities only", width: 80, sections: sectionGapSections()[:1], want: 3},
-		{name: "wide services only", width: 80, sections: sectionGapSections()[1:], want: 3},
+		{name: "wide both", width: 80, sections: sectionGapSections(), want: 5},
+		{name: "narrow both", width: 40, sections: sectionGapSections(), want: 4},
+		{name: "wide communities only", width: 80, sections: sectionGapSections()[:1], want: 2},
+		{name: "wide services only", width: 80, sections: sectionGapSections()[1:], want: 2},
 	}
 
 	for _, tt := range tests {
@@ -519,16 +642,16 @@ func TestStartSectionGapResponsiveResizePreservesSelection(t *testing.T) {
 	}
 
 	m.setSize(71, common.bodyHeight())
-	if got := len(m.list.Items()); got != 5 {
-		t.Fatalf("narrow item count = %d, want 5 without a section spacer", got)
+	if got := len(m.list.Items()); got != 4 {
+		t.Fatalf("narrow item count = %d, want 4 without a section spacer", got)
 	}
 	if got, ok := m.selected(); !ok || got.target != "date@example.com" {
 		t.Fatalf("narrow selected = %+v, %v; want date@example.com", got, ok)
 	}
 
 	m.setSize(72, common.bodyHeight())
-	if got := len(m.list.Items()); got != 6 {
-		t.Fatalf("wide item count = %d, want 6 with a section spacer", got)
+	if got := len(m.list.Items()); got != 5 {
+		t.Fatalf("wide item count = %d, want 5 with a section spacer", got)
 	}
 	if got, ok := m.selected(); !ok || got.target != "date@example.com" {
 		t.Fatalf("wide selected = %+v, %v; want date@example.com", got, ok)
@@ -581,13 +704,13 @@ func TestStartSectionGapResponsiveResizeSynchronizesAfterFilterClears(t *testing
 	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	m.setSize(71, common.bodyHeight())
-	if got := len(m.list.Items()); got != 6 {
-		t.Fatalf("filtered resize changed underlying item count to %d, want 6 until the filter clears", got)
+	if got := len(m.list.Items()); got != 5 {
+		t.Fatalf("filtered resize changed underlying item count to %d, want 5 until the filter clears", got)
 	}
 
 	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if got := len(m.list.Items()); got != 5 {
-		t.Fatalf("cleared narrow item count = %d, want 5 without a section spacer", got)
+	if got := len(m.list.Items()); got != 4 {
+		t.Fatalf("cleared narrow item count = %d, want 4 without a section spacer", got)
 	}
 }
 
@@ -596,7 +719,7 @@ func TestStartCursorSkipsHeaderAtPageBoundary(t *testing.T) {
 	common.width = 40
 	common.height = 8 // force pagination at a width that uses the two-row delegate
 	m := newStart(common, twoSections(), "", "")
-	m.list.Select(3) // the COMMUNITIES header, on a later page
+	m.list.Select(2) // the COMMUNITIES header, on a later page
 	m.skipNonEntry(1)
 	got, ok := m.selected()
 	if !ok || got.target != "@plan.cat" {

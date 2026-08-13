@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestCatalogRawNoteValidationRejectsCommentMarker(t *testing.T) {
@@ -129,6 +131,53 @@ func TestCatalogHintValidationRejectsNonChildren(t *testing.T) {
 		}
 	}
 	t.Fatal("fixture did not produce a misplaced hint; the guard cannot be trusted")
+}
+
+// startNoteMaxCells is the widest a catalog note may render. The note column is
+// half the startpage width less the frame, so this is what fits at 100 columns
+// — the width the spec guarantees. Below that, notes truncate as they always
+// have.
+const startNoteMaxCells = 48
+
+// catalogNoteWidths measures every note in display cells, keyed by target.
+// Cells, not runes: rendering truncates by terminal width (ansi.Truncate), and
+// a CJK character or emoji occupies two cells while counting as one rune.
+func catalogNoteWidths(data []byte) map[string]int {
+	widths := make(map[string]int)
+	for _, raw := range strings.Split(string(data), "\n") {
+		record := strings.TrimSpace(raw)
+		if record == "" || strings.HasPrefix(record, "#") {
+			continue
+		}
+		fields := strings.SplitN(strings.Join(strings.Fields(record), " "), " ", 3)
+		if len(fields) < 3 {
+			continue
+		}
+		widths[fields[1]] = ansi.StringWidth(fields[2])
+	}
+	return widths
+}
+
+// A 48-rune note can be wider than 48 cells, and it is cells that truncate.
+// This fixture fails the gate only if the measure is display width.
+func TestCatalogNoteWidthMeasuresCellsNotRunes(t *testing.T) {
+	wide := strings.Repeat("的", 30) // 30 runes, 60 cells
+	data := []byte("service wide@example.com " + wide + "\n")
+	got := catalogNoteWidths(data)["wide@example.com"]
+	if got != 60 {
+		t.Fatalf("width = %d, want 60 cells for %d runes", got, len([]rune(wide)))
+	}
+	if got <= startNoteMaxCells {
+		t.Fatalf("fixture width %d does not exceed the cap; it cannot prove the gate bites", got)
+	}
+}
+
+func TestCatalogNotesFitTheNoteColumn(t *testing.T) {
+	for target, width := range catalogNoteWidths(catalogData) {
+		if width > startNoteMaxCells {
+			t.Errorf("%s note is %d cells, want at most %d", target, width, startNoteMaxCells)
+		}
+	}
 }
 
 func TestCatalogRawNoteValidationRejectsStrayPipe(t *testing.T) {

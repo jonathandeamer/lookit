@@ -3652,10 +3652,10 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 		want   startOverviewCounts
 		total  int
 	}{
-		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 20}, total: 26},
-		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 19}, total: 26},
-		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 19}, total: 26},
-		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 20}, total: 27},
+		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 21}, total: 27},
+		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 20}, total: 27},
+		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 20}, total: 27},
+		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 21}, total: 28},
 		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},
 		{name: "filtered pinned parent", seed: "@happynetbox.com\n", filter: "happynetbox.com", want: startOverviewCounts{bookmarks: 1, services: 5}, total: 6},
 	}
@@ -3682,51 +3682,9 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 	}
 }
 
-func TestHintWordFindsItsChildButNotItsBookmark(t *testing.T) {
-	t.Run("child is findable by its hint", func(t *testing.T) {
-		useTempBookmarks(t)
-		m := newApp(stubFetch(t), colorprofile.NoTTY)
-		m.blurInput()
-		m.start.list.SetFilterText("pick-a-path")
-		var found bool
-		for _, item := range m.start.list.VisibleItems() {
-			if it, ok := item.(startItem); ok && it.entry.target == "cyoa@typed-hole.org" {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatal("cyoa@typed-hole.org not found by a word from its hint")
-		}
-	})
-
-	t.Run("its bookmark copy is not", func(t *testing.T) {
-		// Positive control: pinning cyoa@typed-hole.org removes it from
-		// SERVICES, so "pick-a-path" alone would match zero visible items
-		// whether or not filtering actually works — 0 matches proves
-		// nothing. Assert, in the same run, that another hinted child
-		// (smog@typed-hole.org, left unpinned) IS still findable by its own
-		// hint word, so a broken filter would fail this subtest too.
-		seedBookmarks(t, "cyoa@typed-hole.org\n")
-		m := newApp(stubFetch(t), colorprofile.NoTTY)
-		m.blurInput()
-
-		m.start.list.SetFilterText("gemzine")
-		var smogFound bool
-		for _, item := range m.start.list.VisibleItems() {
-			if it, ok := item.(startItem); ok && it.entry.target == "smog@typed-hole.org" {
-				smogFound = true
-			}
-		}
-		if !smogFound {
-			t.Fatal("smog@typed-hole.org not found by a word from its hint; filtering itself may be broken")
-		}
-
-		m.start.list.SetFilterText("pick-a-path")
-		for _, item := range m.start.list.VisibleItems() {
-			it, ok := item.(startItem)
-			if ok && it.entry.target == "cyoa@typed-hole.org" && it.section == sectionBookmarks {
-				t.Fatal("BOOKMARKS row matched hint text it never displays")
-			}
-		}
-	})
-}
+// TestHintWordFindsItsChildButNotItsBookmark used to assert that a service
+// child was findable by a word from its catalog hint. Task 1 of the
+// startpage-focus-notes plan stripped every hint from tui/catalog.txt (the
+// 48-cell note-width gate made the hint grammar redundant), so no shipped
+// entry carries hint text to search by; a later task removes the hint
+// feature itself. Deleted here rather than left red for that later task.

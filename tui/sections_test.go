@@ -188,7 +188,7 @@ func TestServicesGroupUnderHostRoots(t *testing.T) {
 		"quake@bbs.airandwave.net",
 		"sudoku:easy@bbs.airandwave.net",
 		"urban@bbs.airandwave.net",
-		"weather@bbs.airandwave.net",
+		"wiki@bbs.airandwave.net",
 		"wordsearch:today@bbs.airandwave.net",
 		"@flanigan.us",
 		"bonsai@flanigan.us",
@@ -202,6 +202,7 @@ func TestServicesGroupUnderHostRoots(t *testing.T) {
 		"random@happynetbox.com",
 		"@typed-hole.org",
 		"cyoa@typed-hole.org",
+		"lobsters@typed-hole.org",
 		"smog@typed-hole.org",
 		"textfile@typed-hole.org",
 	}
@@ -331,6 +332,8 @@ func TestLastChildMarksTheFinalChildOfEveryGroup(t *testing.T) {
 		"@bbs.airandwave.net":                 false, // a root is not a child
 		"@graph.no":                           false, // no group at all
 		"@happynetbox.com":                    false, // structural parent
+		"wiki@bbs.airandwave.net":             false,
+		"lobsters@typed-hole.org":             false,
 	}
 	seen := make(map[string]bool, len(want))
 	for _, s := range sections {
@@ -378,4 +381,19 @@ func TestLastChildMarksTheOnlyChildOfASingleChildGroup(t *testing.T) {
 		return
 	}
 	t.Fatal("SERVICES section not found")
+}
+
+func TestRemovedWeatherServiceBookmarkStaysTargetOnly(t *testing.T) {
+	const target = "weather@bbs.airandwave.net"
+	got := buildSections(loadCatalog(), bookmarkFile{targets: []string{target}})
+	if len(got) == 0 || got[0].id != sectionBookmarks || len(got[0].entries) != 1 {
+		t.Fatalf("sections = %+v, want one BOOKMARKS entry", got)
+	}
+	entry := got[0].entries[0]
+	if entry.target != target || !entry.bookmarked {
+		t.Fatalf("bookmark = %+v, want retained target %q marked bookmarked", entry, target)
+	}
+	if entry.note != "" || entry.kind != kindUnknown {
+		t.Fatalf("bookmark = %+v, want blank note and kindUnknown after catalog removal", entry)
+	}
 }

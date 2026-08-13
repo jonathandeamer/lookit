@@ -1205,13 +1205,20 @@ func (m *appModel) copyAddress() tea.Cmd {
 }
 
 // statusBarModel assembles the bottom bar from the current node + history.
-// updateKeymap enables only the bindings usable in the current state. It is the
-// single source of truth with two effects: the expanded '?' help panel skips
-// disabled bindings (bubbles/help), and key.Matches treats a disabled binding as
-// no-match — so a content key is inert (types literally) while the input is
-// focused. It must run before both handleKey (routing) and the render path
-// (help panel); Update and View call it. Pattern: pop's updateKeymap
-// (~/pop/keymap.go).
+// updateKeymap models binding availability in the active interaction layer. It
+// is the single source of truth with two effects: the expanded '?' help panel
+// skips disabled bindings (bubbles/help), and key.Matches treats a disabled
+// binding as no-match — so a content key is inert (types literally) while the
+// input is focused. The Help layout's retained set is the final
+// execute-through-Help gate. It must run before both handleKey (routing) and
+// the render path (help panel); Update and View call it. Pattern: pop's
+// updateKeymap (~/pop/keymap.go).
+func (m appModel) helpFilterActive() bool {
+	return (m.state == stateList && m.list.filtering()) ||
+		(m.state == stateStart && m.start.filtering()) ||
+		(m.showingLinks && m.linksPanel.filtering())
+}
+
 func (m *appModel) updateKeymap() {
 	refreshHelp := m.refreshHelp()
 	m.keys.Refresh.SetHelp(refreshHelp.Key, refreshHelp.Desc)
@@ -1247,8 +1254,13 @@ func (m *appModel) updateKeymap() {
 	// content branches, so they must stay live while typing: Open=Enter (submit
 	// a target / drill a list row), Back=Esc (cancel the edit / history back /
 	// quit at the bare landing), Help='?'.
-	m.keys.Help.SetEnabled(true)
-	m.keys.About.SetEnabled(true)
+	filtering := m.helpFilterActive()
+	m.keys.Help.SetEnabled(m.state != stateAbout && !filtering)
+	m.keys.About.SetEnabled(
+		m.state == stateAbout ||
+			m.help ||
+			(content && !filtering && !m.showingLinks),
+	)
 	inStart := content && m.state == stateStart
 	_, startHasSelection := m.start.selected()
 	startHasSelection = inStart && startHasSelection
@@ -1309,6 +1321,7 @@ func (m *appModel) updateKeymap() {
 		m.keys.Copy.SetEnabled(true)
 		m.keys.Back.SetEnabled(true)
 		m.keys.Quit.SetEnabled(true)
+		m.keys.About.SetEnabled(true)
 	}
 }
 

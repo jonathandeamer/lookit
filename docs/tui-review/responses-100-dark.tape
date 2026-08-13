@@ -6,7 +6,7 @@ Require vhs
 Output out/tui-review/_render.txt
 
 Set Width 1132
-Set Height 645
+Set Height 714
 Set FontSize 18
 Set FontFamily "JetBrainsMono NF"
 Set Padding 0

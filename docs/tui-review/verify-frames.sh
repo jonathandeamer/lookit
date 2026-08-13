@@ -8,9 +8,9 @@
 # frame (the TUI had not painted) or a duplicate of the previous still.
 #
 # Two cheap checks catch both shapes:
-#   blank     a still far smaller than its neighbours is a near-empty screen;
-#             PNG compresses flat colour to almost nothing (a blank 80x24
-#             frame measured ~3 KB against ~70 KB for a painted one).
+#   blank     a still far smaller than the fullest one in its tape is a
+#             near-empty screen; PNG compresses flat colour to almost nothing
+#             (a blank 80x24 frame measured ~3 KB against ~70 KB painted).
 #   duplicate two identical stills mean one scene captured the other's screen.
 #
 # Neither catches a still that is plausible but wrong (a real screen, one step
@@ -26,7 +26,23 @@ dir=${1:?usage: verify-frames.sh <frames dir>}
 # A still under this fraction of the directory's median size (in percent) is
 # treated as blank. Real stills measured 60-100% of their median; blank ones
 # came in around 4%, so the gap is wide and the threshold is not delicate.
-min_percent=25
+# A still under this fraction of the tape's LARGEST still (in percent) is
+# treated as blank.
+#
+# The comparison is against the maximum, not the median, because several
+# scenes are legitimately sparse: a filter matching nothing (Bubbles renders
+# an empty Filtering list as the empty string), the last page of the list
+# holding one row, and `catalog off` showing one bookmark — the last of which
+# is most of a 100x50 frame's height. Against a median those read as blank;
+# against the fullest frame in the same tape they are plainly painted.
+#
+# Measured, all stills normalised to the fullest frame of their own tape:
+#   truly blank            1-2%
+#   legitimately sparse   13-21%
+#   ordinary painted      50-100%
+# 5% sits in the wide gap below everything real, so the threshold is not
+# delicate. Raising it to "catch more" would start failing honest frames.
+min_percent=5
 
 count=$(find "$dir" -name '*.png' -type f | wc -l | tr -d ' ')
 if [ "$count" -eq 0 ]; then
@@ -34,17 +50,16 @@ if [ "$count" -eq 0 ]; then
 	exit 1
 fi
 
-sizes=$(find "$dir" -name '*.png' -type f -exec wc -c {} + |
-	grep -v ' total$' | awk '{print $1}' | sort -n)
-median=$(echo "$sizes" | awk -v n="$count" 'NR == int((n + 1) / 2) {print $1}')
+largest=$(find "$dir" -name '*.png' -type f -exec wc -c {} + |
+	grep -v ' total$' | awk '{print $1}' | sort -n | tail -1)
 
 status=0
 
 for png in "$dir"/*.png; do
 	size=$(wc -c <"$png" | tr -d ' ')
-	percent=$((size * 100 / median))
+	percent=$((size * 100 / largest))
 	if [ "$percent" -lt "$min_percent" ]; then
-		echo "$png: $size bytes is $percent% of the median $median — blank frame?" >&2
+		echo "$png: $size bytes is $percent% of the largest still $largest — blank frame?" >&2
 		echo "  (Screenshot captured before the screen painted; see the Sleep note in the tour tape)" >&2
 		status=1
 	fi

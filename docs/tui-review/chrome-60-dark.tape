@@ -1,5 +1,5 @@
 # 60×20, lookit dark. Pixel size calibrated at FontSize 18 / Padding 0:
-# 686×444 → 60 columns × 20 rows. Below startWideMinWidth (72), so the
+# 686×490 → 60 columns × 20 rows. Below startWideMinWidth (72), so the
 # startpage uses the stacked narrow layout.
 #
 # From the repo root:  vhs docs/tui-review/chrome-60-dark.tape
@@ -10,7 +10,7 @@ Require vhs
 Output out/tui-review/_render.txt
 
 Set Width 686
-Set Height 444
+Set Height 490
 Set FontSize 18
 Set FontFamily "JetBrainsMono NF"
 Set Padding 0

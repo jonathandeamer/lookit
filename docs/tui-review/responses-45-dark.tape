@@ -1,12 +1,18 @@
-# 60×20, lookit dark. Same cell geometry as chrome-60-dark.tape.
-# From the repo root:  vhs docs/tui-review/responses-60-dark.tape
+# 45×24, lookit dark. Same cell geometry as chrome-45-dark.tape.
+# Responses at the narrow floor: the reader, the links panel, the help
+# overlay's column count, and the dial error's wrap all get their hardest
+# width here.
+#
+# Needs the loopback fingerd (make review-fingerd; the tour starts it).
+# From the repo root:  vhs docs/tui-review/responses-45-dark.tape
+
 
 Require vhs
 
 Output out/tui-review/_render.txt
 
-Set Width 686
-Set Height 490
+Set Width 520
+Set Height 580
 Set FontSize 18
 Set FontFamily "JetBrainsMono NF"
 Set Padding 0

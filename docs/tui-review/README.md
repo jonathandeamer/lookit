@@ -86,12 +86,45 @@ share the same four geometries:
 |---|---|---|
 | `*-80-dark.tape` | 80×24 | classic terminal |
 | `*-100-dark.tape` | 100×30 | startpage note column is designed at 100 columns |
+| `*-100-tall.tape` | 100×50 | the whole startpage in one frame — the density geometry |
 | `*-60-dark.tape` | 60×20 | below `startWideMinWidth` (72); stacked layout |
+| `*-45-dark.tape` | 45×24 | the narrow floor: a tmux split, a side-by-side pane |
 | `*-80-light.tape` | 80×24 | AdaptiveColor on a light terminal background |
 
+`100×50` and `45×24` exist for judging composition, and each isolates one
+variable. At 24 or 30 rows the startpage shows only its top dozen entries, so
+"is this crowded" cannot be answered — 50 rows fits BOOKMARKS, COMMUNITIES and
+every SERVICES group at once. `45×24` keeps the 80-column tapes' height so
+width is the only thing that changed; 60 columns is *below* the stacked-layout
+threshold but is not actually narrow, and 45 is where a two-column layout runs
+out of room.
+
+### Calibrating a new size
+
 Pixel sizes are calibrated at `FontSize 18` and `Padding 0` (VHS `Set Width`
-is pixels, not columns). Re-calibrate with `tput cols; tput lines` if the
-font size changes.
+is pixels, not columns), and they are **measured, not derived** — the implied
+cell height is not consistent between sizes, so arithmetic from an existing
+tape gets it wrong. Record a throwaway tape that runs
+`echo GEOM $(tput cols) x $(tput lines)`, screenshot it, read the numbers off
+the PNG, and iterate. The current sizes measure exactly:
+
+| Pixels | Cells |
+|---|---|
+| 520×580 | 45×24 |
+| 686×490 | 60×20 |
+| 914×580 | 80×24 |
+| 1132×714 | 100×30 |
+| 1132×1180 | 100×50 |
+
+**Both pixel dimensions must be even.** ffmpeg's encoder rejects an odd width
+or height, and VHS reports it only as `Conversion failed!` with no still
+written.
+
+Guessing rather than measuring is exactly how the first version of this kit
+shipped every geometry two to three rows short of its label: what the tapes
+called 80×24, 100×30 and 60×20 were really 80×22, 100×27 and 60×18. Nothing
+failed — every frame was simply more cramped than the documented size, which
+is the worst possible error in a kit whose job is judging density.
 
 ## Scenes
 
@@ -102,20 +135,33 @@ font size changes.
 | `start-input.png` | startpage, target input focused |
 | `start-list.png` | startpage, first row selected (bookmark) |
 | `start-child.png` | SERVICES child `dict` selected; note and `├` visible |
+| `start-bottom.png` | `G` to the last row — how the catalog ends, and the last page |
+| `start-nomatch.png` | `/zzzzzz` mid-type: a filter matching nothing |
 | `start-filter.png` | startpage flattened by `/plan` |
 | `help.png` | `?` panel on the startpage |
 | `about.png` | About (`a` from the open help panel) |
 | `bookmark.png` | `b` on `@cosmic.voyage`: flash, BOOKMARKS 2, catalog count drops |
 | `catalog-off.png` | `catalog off` in the file: BOOKMARKS is the whole page |
+| `start-many-bookmarks.png` | six pins (`fixtures/bookmarks-many`): BOOKMARKS carrying real weight |
 
-The last two mutate the throwaway bookmarks file, so they run last — every
-earlier still shows the one-bookmark fixture state.
+The last three mutate the throwaway bookmarks file, so they run last — every
+earlier still shows the one-bookmark fixture state. `start-many-bookmarks`
+rewrites the file wholesale rather than appending, so it also clears the
+`catalog off` line the scene before it added.
+
+Two things bite in that tail and are already handled. Quitting needs `Ctrl+C`,
+not `q`: lookit launches with the target input focused, so `q` types a literal
+`q` into the target — harmless as a tape's last line, which is why it went
+unnoticed, but fatal once another scene follows. And lookit needs a full
+second to exit before the next shell line types, or the command lands in the
+target input instead.
 
 `responses-tour.tape` fingers the loopback fixture (`:2479` named, `:2480` generic), then a closed port.
 
 | File | State |
 |---|---|
 | `list.png` | host listing at `@127.0.0.1:2479` (alice, bob) |
+| `list-help.png` | `?` over a host listing — help's third context |
 | `reader.png` | alice's .plan after Enter |
 | `reader-link.png` | first link focused (`tab`) |
 | `links.png` | `L` links panel |
@@ -127,7 +173,14 @@ earlier still shows the one-bookmark fixture state.
 | `truncated.png` | `trunc@127.0.0.1:2479` — `partial (truncated)` |
 | `error.png` | `nobody@127.0.0.1:1` — dial refused, `r retry` (Wait matches `connect:` so 60-col wrap still lands) |
 
-## Rubric
+## Rubric: does it look wrong
+
+Two rubrics live here and they answer different questions. This one asks
+whether a screen is *broken* — collisions, clipping, illegible pairings,
+dishonest copy. The aesthetic rubric below asks whether a screen that renders
+correctly is any *good*. Run this one first; a composition question about a
+frame that is already colliding is wasted effort.
+
 
 Review the PNGs as images. One happy-path frame is not a review. Walk every
 tape and hunt collisions, not just whether the screen rendered.
@@ -143,6 +196,59 @@ tape and hunt collisions, not just whether the screen rendered.
    note column at 100 columns and crush at 60, BOOKMARKS vs catalog hierarchy,
    `├`/`└` children, selection shelf, gradient wordmark, input placeholder
    (`user@host or @host`) vs the list below it.
+
+## Rubric: is it any good
+
+A separate pass, run after the one above, and deliberately subjective. Nothing
+here can be a test — that is the point. Work these five lenses in order, and
+apply them to the startpage first: it is the launch screen, it is the densest
+thing lookit draws, and it is where the catalog's growth shows up first.
+
+**1. Density and breathing room.** What is the ink-to-space ratio? Does any
+section run more than about seven rows without a break? Where two mechanisms
+add vertical space — a section separator *and* an unconditional spacer — do
+they ever compound into a gap that reads as a mistake? Does the note column
+crowd the target column at 100, and which of the two gives way first at 45?
+`chrome-100-tall` is the primary evidence; `chrome-45-dark` is the stress case.
+
+**2. Hierarchy and scanning.** Two-second test: opening `start-input.png`
+cold, is it obvious where to start? Do the section headers carry more weight
+than the rows, or compete with them? Does BOOKMARKS read as *the user's own
+shelf*, or as a fourth catalog section that happens to be on top?
+`start-many-bookmarks.png` is where this is decidable — one seeded bookmark
+cannot pose the question.
+
+**3. Alignment and rhythm.** Do column edges hold across sections, or does
+each section set its own? Are the `├`/`└` connectors aligned to their parent
+and to each other? Does the note column's left edge stay put as the target
+column's contents change width? Does the 48-cell note cap produce truncation
+that reads as deliberate or as ragged?
+
+**4. Restraint.** Count what is on one screen: distinct colours, distinct
+weights, distinct glyph classes, distinct alignment rules. Then ask of each
+whether it is earning its place. Is the overview line above the list carrying
+information or repeating the status bar? This lens is the one that most often
+finds something worth removing, which is the cheapest kind of fix.
+
+**5. Intuitiveness at rest.** The true first-run screen is the input focused
+with nothing selected. Is the next action obvious without the help panel? Does
+the placeholder compete with the list beneath it for the eye? And at the edges
+— the last page, an empty filter result — does lookit look considered or
+merely finished? `start-bottom.png` and `start-nomatch.png` exist for this.
+
+Then run lenses 1–4 again on **help**, which is now responsive: it retains the
+longest prefix of its candidate set that fits, so what it drops between 100 and
+45 columns is a design decision no test asserts. Compare `help.png`,
+`list-help.png` and `reader-help.png` across all six geometries, and check on
+`responses-100-tall` whether a bottom-docked overlay reads as anchored or as
+stranded below forty rows of body.
+
+Repeat lenses 1–4 once more, briefly, on the reader and the status chrome.
+
+Findings are worth more when they carry the frame that shows them. Rank by
+severity times how many geometries reproduce it: something wrong in one frame
+at one width is a note, and something wrong in every frame is a decision to
+revisit.
 
 ## Contact sheets
 

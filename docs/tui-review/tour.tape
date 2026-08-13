@@ -49,6 +49,35 @@ Sleep 1500ms
 Screenshot out/tui-review/start-child.png
 Sleep 250ms
 
+# The far end of the page. Every other startpage still shows the top dozen
+# rows; this one shows how the catalog ends, where the last group's connectors
+# land, and what the list looks like scrolled off its first page. The last row
+# is computed, not file order: hosts sort alphabetically, so typed-hole.org is
+# the last group and its children sort to cyoa, lobsters, smog, textfile.
+Type "G"
+Wait+Screen /lucky dip/
+Sleep 1500ms
+Screenshot out/tui-review/start-bottom.png
+Sleep 250ms
+
+# A filter that matches nothing, while it is still being typed. Bubbles
+# renders an empty Filtering list as the empty string rather than its
+# "No entries." text (list.go's populatedView returns early while filtering),
+# so this is the frame that shows what a user sees mid-keystroke when the
+# query stops matching.
+Type "/"
+Sleep 200ms
+# Six z's, not three: the filter is a fuzzy subsequence match, and "zzz" still
+# matched "Daily word search puzzle". No catalog row has six.
+Type "zzzzzz"
+Wait+Screen /zzzzzz/
+Sleep 1500ms
+Screenshot out/tui-review/start-nomatch.png
+Sleep 250ms
+
+Escape
+Sleep 200ms
+
 Type "/"
 Sleep 200ms
 Type "plan"
@@ -111,5 +140,41 @@ Sleep 1500ms
 Screenshot out/tui-review/catalog-off.png
 Sleep 250ms
 
-Type "q"
+# Ctrl+C, not "q": lookit launches with the target input focused, so `q` here
+# types a literal q into the target instead of quitting. Ctrl+C always quits.
+Ctrl+C
+Sleep 200ms
+
+# A realistic BOOKMARKS section. The fixture's single bookmark keeps every
+# other still deterministic, but it cannot pose the question this one does:
+# with six pins, does BOOKMARKS still read as the user's own shelf, or as a
+# fourth catalog section? Pinning also empties two rows out of COMMUNITIES and
+# turns two service roots structural, and one bookmark deliberately matches no
+# catalog entry, so an unclassified row's blank note column is on screen.
+# This rewrites the file wholesale, so it also clears the "catalog off" line
+# the previous scene appended.
+#
+# The 1s is lookit actually exiting. 200ms was enough when `q` ended the tape,
+# but here the next line types into whatever holds the terminal — and if
+# lookit still does, the cp lands in the target input and the tape fails.
+Sleep 1s
+Hide
+Type "cp docs/tui-review/fixtures/bookmarks-many out/tui-review/xdg/lookit/bookmarks"
+Enter
+Type "clear"
+Enter
+Show
+Type "./lookit"
+Enter
+# Wait on the overview count, not on a bookmark target. The unclassified
+# someone@example.org is the sixth row, and in the stacked narrow layout six
+# two-line rows do not fit a 20-row terminal — it is on page two at 60×20, so
+# waiting for it there hangs the tape. The overview is the top line at every
+# geometry, and "6" proves this fixture loaded rather than the one-line one.
+Wait+Screen /BOOKMARKS\s+6/
+Sleep 1500ms
+Screenshot out/tui-review/start-many-bookmarks.png
+Sleep 250ms
+
+Ctrl+C
 Sleep 200ms

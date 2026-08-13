@@ -43,6 +43,18 @@ Sleep 1500ms
 Screenshot out/tui-review/list.png
 Sleep 250ms
 
+# Help's candidate set is derived from live bindings, so it differs per view.
+# The kit already shows it over the startpage and over the reader; a host
+# listing is the third context, and the one with a filterable list under it.
+Type "?"
+Wait+Screen /about lookit/
+Sleep 1500ms
+Screenshot out/tui-review/list-help.png
+Sleep 250ms
+
+Escape
+Sleep 200ms
+
 Enter
 Wait+Screen /Alice Review/
 Sleep 1500ms

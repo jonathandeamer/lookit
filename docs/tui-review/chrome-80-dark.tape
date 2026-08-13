@@ -1,5 +1,5 @@
 # 80×24, lookit dark. Pixel size calibrated at FontSize 18 / Padding 0:
-# 914×533 → 80 columns × 24 rows.
+# 914×580 → 80 columns × 24 rows.
 #
 # From the repo root:  vhs docs/tui-review/chrome-80-dark.tape
 # Or record every tape:  make review-tui
@@ -9,7 +9,7 @@ Require vhs
 Output out/tui-review/_render.txt
 
 Set Width 914
-Set Height 533
+Set Height 580
 Set FontSize 18
 Set FontFamily "JetBrainsMono NF"
 Set Padding 0

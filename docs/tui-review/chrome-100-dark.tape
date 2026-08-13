@@ -1,5 +1,5 @@
 # 100×30, lookit dark. Pixel size calibrated at FontSize 18 / Padding 0:
-# 1132×645 → 100 columns × 30 rows. 100 columns is the width the startpage
+# 1132×714 → 100 columns × 30 rows. 100 columns is the width the startpage
 # note column is designed against.
 #
 # From the repo root:  vhs docs/tui-review/chrome-100-dark.tape
@@ -10,7 +10,7 @@ Require vhs
 Output out/tui-review/_render.txt
 
 Set Width 1132
-Set Height 645
+Set Height 714
 Set FontSize 18
 Set FontFamily "JetBrainsMono NF"
 Set Padding 0

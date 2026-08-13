@@ -145,6 +145,45 @@ func TestHelpLayoutsByContext(t *testing.T) {
 	}
 }
 
+func TestHelpAdmissionMatchesRetainedBindingsAcrossContexts(t *testing.T) {
+	messages := []tea.KeyPressMsg{
+		{Code: tea.KeyEnter},
+		{Code: 'i', Text: "i"},
+		{Code: 'j', Text: "j"},
+		{Code: tea.KeyRight},
+		{Code: '/', Text: "/"},
+		{Code: tea.KeyTab},
+		{Code: 'N', Text: "N"},
+		{Code: 'v', Text: "v"},
+		{Code: 'r', Text: "r"},
+		{Code: 'y', Text: "y"},
+		{Code: 'b', Text: "b"},
+		{Code: 'h', Text: "h"},
+		{Code: 'L', Text: "L"},
+		{Code: 'a', Text: "a"},
+		{Code: 'q', Text: "q"},
+		{Code: 'f', Text: "f"},
+		{Code: 'g', Text: "g"},
+		{Code: 'x', Text: "x"},
+	}
+
+	for name := range helpContextModels(t) {
+		t.Run(name, func(t *testing.T) {
+			for _, msg := range messages {
+				clone := helpContextModels(t)[name]
+				clone.common.width, clone.common.height = 200, 40
+				clone.openHelp()
+				(&clone).updateKeymap()
+				want := clone.helpLayout().matches(msg)
+				next, _ := clone.Update(msg)
+				if got := next.(appModel).help; got == want {
+					t.Errorf("key %v leaves Help=%v, want %v", msg, got, !want)
+				}
+			}
+		})
+	}
+}
+
 func TestLinksPanelHelpCandidatesStaySelectionAwareAndIncludeAbout(t *testing.T) {
 	target := hostTarget(t, "alice@tilde.team")
 	tests := []struct {

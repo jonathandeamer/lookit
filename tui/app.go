@@ -547,6 +547,10 @@ func (m *appModel) closeHelp() {
 	m.help = false
 }
 
+func replayKey(msg tea.KeyPressMsg) tea.Cmd {
+	return func() tea.Msg { return msg }
+}
+
 // enterRaw shows the current node's unprocessed body ("view source") in the
 // reader viewport. It works over any node (list or profile); the underlying
 // node.state is preserved in history so exitRaw can return to it.
@@ -717,15 +721,25 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 		return true, m, tea.Quit
 	}
 
-	// Help panel: any key closes it — except 'a', which opens the about screen.
 	if m.help {
+		switch {
+		case key.Matches(msg, m.keys.Help), key.Matches(msg, m.keys.Back):
+			m.closeHelp()
+			m.resize()
+			return true, m, nil
+		}
+
+		layout := m.helpLayout()
+		if !layout.matches(msg) {
+			return true, m, nil
+		}
 		m.closeHelp()
 		if key.Matches(msg, m.keys.About) {
 			m.openAbout()
 			return true, m, nil
 		}
 		m.resize()
-		return true, m, nil
+		return true, m, replayKey(msg)
 	}
 
 	// About screen: its own keys, ahead of the input-focus branch.

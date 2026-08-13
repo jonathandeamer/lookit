@@ -158,3 +158,54 @@ func maxLineWidth(lines []string) int {
 	}
 	return width
 }
+
+func (m appModel) helpCandidates() []key.Binding {
+	if m.showingLinks {
+		return m.linksPanelHelpCandidates()
+	}
+	open := m.keys.Open
+	if link, ok := m.focusedReaderLink(); ok &&
+		actionsForLink(link).enter == linkEnterRefuse {
+		open.SetEnabled(false)
+	}
+	return []key.Binding{
+		m.keys.Move, open, m.keys.Back, m.keys.FocusInput, m.keys.Home,
+		m.keys.Page, m.keys.LinkNext, m.keys.LinkPrev, m.keys.Filter,
+		m.keys.Browse, m.keys.Raw, m.keys.Refresh,
+		m.keys.Copy, m.keys.Bookmark, m.keys.LinkPanel, m.keys.About, m.keys.Quit,
+	}
+}
+
+func (m appModel) linksPanelHelpCandidates() []key.Binding {
+	bindings := []key.Binding{m.keys.Move, m.keys.Back}
+	if link, ok := m.linksPanel.selected(); ok {
+		actions := actionsForLink(link)
+		if actions.enter == linkEnterGo {
+			bindings = append(bindings, m.keys.Open)
+		}
+		if actions.finger {
+			bindings = append(bindings, key.NewBinding(
+				key.WithKeys("f"), key.WithHelp("f", "go"),
+			))
+		}
+		if actions.copy {
+			bindings = append(bindings, m.keys.Copy)
+		}
+	}
+	return append(bindings, m.keys.Filter, m.keys.About)
+}
+
+func (m appModel) helpLayout() helpLayout {
+	height := m.common.height - 1 // reserve only the permanent status bar
+	if height < 1 {
+		height = 1
+	}
+	return layoutHelp(
+		m.helpCandidates(), m.common.styles,
+		m.common.width, height,
+	)
+}
+
+func (m appModel) helpView() string {
+	return renderHelp(m.helpLayout(), m.common.styles, m.common.width)
+}

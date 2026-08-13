@@ -764,7 +764,6 @@ func TestListFilteringDoesNotAdvertiseRefreshOrRetry(t *testing.T) {
 func TestRWhileHelpOpenOnlyClosesHelp(t *testing.T) {
 	m := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan\n")})
 	m.help = true
-	m.helpModel.ShowAll = true
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'r'})
 	got := next.(appModel)
 	if got.help || got.pending != nil || cmd != nil {

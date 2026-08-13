@@ -1194,12 +1194,12 @@ func TestLinksPanelHelpContext(t *testing.T) {
 			(&m).updateKeymap()
 
 			view := ansi.Strip(m.helpView())
-			for _, want := range []string{"move", "filter", "back", "copy"} {
+			for _, want := range []string{"move", "filter", "back", "copy", "about lookit"} {
 				if !strings.Contains(view, want) {
 					t.Fatalf("panel help missing %q:\n%s", want, view)
 				}
 			}
-			for _, unwanted := range []string{"target", "view source", "page", "top/bottom", "about lookit", "quit"} {
+			for _, unwanted := range []string{"target", "view source", "page", "top/bottom", "quit"} {
 				if strings.Contains(view, unwanted) {
 					t.Fatalf("panel help contains non-panel action %q:\n%s", unwanted, view)
 				}
@@ -1245,16 +1245,14 @@ func TestHelpPanelUsesSharedContrastStyles(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	step, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")}})
 	m = step.(appModel)
+	m.common.width, m.common.height = 200, 40
 	step, _ = m.Update(tea.KeyPressMsg{Code: '?'})
 	m = step.(appModel)
 
-	if !m.helpModel.ShowAll {
-		t.Fatal("precondition: help panel should be expanded")
-	}
-	if !sameColor(m.helpModel.Styles.FullKey.GetForeground(), m.common.styles.palette.AccentViolet) {
+	if !sameColor(m.common.styles.help.FullKey.GetForeground(), m.common.styles.palette.AccentViolet) {
 		t.Fatal("help key colour should use accent violet")
 	}
-	if !sameColor(m.helpModel.Styles.FullDesc.GetForeground(), m.common.styles.palette.BarText) {
+	if !sameColor(m.common.styles.help.FullDesc.GetForeground(), m.common.styles.palette.BarText) {
 		t.Fatal("help description colour should use bar text")
 	}
 	view := m.View().Content
@@ -1562,8 +1560,11 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	if sameColor(got.common.styles.palette.BaseBg, oldBg) {
 		t.Fatal("palette base background did not change")
 	}
-	if !sameColor(got.helpModel.Styles.FullKey.GetForeground(), got.common.styles.help.FullKey.GetForeground()) {
-		t.Fatal("help styles were not reapplied")
+	if !sameColor(got.common.styles.help.FullKey.GetForeground(), got.common.styles.palette.AccentViolet) {
+		t.Fatal("help key style was not rebuilt for the new background")
+	}
+	if !sameColor(got.common.styles.help.FullDesc.GetForeground(), got.common.styles.palette.BarText) {
+		t.Fatal("help description style was not rebuilt for the new background")
 	}
 	if !sameColor(got.spin.Style.GetForeground(), got.common.styles.spinner.GetForeground()) {
 		t.Fatal("spinner style was not reapplied")

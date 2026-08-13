@@ -21,6 +21,44 @@ func helpKeys(bindings []key.Binding) []string {
 	return out
 }
 
+func TestHelpCandidatesUsePriorityOrder(t *testing.T) {
+	m := readerWithFocusedLink(t, stubFetch(t), Link{
+		Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team",
+		Target: hostTarget(t, "alice@tilde.team"),
+	})
+	m.common.width, m.common.height = 200, 40
+	m.help = true
+	(&m).updateKeymap()
+	got := strings.Join(helpKeys(m.helpLayout().bindings), ",")
+	want := "↑/↓,↵,esc,i,h,←/→,tab,shift+tab,v,r,y,b,L,a,q"
+	if got != want {
+		t.Fatalf("Help order = %q, want %q", got, want)
+	}
+}
+
+func TestLinksPanelHelpCandidatesStaySelectionAwareAndIncludeAbout(t *testing.T) {
+	target := hostTarget(t, "alice@tilde.team")
+	tests := []struct {
+		name string
+		link Link
+		want string
+	}{
+		{"URL", Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}, "↑/↓,esc,y,/,a"},
+		{"ambiguous", Link{Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true}, "↑/↓,esc,f,y,/,a"},
+		{"definite", Link{Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target}, "↑/↓,esc,↵,y,/,a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := linksPanelModel(t, stubFetch(t), []Link{tt.link})
+			m.help = true
+			(&m).updateKeymap()
+			if got := strings.Join(helpKeys(m.helpLayout().bindings), ","); got != tt.want {
+				t.Fatalf("Help order = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLayoutHelpFiltersDisabledAndFillsColumnsTopToBottom(t *testing.T) {
 	st := newStyles(true)
 	bindings := []key.Binding{

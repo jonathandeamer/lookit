@@ -38,8 +38,9 @@ service dict@bbs.airandwave.net Dictionary lookup
 service urban@bbs.airandwave.net Slang, internet terms and memes
 service wordsearch:today@bbs.airandwave.net Daily word search puzzle
 service sudoku:easy@bbs.airandwave.net A new, easy sudoku each day
-service wiki@bbs.airandwave.net Wikipedia lookup
+service wiki@bbs.airandwave.net Read Wikipedia from your terminal
 service @graph.no Weather worldwide by place name
+service liverpool@graph.no Weather where lookit is made
 service @typed-hole.org A small menu of finger services
 service textfile@typed-hole.org A lucky dip into textfiles.com
 service cyoa@typed-hole.org Choose your own adventure

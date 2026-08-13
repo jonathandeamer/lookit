@@ -194,6 +194,7 @@ func TestServicesGroupUnderHostRoots(t *testing.T) {
 		"bonsai@flanigan.us",
 		"calendar@flanigan.us",
 		"@graph.no",
+		"liverpool@graph.no",
 		"@happynetbox.com",
 		"1@happynetbox.com",
 		"bot@happynetbox.com",
@@ -213,21 +214,21 @@ func TestServicesGroupUnderHostRoots(t *testing.T) {
 
 // @graph.no has a root and no children, so it is a plain row: no indent.
 func TestRootWithoutChildrenIsNotAParent(t *testing.T) {
-	sections := buildSections(loadCatalog(), bookmarkFile{})
+	sections := buildSections([]startEntry{{target: "@standalone.org", kind: kindService, note: "Standalone"}}, bookmarkFile{})
 	found := false
 	for _, s := range sections {
 		for _, e := range s.entries {
-			if e.target != "@graph.no" {
+			if e.target != "@standalone.org" {
 				continue
 			}
 			found = true
 			if e.child || e.structural {
-				t.Fatalf("@graph.no = %+v; want a plain row", e)
+				t.Fatalf("@standalone.org = %+v; want a plain row", e)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("@graph.no not found in any section")
+		t.Fatal("@standalone.org not found in any section")
 	}
 }
 

@@ -3736,10 +3736,10 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 		want   startOverviewCounts
 		total  int
 	}{
-		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 21}, total: 27},
-		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 20}, total: 27},
-		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 20}, total: 27},
-		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 21}, total: 28},
+		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 22}, total: 28},
+		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 21}, total: 28},
+		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 21}, total: 28},
+		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 22}, total: 29},
 		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},
 		{name: "filtered pinned parent", seed: "@happynetbox.com\n", filter: "happynetbox.com", want: startOverviewCounts{bookmarks: 1, services: 5}, total: 6},
 	}

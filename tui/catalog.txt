@@ -47,7 +47,7 @@ service smog@typed-hole.org Saturday Morning Gemzine back issues
 service lobsters@typed-hole.org The latest posts from lobste.rs
 service @flanigan.us Four services: bonsai, ping, wisdom, calendar
 service bonsai@flanigan.us A fresh ASCII bonsai, with an aphorism
-service calendar@flanigan.us Today’s date, across the years
+service calendar@flanigan.us On this day in history
 service bot@happynetbox.com Tech news headlines with links, plus a fun fact
 service random@happynetbox.com Jump to a random happynetbox user
 service browserversion@happynetbox.com Current version numbers for major browsers

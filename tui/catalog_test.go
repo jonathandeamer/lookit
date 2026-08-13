@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -44,6 +45,9 @@ func TestCatalogIsWellFormed(t *testing.T) {
 		t.Fatalf("catalog has %d entries, want at least 20", len(entries))
 	}
 
+	// Keyed by kind and target: a dual-role host carries both its listing and a
+	// "group" line naming the same target, and only a repeated *listing* is the
+	// duplicate this guards against.
 	seen := make(map[string]bool, len(entries))
 	for _, e := range entries {
 		if e.note == "" {
@@ -52,10 +56,11 @@ func TestCatalogIsWellFormed(t *testing.T) {
 		if e.source != sourceCatalog {
 			t.Errorf("%s source = %v, want sourceCatalog", e.target, e.source)
 		}
-		if seen[e.target] {
-			t.Errorf("%s appears twice", e.target)
+		key := fmt.Sprintf("%d %s", e.kind, e.target)
+		if seen[key] {
+			t.Errorf("%s appears twice with the same kind", e.target)
 		}
-		seen[e.target] = true
+		seen[key] = true
 	}
 }
 
@@ -75,12 +80,7 @@ func TestCatalogShipsNoPeople(t *testing.T) {
 // compiled in, so this must fail the build rather than ship.
 func TestCatalogHasRootForEveryGroupedHost(t *testing.T) {
 	entries, _ := parseCatalogData(catalogData)
-	roots := make(map[string]bool, len(entries))
-	for _, e := range entries {
-		if entryToken(e.target) == "" {
-			roots[entryHost(e.target)] = true
-		}
-	}
+	roots := catalogRootHosts(entries)
 	for _, e := range entries {
 		// Only services are grouped under parents. A queried community such as
 		// ring@thebackupbox.net sorts by host but remains a plain row.
@@ -93,15 +93,60 @@ func TestCatalogHasRootForEveryGroupedHost(t *testing.T) {
 	}
 }
 
+// catalogRootHosts is the set of hosts with a root LISTING. A group line shares
+// a root's shape — an empty query token — but supplies a note rather than a
+// row, so it must not satisfy the parent invariant on its own.
+func catalogRootHosts(entries []startEntry) map[string]bool {
+	roots := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if e.kind != kindGroup && entryToken(e.target) == "" {
+			roots[entryHost(e.target)] = true
+		}
+	}
+	return roots
+}
+
+// A group line describes a SERVICES group header. One naming a host that has no
+// header to describe is dead data: silently ignored at runtime, so it has to
+// fail here instead.
+func TestCatalogGroupLinesDescribeARealGroup(t *testing.T) {
+	entries, _ := parseCatalogData(catalogData)
+	roots := catalogRootHosts(entries)
+	children := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if e.kind == kindService && entryToken(e.target) != "" {
+			children[entryHost(e.target)] = true
+		}
+	}
+	for _, e := range entries {
+		if e.kind != kindGroup {
+			continue
+		}
+		host := entryHost(e.target)
+		if entryToken(e.target) != "" {
+			t.Errorf("group %s names a query, not a host; a group note belongs to a host root", e.target)
+			continue
+		}
+		if !roots[host] {
+			t.Errorf("group %s has no root listing to head", e.target)
+		}
+		if !children[host] {
+			t.Errorf("group %s has no service children, so nothing renders its note", e.target)
+		}
+	}
+}
+
 // startNoteMaxCells is the widest a catalog note may render. The note column is
 // half the startpage width less the frame, so this is what fits at 100 columns
 // — the width the spec guarantees. Below that, notes truncate as they always
 // have.
 const startNoteMaxCells = 48
 
-// catalogNoteWidths measures every note in display cells, keyed by target.
-// Cells, not runes: rendering truncates by terminal width (ansi.Truncate), and
-// a CJK character or emoji occupies two cells while counting as one rune.
+// catalogNoteWidths measures every note in display cells, keyed by "<kind>
+// <target>" — a dual-role host has both a listing note and a group note, and
+// both have to fit. Cells, not runes: rendering truncates by terminal width
+// (ansi.Truncate), and a CJK character or emoji occupies two cells while
+// counting as one rune.
 func catalogNoteWidths(data []byte) map[string]int {
 	widths := make(map[string]int)
 	for _, raw := range strings.Split(string(data), "\n") {
@@ -113,7 +158,7 @@ func catalogNoteWidths(data []byte) map[string]int {
 		if len(fields) < 3 {
 			continue
 		}
-		widths[fields[1]] = ansi.StringWidth(fields[2])
+		widths[fields[0]+" "+fields[1]] = ansi.StringWidth(fields[2])
 	}
 	return widths
 }
@@ -123,7 +168,7 @@ func catalogNoteWidths(data []byte) map[string]int {
 func TestCatalogNoteWidthMeasuresCellsNotRunes(t *testing.T) {
 	wide := strings.Repeat("的", 30) // 30 runes, 60 cells
 	data := []byte("service wide@example.com " + wide + "\n")
-	got := catalogNoteWidths(data)["wide@example.com"]
+	got := catalogNoteWidths(data)["service wide@example.com"]
 	if got != 60 {
 		t.Fatalf("width = %d, want 60 cells for %d runes", got, len([]rune(wide)))
 	}
@@ -133,9 +178,9 @@ func TestCatalogNoteWidthMeasuresCellsNotRunes(t *testing.T) {
 }
 
 func TestCatalogNotesFitTheNoteColumn(t *testing.T) {
-	for target, width := range catalogNoteWidths(catalogData) {
+	for record, width := range catalogNoteWidths(catalogData) {
 		if width > startNoteMaxCells {
-			t.Errorf("%s note is %d cells, want at most %d", target, width, startNoteMaxCells)
+			t.Errorf("%q note is %d cells, want at most %d", record, width, startNoteMaxCells)
 		}
 	}
 }

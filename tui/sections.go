@@ -32,8 +32,13 @@ type startSection struct {
 // The bookmark file stores targets only. A catalog match supplies its authored
 // metadata; an unmatched target stays unclassified with a blank description.
 func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
+	// Group lines are excluded from every listing map: they describe a header,
+	// not a place, so a bookmark must never inherit one.
 	byTarget := make(map[string]startEntry, len(catalog))
 	for _, e := range catalog {
+		if e.kind == kindGroup {
+			continue
+		}
 		byTarget[e.target] = e
 	}
 
@@ -63,10 +68,16 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 	}
 
 	roots := make(map[string]startEntry, len(catalog))
+	groupNotes := make(map[string]string)
 	for _, e := range catalog {
-		if entryToken(e.target) == "" {
-			roots[entryHost(e.target)] = e
+		if entryToken(e.target) != "" {
+			continue
 		}
+		if e.kind == kindGroup {
+			groupNotes[entryHost(e.target)] = e.note
+			continue
+		}
+		roots[entryHost(e.target)] = e
 	}
 
 	for _, group := range []struct {
@@ -88,7 +99,7 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 			continue
 		}
 		if group.kind == kindService {
-			listed = groupByHost(listed, roots, pinned)
+			listed = groupByHost(listed, roots, groupNotes, pinned)
 		} else {
 			sort.SliceStable(listed, func(i, j int) bool {
 				leftHost, rightHost := entryHost(listed[i].target), entryHost(listed[j].target)
@@ -111,8 +122,10 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 // because the root is classified differently (@happynetbox.com is a community)
 // or because it is pinned — gets a structural copy of that root as its parent.
 // Structure is not a listing: structural rows are not counted and vanish while
-// filtering.
-func groupByHost(listed []startEntry, roots map[string]startEntry, pinned map[string]bool) []startEntry {
+// filtering. Because such a row heads a group rather than offering the place it
+// names, a "group" line in the catalog may give it its own note; without one it
+// inherits the root's, which is what every single-role host relies on.
+func groupByHost(listed []startEntry, roots map[string]startEntry, groupNotes map[string]string, pinned map[string]bool) []startEntry {
 	byHost := make(map[string][]startEntry, len(listed))
 	var hosts []string
 	for _, e := range listed {
@@ -155,6 +168,9 @@ func groupByHost(listed []startEntry, roots map[string]startEntry, pinned map[st
 			parent := root
 			parent.structural = true
 			parent.bookmarked = pinned[root.target]
+			if note, ok := groupNotes[host]; ok {
+				parent.note = note
+			}
 			out = append(out, parent)
 		}
 		for i, e := range rows {

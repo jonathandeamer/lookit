@@ -21,6 +21,10 @@ const (
 	kindCommunity
 	kindService
 	kindPerson
+	// kindGroup is not a section: a "group" line is metadata carrying the note
+	// for a host's SERVICES group header, used when that header is a structural
+	// copy of a row listed elsewhere. It never renders as a row of its own.
+	kindGroup
 )
 
 func parseKind(s string) (entryKind, bool) {
@@ -31,6 +35,8 @@ func parseKind(s string) (entryKind, bool) {
 		return kindService, true
 	case "person":
 		return kindPerson, true
+	case "group":
+		return kindGroup, true
 	}
 	return 0, false
 }
@@ -175,7 +181,7 @@ func parseCatalogLine(line string) (startEntry, error) {
 	}
 	kind, ok := parseKind(fields[0])
 	if !ok {
-		return startEntry{}, fmt.Errorf("unknown kind %q (want community, service or person)", fields[0])
+		return startEntry{}, fmt.Errorf("unknown kind %q (want community, service, person or group)", fields[0])
 	}
 	target := fields[1]
 	if err := validateTarget(target); err != nil {

@@ -2,6 +2,12 @@
 #
 # Format: <kind> <target> <note>
 #
+# Kinds: community, service, person — and "group", which is not a section. A
+# group line gives a host's SERVICES header its own note, for a host whose root
+# is listed elsewhere (@happynetbox.com is a community) and so heads its
+# services as a structural row rather than as a listing. It never renders as a
+# row of its own, and a host without one keeps its root's note.
+#
 # A note must fit the note column: 48 terminal cells or fewer, which is what
 # the startpage shows at 100 columns. TestCatalogNotesFitTheNoteColumn enforces
 # it. A grouped service child's note is hidden until its row is selected;
@@ -49,6 +55,7 @@ service lobsters@typed-hole.org The latest posts from lobste.rs
 service @flanigan.us Four services: bonsai, ping, wisdom, calendar
 service bonsai@flanigan.us A fresh ASCII bonsai, with an aphorism
 service calendar@flanigan.us On this day in history
+group @happynetbox.com Not just .plan files
 service bot@happynetbox.com Tech news headlines with links, plus a fun fact
 service random@happynetbox.com Jump to a random happynetbox user
 service browserversion@happynetbox.com Current version numbers for major browsers

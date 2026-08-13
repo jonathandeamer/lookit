@@ -22,14 +22,24 @@ so the wordmark renders. From the repo root:
 make review-tui
 ```
 
-That builds `./lookit` and records every `chrome-*.tape` into
-`docs/tui-review/frames/<tape>/`. Or record one tape:
+That builds `./lookit` and the loopback fingerd, starts the fingerd, and
+records every `chrome-*.tape` and `responses-*.tape` into
+`docs/tui-review/frames/<tape>/` — eight directories. Or record one tape:
 
 ```
-make build
+make build review-fingerd
 mkdir -p docs/tui-review/frames
 vhs docs/tui-review/chrome-80-dark.tape
 ```
+
+A `responses-*.tape` recorded by hand starts the fingerd itself; it needs
+`make review-fingerd` first, and fails rather than record against a stranger
+already holding 2479/2480 (`fingerd -ping` checks the fixture bodies, not just
+that something answers).
+
+Each recording starts from an empty `frames/` root and must produce exactly as
+many stills as its tour has `Screenshot` lines, so a failed tape can't leave
+frames behind for the next one to file under its own name.
 
 Frames are gitignored. Re-record when chrome changes; do not commit PNGs.
 
@@ -39,12 +49,16 @@ so the BOOKMARKS section is on screen and the catalog stays visible.
 
 ## Sizes and themes
 
-| Tape | Cells | Why |
+Every size/theme is recorded twice — once for chrome (`chrome-*.tape`, offline)
+and once for responses (`responses-*.tape`, loopback fingerd). Both families
+share the same four geometries:
+
+| Size | Cells | Why |
 |---|---|---|
-| `chrome-80-dark.tape` | 80×24 | classic terminal |
-| `chrome-100-dark.tape` | 100×30 | startpage note column is designed at 100 columns |
-| `chrome-60-dark.tape` | 60×20 | below `startWideMinWidth` (72); stacked layout |
-| `chrome-80-light.tape` | 80×24 | AdaptiveColor on a light terminal background |
+| `*-80-dark.tape` | 80×24 | classic terminal |
+| `*-100-dark.tape` | 100×30 | startpage note column is designed at 100 columns |
+| `*-60-dark.tape` | 60×20 | below `startWideMinWidth` (72); stacked layout |
+| `*-80-light.tape` | 80×24 | AdaptiveColor on a light terminal background |
 
 Pixel sizes are calibrated at `FontSize 18` and `Padding 0` (VHS `Set Width`
 is pixels, not columns). Re-calibrate with `tput cols; tput lines` if the

@@ -1,12 +1,12 @@
 # User-facing Messages
 
 This is an inventory of app-authored text that can reach users through the CLI,
-the one-shot renderer, or the interactive TUI. It excludes arbitrary response
-body text returned by finger servers. The goal is to make future copy changes or
-message configurability easier by recording the source locations and the runtime
-surface where each message appears.
+the body renderer, or the interactive TUI. It excludes arbitrary response body
+text returned by finger servers. The goal is to make future copy changes or
+message configurability easier by recording the source locations and the
+runtime surface where each message appears.
 
-Line numbers are current as of 2026-06-01 and should be treated as a starting
+Line numbers are current as of 2026-08-13 and should be treated as a starting
 point rather than a permanent API.
 
 ## CLI
@@ -27,17 +27,16 @@ These errors originate in `finger.ParseTarget` and are surfaced by the CLI as
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `empty target` | `finger/query.go:29` | Empty TUI submit or empty one-shot target. |
+| `empty target` | `finger/query.go:29` | Empty TUI submit. |
 | `target must be of the form user@host or @host` | `finger/query.go:34` | Invalid target shape after normalization. |
 | `missing host after @` | `finger/query.go:39` | Target has `@` but no host. |
 | `target contains control characters` | `finger/query.go:45` | Inbound target guard. |
 
 ## Network And Query Errors
 
-These errors originate in `finger.Query`. In one-shot mode they are rendered
-inside the response chrome by `render.RenderWithBackground`; in the TUI they
-appear in the reader viewport for profile/raw result states, or contribute to
-the `partial (error)` list flag when a parseable list body was returned.
+These errors originate in `finger.Query`. Ordinary query errors are appended to
+the body-only reader output by `render.RenderWithBackground`; a parseable list
+body returned with an error instead contributes the `partial (error)` list flag.
 
 | Message | Source | Surface |
 | --- | --- | --- |
@@ -48,18 +47,18 @@ the `partial (error)` list flag when a parseable list body was returned.
 | `read response timed out after <duration>: <error>` | `finger/client.go:115` | Read timeout after connecting and writing. |
 | `read response: <error>` | `finger/client.go:129` | Non-timeout read failure with no body. |
 
-## One-shot Renderer
+## Response Body Renderer
 
-These messages are produced by `render.RenderWithBackground`, which is used by
-both one-shot CLI output and the TUI reader viewport.
+These messages are produced by `render.RenderWithBackground` for the TUI reader
+viewport. The renderer receives no response metadata and adds no synthetic
+receipt, target header, latency, byte-count footer, or truncation footer. Output
+starts with the first response-body line, the empty-response treatment, or an
+error.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `➜ <target> <elapsed> [✦]` | `render/chrome.go:11-20` | Header line. The sparkle appears only on success. |
 | `(no response body)` | `render/render.go:27-29` | Successful query with an empty body. |
-| `<bytes> · <elapsed>` | `render/chrome.go:23-29` | Footer stats. |
-| `truncated` | `render/render.go:40-43` | Footer notice when `finger.Meta.Truncated` is true. |
-| `<queryErr.Error()>` | `render/render.go`, `tui/request.go`, `tui/app.go` | Renderer error line following header/body processing for ordinary query errors. Explicit TUI cancellation is suppressed, and any returned partial body is discarded, before rendering. |
+| `<queryErr.Error()>` | `render/render.go`, `tui/request.go`, `tui/app.go` | Renderer error line after any returned partial body for ordinary query errors. Canceled or superseded request results are dropped before they can repaint. |
 
 ## TUI Landing And Input
 
@@ -83,6 +82,7 @@ both one-shot CLI output and the TUI reader viewport.
 | `esc back` | `tui/app.go:644-649`, `tui/app.go:691` | Back hint. Omitted from joined hints when the breadcrumb already shows the target. |
 | `? help` | `tui/app.go:644-649`, `tui/app.go:691` | Help hint. |
 | `<spinner> loading <target> · <elapsed> · esc cancel · q quit` | `tui/request.go` | Loading status bar. Elapsed time starts after one second. |
+| `<landed elapsed>` (`500µs`, `42ms`, `1.50s`) | `tui/statusbar.go` (`formatElapsed`, `statusBar.render`), `tui/app.go` (`buildStatusBar`) | Optional landed-response segment immediately before response metadata in reader, list, raw, focused-input, and links-panel views. It is included only when the complete ordinary status line fits; one cell short, the whole latency segment is dropped before existing metadata, hints, or priority/consequence information. It is absent on Start, About, and loading status. |
 | `r refresh` | `tui/app.go`, `tui/keys.go` | Refresh hint/status and enabled help binding for an ordinary landed reader response or user list. |
 | `r retry` | `tui/app.go`, `tui/keys.go` | Retry hint/status and enabled help binding for an empty-body failure or persistent failed-refresh warning. |
 | `refresh failed: <error> · showing previous response · r retry` | `tui/request.go`, `tui/app.go` | Persistent status after an empty-body refresh failure; the prior response remains visible. |
@@ -149,8 +149,9 @@ component.
 - Parse and network errors are currently plain Go errors. Human-friendly copy
   would likely fit best at the presentation layer so callers can still inspect
   wrapped errors with `errors.Is` / `errors.As`.
-- `render.RenderWithBackground` is shared by one-shot mode and the TUI reader,
-  so copy changes there affect both surfaces.
+- `render.RenderWithBackground` owns only the TUI reader's body/empty/error
+  presentation; response metadata and transient request state belong to the
+  status bar.
 - TUI status-bar and help copy is state-dependent. Any configurable message
   layer should preserve the keymap enablement rules in `tui/app.go:updateKeymap`.
 - Some list text comes from `bubbles/list`; check the exact module version in

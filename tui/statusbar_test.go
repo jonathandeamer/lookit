@@ -172,6 +172,30 @@ func TestStatusBarDropsLatencyBeforeExistingInformation(t *testing.T) {
 	}
 }
 
+func TestStatusBarIncludesLatencyAtExactCandidateWidth(t *testing.T) {
+	// Exact candidate width: "@h" (2) + gap (1) +
+	// "123ms · 9 B · ? help" (20) = 23 cells.
+	b := statusBar{
+		host: "@h", latency: "123ms", meta: "9 B", hints: "? help",
+		width: 23, styles: newStyles(true),
+	}
+	got := ansi.Strip(b.render())
+	if !strings.Contains(got, "123ms · 9 B · ? help") {
+		t.Fatalf("exact-fit status omitted latency: %q", got)
+	}
+}
+
+func TestStatusBarOmitsLatencyOneCellBeforeFit(t *testing.T) {
+	b := statusBar{
+		host: "@h", latency: "123ms", meta: "9 B", hints: "? help",
+		width: 22, styles: newStyles(true),
+	}
+	got := ansi.Strip(b.render())
+	if strings.Contains(got, "123ms") || !strings.Contains(got, "9 B · ? help") {
+		t.Fatalf("one-cell-short status displaced existing information: %q", got)
+	}
+}
+
 // TestFormatBytes pins the byte-count formatting across all three magnitude
 // branches (B / KB / MB) and the boundaries between them, so a simplification
 // of formatBytes can't silently shift a unit or rounding.

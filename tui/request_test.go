@@ -364,6 +364,30 @@ func TestPendingStatusPrioritizesCancellationControls(t *testing.T) {
 	}
 }
 
+func TestPendingRefreshDoesNotExposeLandedLatency(t *testing.T) {
+	entry := Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("old\n"),
+		Meta:   finger.Meta{Elapsed: 987 * time.Millisecond},
+	}
+	m := settledReader(t, entry)
+	m.common.width = 80
+	m.pending = &pendingRequest{
+		target: entry.Target, intent: requestRefresh,
+		started: time.Now(), cancel: func() {},
+	}
+
+	got := ansi.Strip(m.statusBarModel().render())
+	if strings.Contains(got, "987ms") {
+		t.Fatalf("loading status exposed landed latency: %q", got)
+	}
+	for _, want := range []string{"loading alice@plan.cat", "esc cancel", "q quit"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("loading status %q missing %q", got, want)
+		}
+	}
+}
+
 func TestSessionCancellationCancelsAndQuits(t *testing.T) {
 	ctx, cancelSession := context.WithCancel(context.Background())
 	m := newAppWithContext(ctx, stubFetch(t), colorprofile.NoTTY, Options{})
@@ -613,6 +637,27 @@ func TestFailedRefreshWarningPrioritizesConsequenceAndRetry(t *testing.T) {
 		}
 		if strings.Contains(bar, "%") || strings.Contains(bar, formatBytes(len(entry.Body))) {
 			t.Fatalf("width %d: lower-priority scroll/meta survived ahead of warning: %q", width, bar)
+		}
+	}
+}
+
+func TestRequestFailureDropsLatencyBeforePreviousResponseStatus(t *testing.T) {
+	entry := Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("old\n"),
+		Meta:   finger.Meta{Elapsed: 987 * time.Millisecond},
+	}
+	m := settledReader(t, entry)
+	m.common.width = 80
+	m.requestFailure = &requestFailure{err: errors.New("timeout")}
+
+	got := ansi.Strip(m.statusBarModel().render())
+	if strings.Contains(got, "987ms") {
+		t.Fatalf("priority status retained expendable latency: %q", got)
+	}
+	for _, want := range []string{"4 B", "showing previous response", "r retry"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("priority status %q missing older information %q", got, want)
 		}
 	}
 }

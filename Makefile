@@ -12,13 +12,17 @@ GORELEASER := go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 REVIEW_CHROME_TAPES := \
 	docs/tui-review/chrome-80-dark.tape \
 	docs/tui-review/chrome-100-dark.tape \
+	docs/tui-review/chrome-100-tall.tape \
 	docs/tui-review/chrome-60-dark.tape \
+	docs/tui-review/chrome-45-dark.tape \
 	docs/tui-review/chrome-80-light.tape
 
 REVIEW_RESPONSES_TAPES := \
 	docs/tui-review/responses-80-dark.tape \
 	docs/tui-review/responses-100-dark.tape \
+	docs/tui-review/responses-100-tall.tape \
 	docs/tui-review/responses-60-dark.tape \
+	docs/tui-review/responses-45-dark.tape \
 	docs/tui-review/responses-80-light.tape
 
 REVIEW_FINGERD := out/fingerd

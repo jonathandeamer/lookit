@@ -1,12 +1,18 @@
-# 60×20, lookit dark. Same cell geometry as chrome-60-dark.tape.
-# From the repo root:  vhs docs/tui-review/responses-60-dark.tape
+# 100×50, lookit dark. Same cell geometry as chrome-100-tall.tape.
+# Responses on the whole-page geometry. The help overlay is bottom-docked,
+# so this is the frame that shows whether it reads as anchored or as
+# stranded below 40 rows of body.
+#
+# Needs the loopback fingerd (make review-fingerd; the tour starts it).
+# From the repo root:  vhs docs/tui-review/responses-100-tall.tape
+
 
 Require vhs
 
 Output out/tui-review/_render.txt
 
-Set Width 686
-Set Height 490
+Set Width 1132
+Set Height 1180
 Set FontSize 18
 Set FontFamily "JetBrainsMono NF"
 Set Padding 0

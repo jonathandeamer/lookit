@@ -493,7 +493,12 @@ func startRowNote(entry startEntry, selected, flattened bool) string {
 		if entry.visited.IsZero() {
 			return ""
 		}
-		return relativeDay(entry.visited, nowFn())
+		// The prefix is what makes the value self-describing. This column holds
+		// prose for catalog rows, so a bare "today" changes register with
+		// nothing to announce it — and a filter that flattens the sections
+		// interleaves the two kinds of row in the same column, which is exactly
+		// where the reader has least context to supply the missing word.
+		return "visited " + relativeDay(entry.visited, nowFn())
 	}
 	if entry.child && !selected {
 		return ""

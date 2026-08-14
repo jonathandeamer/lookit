@@ -67,20 +67,35 @@ a separate decision with its own evidence.
 
 ## Mechanism
 
-`statusBar.hints` becomes `[]string` rather than a pre-joined string. Every
-assignment site passes its parts; `joinHints` returns a slice. The bar joins
-them at render time, which is the only place that knows the available width.
-
 Rule 1 lives in `statusBarModel`, beside the existing `requestFailure` case that
 already clears hints for a different reason.
 
-Rule 2 lives in `statusBar.render`, where the right group is assembled. The
-current single `ansi.Truncate` over the joined right string stays as the final
-fallback; before it, hints shed trailing units while the result is too wide.
+Rule 2 lives in `statusBar.render`. `statusBar.hints` stays a single
+` · `-joined string, and the renderer recovers its units by splitting on that
+separator. While the right group is too wide it drops the last unit, stopping
+if the only remaining unit is `? help`. The existing `ansi.Truncate` over the
+joined right group stays as the final fallback, so nothing renders worse than
+today at any width.
 
-`? help` is identified by value, not position — `joinHints` is not the only
-place hints are built, and the pinning rule must hold for any caller that
-includes it.
+`? help` is identified by value, not position: `joinHints` is not the only
+place hints are built, and the pinning rule must hold for any caller.
+
+### Why the hints stay a string
+
+The obvious alternative is to make `hints` a `[]string` and join at render
+time, which is tidier and was this spec's first mechanism. It is rejected on
+collision grounds rather than taste: it rewrites roughly twenty `statusBar{…}`
+literals in `tui/statusbar_test.go`, and PR #86 is open against
+`tui/statusbar_test.go` and `tui/app.go` at the time of writing.
+
+The separator is not a guess. Every producer of `hints` joins with the same
+` · `, so splitting recovers the units losslessly. The one string that is not a
+hint list is a transient flash, which `statusBarModel` assigns directly; a flash
+carries no separator, so it splits to a single unit, nothing is dropped, and it
+falls through to the ellipsis path exactly as it does today.
+
+If the field ever does become `[]string`, rule 2 moves unchanged — it operates
+on units either way.
 
 ## Interaction with the flash and priority paths
 
@@ -95,7 +110,9 @@ bar beside a priority status. That behaviour is unchanged and independent.
 
 ## Scope
 
-`tui/app.go`, `tui/statusbar.go`, and their tests. No change to the help
+`tui/app.go` (rule 1, a few lines in `statusBarModel`), `tui/statusbar.go`
+(rule 2, in `render`), and new tests. No existing `statusBar{…}` literal
+changes shape, so the diff stays clear of PR #86. No change to the help
 overlay, the keymap, `finger/`, `render/`, or any user-facing string beyond
 which hints are shown.
 

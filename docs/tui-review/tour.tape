@@ -171,7 +171,11 @@ Enter
 # two-line rows do not fit a 20-row terminal — it is on page two at 60×20, so
 # waiting for it there hangs the tape. The overview is the top line at every
 # geometry, and "6" proves this fixture loaded rather than the one-line one.
-Wait+Screen /BOOKMARKS\s+6/
+#
+# YOURS is the overview's word for the count; BOOKMARKS is the section header
+# below it. Match the overview label, not the header — the header carries no
+# count, so a header match would pass before the fixture had loaded.
+Wait+Screen /YOURS\s+6/
 Sleep 1500ms
 Screenshot out/tui-review/start-many-bookmarks.png
 Sleep 250ms

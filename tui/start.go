@@ -654,7 +654,11 @@ func (m startModel) overviewView() string {
 	}
 	lines := strings.Split(strings.Join(groups, separator), "\n")
 	for i, line := range lines {
-		lines[i] = ansi.Truncate(line, m.list.Width(), "…")
+		// common.width, not list.Width(): setSize measures the overview
+		// before the list has been given this frame's width, and a zero
+		// list width collapses the truncated line to empty so the first
+		// layout forgets to reserve the overview row.
+		lines[i] = ansi.Truncate(line, m.common.width, "…")
 	}
 	return strings.Join(lines, "\n")
 }

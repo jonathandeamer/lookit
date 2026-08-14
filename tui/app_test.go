@@ -872,6 +872,7 @@ func TestVTogglesRawBodyOnProfile(t *testing.T) {
 
 func TestBookmarkKeyTogglesCurrentTargetInRawReader(t *testing.T) {
 	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	target := hostTarget(t, "alice@plan.cat")
 	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{
@@ -891,7 +892,7 @@ func TestBookmarkKeyTogglesCurrentTargetInRawReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bookmark written from raw reader: %v", err)
 	}
-	if got, want := string(data), "alice@plan.cat\n"; got != want {
+	if got, want := string(data), "alice@plan.cat 2026-08-14T15:04:05Z\n"; got != want {
 		t.Fatalf("bookmarks = %q, want %q", got, want)
 	}
 	if !strings.Contains(m.flash, "bookmarked alice@plan.cat") {
@@ -4117,6 +4118,74 @@ func TestLandingStampsABookmarkedTarget(t *testing.T) {
 	want := "alice@plan.cat 2026-08-14T15:04:05Z\n@tilde.team\n"
 	if string(data) != want {
 		t.Fatalf("bookmarks =\n%q\nwant\n%q", data, want)
+	}
+}
+
+// Bookmarking the page you are reading records the visit that put it on
+// screen. Without this the row reads as never visited until the next fetch,
+// which is both wrong and the first thing a new bookmark shows you.
+func TestBookmarkingALandedPageStampsTheVisit(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m = deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	_ = next.(appModel)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), "alice@plan.cat 2026-08-14T15:04:05Z\n"; got != want {
+		t.Fatalf("bookmarks = %q, want %q", got, want)
+	}
+}
+
+// The startpage cursor rests on rows the user has never fetched, so bookmarking
+// from there must not claim a visit.
+func TestBookmarkingFromTheStartpageDoesNotStampAVisit(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 100, 40
+	m.blurInput()
+	if m.state != stateStart {
+		t.Fatalf("precondition: state = %v, want the startpage", m.state)
+	}
+	selected, ok := m.start.selected()
+	if !ok {
+		t.Fatal("precondition: no startpage row selected")
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	_ = next.(appModel)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), selected.target+"\n"; got != want {
+		t.Fatalf("bookmarks = %q, want %q (a cursor is not a visit)", got, want)
+	}
+}
+
+// A dial failure is not a visit, matching stampVisit's rule for landings.
+func TestBookmarkingAnErroredPageDoesNotStampAVisit(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m = deliverNavigation(m, Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Err:    errors.New("dial: connection refused"),
+	})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	_ = next.(appModel)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), "alice@plan.cat\n"; got != want {
+		t.Fatalf("bookmarks = %q, want %q (a failed fetch is not a visit)", got, want)
 	}
 }
 

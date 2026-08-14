@@ -530,16 +530,15 @@ func relativeDay(ts, now time.Time) string {
 		return "yesterday"
 	case days < 30:
 		return fmt.Sprintf("%d days ago", days)
-	}
-	if months := days / 30; months < 12 {
+	case days < 365:
+		months := days / 30
+		if months > 11 {
+			months = 11 // 360–364 days would otherwise say "12 months ago"
+		}
 		return ago(months, "month")
+	default:
+		return "over 1 year ago"
 	}
-	// days/365 is 0 for 360–364, which would print "0 years ago".
-	years := days / 365
-	if years < 1 {
-		years = 1
-	}
-	return ago(years, "year")
 }
 
 func ago(n int, unit string) string {

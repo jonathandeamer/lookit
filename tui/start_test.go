@@ -2197,11 +2197,12 @@ func TestRelativeDayBuckets(t *testing.T) {
 		{"2026-08-13T23:00:00Z", "yesterday"},
 		{"2026-08-11T16:00:00Z", "3 days ago"},
 		{"2026-07-16T16:00:00Z", "29 days ago"},
-		{"2026-07-10T16:00:00Z", "1 month ago"},  // 35 days
-		{"2026-01-14T16:00:00Z", "7 months ago"}, // 212 days
-		{"2025-08-19T16:00:00Z", "1 year ago"},   // 360 days — not "0 years ago"
-		{"2024-08-14T16:00:00Z", "2 years ago"},  // 731 days
-		{"2026-08-15T16:00:00Z", "today"},        // future clamps to today
+		{"2026-07-10T16:00:00Z", "1 month ago"},     // 35 days
+		{"2026-01-14T16:00:00Z", "7 months ago"},    // 212 days
+		{"2025-08-15T16:00:00Z", "11 months ago"},   // 364 days — still months
+		{"2025-08-14T16:00:00Z", "over 1 year ago"}, // 365 days
+		{"2024-08-14T16:00:00Z", "over 1 year ago"}, // 731 days — max bucket
+		{"2026-08-15T16:00:00Z", "today"},           // future clamps to today
 	} {
 		ts, err := time.Parse(time.RFC3339, tt.stamp)
 		if err != nil {

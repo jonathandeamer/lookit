@@ -77,9 +77,10 @@ func TestReaderSetSize(t *testing.T) {
 	}
 }
 
-// dialErrText is the real net error from a refused connection: at 60 columns
-// the reason ("refused") used to be clipped off the right edge unreachably.
-const dialErrText = "dial 127.0.0.1:1: dial tcp 127.0.0.1:1: connect: connection refused"
+// dialErrText is a long connection-failure message: at 60 columns the reason
+// ("reason") used to be clipped off the right edge unreachably. The reader
+// must wrap unclassified text, not assume a classified shape.
+const dialErrText = "couldn't reach a-very-long-hostname.example.org:79: some unclassified reason"
 
 func TestReaderWrapsErrorAtViewportWidth(t *testing.T) {
 	m := newReader(colorprofile.NoTTY)
@@ -91,7 +92,7 @@ func TestReaderWrapsErrorAtViewportWidth(t *testing.T) {
 	m.setEntry(Entry{Target: target, Err: errors.New(dialErrText)})
 
 	got := ansi.Strip(m.viewport.View())
-	if !strings.Contains(got, "refused") {
+	if !strings.Contains(got, "reason") {
 		t.Fatalf("reader clipped the error reason at width 60:\n%q", got)
 	}
 	for _, line := range strings.Split(got, "\n") {
@@ -112,7 +113,7 @@ func TestReaderRewrapsErrorOnResize(t *testing.T) {
 	m.setSize(40, 10)
 
 	got := ansi.Strip(m.viewport.View())
-	if !strings.Contains(got, "refused") {
+	if !strings.Contains(got, "reason") {
 		t.Fatalf("error reason lost after resize:\n%q", got)
 	}
 	for _, line := range strings.Split(got, "\n") {
@@ -160,7 +161,7 @@ func TestDialFailureStaysReadableAt60Columns(t *testing.T) {
 	})
 
 	got := ansi.Strip(landed.View().Content)
-	if !strings.Contains(got, "refused") {
+	if !strings.Contains(got, "reason") {
 		t.Fatalf("dial reason clipped at 60 columns:\n%s", got)
 	}
 }

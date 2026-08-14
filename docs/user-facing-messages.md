@@ -34,18 +34,26 @@ These errors originate in `finger.ParseTarget` and are surfaced by the CLI as
 
 ## Network And Query Errors
 
-These errors originate in `finger.Query`. Ordinary query errors are appended to
-the body-only reader output by `render.RenderWithBackground`; a parseable list
-body returned with an error instead contributes the `partial (error)` list flag.
+These errors originate in `finger.Query`. Recognised dial and read failures
+are classified by `finger.QueryError`; unrecognised ones keep the underlying
+text. Ordinary query errors are appended to the body-only reader output by
+`render.RenderWithBackground`; a parseable list body returned with an error
+instead contributes the `partial (error)` list flag.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `dial <host:port>: <error>` | `finger/client.go:51` | Connection/DNS failure. |
-| `set deadline: <error>` | `finger/client.go:71` | Connection deadline setup failure. |
-| `query user contains control characters` | `finger/client.go:76` | Outbound user guard. |
-| `write query: <error>` | `finger/client.go:80` | Failure writing the RFC 1288 query line. |
-| `read response timed out after <duration>: <error>` | `finger/client.go:115` | Read timeout after connecting and writing. |
-| `read response: <error>` | `finger/client.go:129` | Non-timeout read failure with no body. |
+| `connection refused by <host:port>` | `finger/errors.go` (`QueryError.Error`) | TCP refused. |
+| `no such host: <host>` | `finger/errors.go` (`QueryError.Error`) | DNS name not found. |
+| `couldn't look up <host>: <reason>` | `finger/errors.go` (`QueryError.Error`) | Other DNS failure. |
+| `network unreachable: <host:port>` | `finger/errors.go` (`QueryError.Error`) | ENETUNREACH. |
+| `host unreachable: <host:port>` | `finger/errors.go` (`QueryError.Error`) | EHOSTUNREACH. |
+| `no answer from <host:port> after <duration>` | `finger/errors.go` (`QueryError.Error`) | Dial timeout. |
+| `<host:port> stopped responding after <duration>` | `finger/errors.go` (`QueryError.Error`) | Read timeout. |
+| `couldn't reach <host:port>: <error>` | `finger/errors.go` (`QueryError.Error`) | Unclassified dial failure. |
+| `couldn't read from <host:port>: <error>` | `finger/errors.go` (`QueryError.Error`) | Unclassified read failure. |
+| `set deadline: <error>` | `finger/client.go` | Connection deadline setup failure. |
+| `query contains control characters` | `finger/client.go` | Outbound query guard. |
+| `write query: <error>` | `finger/client.go` | Failure writing the RFC 1288 query line. |
 
 ## Response Body Renderer
 
@@ -156,9 +164,9 @@ component.
 
 ## Notes For Future Configurability
 
-- Parse and network errors are currently plain Go errors. Human-friendly copy
-  would likely fit best at the presentation layer so callers can still inspect
-  wrapped errors with `errors.Is` / `errors.As`.
+- Network errors are classified in `finger.QueryError`. Recognised failures
+  get lookit's own sentence; unrecognised ones keep the underlying text.
+  `errors.Is` / `errors.As` still unwrap to the original net error.
 - `render.RenderWithBackground` owns only the TUI reader's body/empty/error
   presentation; response metadata and transient request state belong to the
   status bar.

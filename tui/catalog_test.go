@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -45,10 +44,10 @@ func TestCatalogIsWellFormed(t *testing.T) {
 		t.Fatalf("catalog has %d entries, want at least 20", len(entries))
 	}
 
-	// Keyed by kind and target: a dual-role host carries both its listing and a
-	// "group" line naming the same target, and only a repeated *listing* is the
-	// duplicate this guards against.
-	seen := make(map[string]bool, len(entries))
+	// Listings are unique by target. A "group" line may share that target (it
+	// is metadata, not a listing) but two group lines for one target may not.
+	seenListing := make(map[string]bool)
+	seenGroup := make(map[string]bool)
 	for _, e := range entries {
 		if e.note == "" {
 			t.Errorf("%s has no note; every catalog entry must describe itself", e.target)
@@ -56,11 +55,17 @@ func TestCatalogIsWellFormed(t *testing.T) {
 		if e.source != sourceCatalog {
 			t.Errorf("%s source = %v, want sourceCatalog", e.target, e.source)
 		}
-		key := fmt.Sprintf("%d %s", e.kind, e.target)
-		if seen[key] {
-			t.Errorf("%s appears twice with the same kind", e.target)
+		if e.kind == kindGroup {
+			if seenGroup[e.target] {
+				t.Errorf("group %s appears twice", e.target)
+			}
+			seenGroup[e.target] = true
+			continue
 		}
-		seen[key] = true
+		if seenListing[e.target] {
+			t.Errorf("%s appears twice as a listing", e.target)
+		}
+		seenListing[e.target] = true
 	}
 }
 

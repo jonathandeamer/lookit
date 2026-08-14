@@ -2,12 +2,13 @@
 
 This is an inventory of app-authored text that can reach users through the CLI,
 the body renderer, or the interactive TUI. It excludes arbitrary response body
-text returned by finger servers. The goal is to make future copy changes or
-message configurability easier by recording the source locations and the
+text returned by finger servers, and it does not duplicate the catalog notes in
+`tui/catalog.txt` (those are authored there and compiled in). The goal is to
+make future copy changes easier by recording the source locations and the
 runtime surface where each message appears.
 
-Source references are approximate starting points, not a permanent API. Search
-for the named function or message when changing copy because line numbers drift.
+Source references are starting points, not a permanent API. Search for the
+named function or constant when changing copy; line numbers drift.
 
 ## CLI
 
@@ -27,17 +28,25 @@ These errors originate in `finger.ParseTarget` and are surfaced by the CLI as
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `empty target` | `finger/query.go:29` | Empty TUI submit. |
-| `target must be of the form user@host or @host` | `finger/query.go:34` | Invalid target shape after normalization. |
-| `missing host after @` | `finger/query.go:39` | Target has `@` but no host. |
-| `target contains control characters` | `finger/query.go:45` | Inbound target guard. |
+| `empty target` | `finger/query.go` (`parseTarget`) | Empty TUI submit, or a blank CLI seed. |
+| `target must be of the form user@host or @host` | `finger/query.go` (`parseTarget`) | Invalid target shape after normalization (no `@`, no scheme, no path). |
+| `missing host after @` | `finger/query.go` (`errMissingHost`) | Target has `@` but no host. |
+| `target contains control characters` | `finger/query.go` (`parseTarget`) | Inbound target guard (C0/DEL and Cf/Zl/Zp). |
+| `IPv6 literals must be bracketed, e.g. [::1]` | `finger/query.go` (`errBracketIPv6`) | Unbracketed IPv6, or a broken `[…]` form. |
+| `invalid port` | `finger/query.go` (`parsePort`) | Empty, zero, or out-of-range port. |
+| `invalid host/port "…"` | `finger/query.go` (`splitHostPort`) | Bracketed IPv6 with a suffix that is not `:port`. |
+| `forwarding through multiple relays is not supported yet` | `finger/query.go` (`errMultipleRelays`) | More than one relay (`user@host@relay@other`). |
+| `forwarded host ports are not supported; put a port only on the relay` | `finger/query.go` (`errForwardedHostPort`) | `user@host:port@relay`. |
+| `forwarding in finger:// URLs is not supported yet; use user@host@relay` | `finger/query.go` (`errURLForwarding`) | A `finger://` form that embeds forwarding. |
+| `forwarded targets must be user@host@relay or @host@relay` | `finger/query.go` (`errMalformedForwarding`) | Two `@` but not a well-formed one-relay query. |
+| `forwarded targets from server responses are not opened` | `finger/query.go` (`ErrServerForwarding`) | `ParseTargetPinned` on a forwarded or multi-relay token lifted from a response. Also flashed when copying such a list row. |
 
 ## Network And Query Errors
 
 These errors originate in `finger.Query`. Recognised dial and read failures
 are classified by `finger.QueryError`; unrecognised ones keep the underlying
 text. Ordinary query errors are appended to the body-only reader output by
-`render.RenderWithBackground`; a parseable list body returned with an error
+`render.RenderWithWidth`; a parseable list body returned with an error
 instead contributes the `partial (error)` list flag.
 
 | Message | Source | Surface |
@@ -51,126 +60,181 @@ instead contributes the `partial (error)` list flag.
 | `<host:port> stopped responding after <duration>` | `finger/errors.go` (`QueryError.Error`) | Read timeout. |
 | `couldn't reach <host:port>: <error>` | `finger/errors.go` (`QueryError.Error`) | Unclassified dial failure. |
 | `couldn't read from <host:port>: <error>` | `finger/errors.go` (`QueryError.Error`) | Unclassified read failure. |
-| `set deadline: <error>` | `finger/client.go` | Connection deadline setup failure. |
-| `query contains control characters` | `finger/client.go` | Outbound query guard. |
-| `write query: <error>` | `finger/client.go` | Failure writing the RFC 1288 query line. |
+| `set deadline: <error>` | `finger/client.go` (`queryWith`) | Connection deadline setup failure. |
+| `query contains control characters` | `finger/client.go` (`queryWith`) | Outbound query guard. |
+| `write query: <error>` | `finger/client.go` (`queryWith`) | Failure writing the RFC 1288 query line. |
 
 ## Response Body Renderer
 
-These messages are produced by `render.RenderWithBackground` for the TUI reader
+These messages are produced by `render.RenderWithWidth` for the TUI reader
 viewport. The renderer receives no response metadata and adds no synthetic
 receipt, target header, latency, byte-count footer, or truncation footer. Output
 starts with the first response-body line, the empty-response treatment, or an
-error.
+error. `main.go` never renders a response body.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `(no response body)` | `render/render.go:27-29` | Successful query with an empty body. |
-| `<queryErr.Error()>` | `render/render.go`, `tui/request.go`, `tui/app.go` | Renderer error line after any returned partial body for ordinary query errors. Canceled or superseded request results are dropped before they can repaint. |
+| `(no response body)` | `render/render.go` (`RenderWithWidth`) | Successful query with an empty body. |
+| `<queryErr.Error()>` | `render/render.go` (`RenderWithWidth`) | Error line after any returned partial body. Canceled or superseded request results are dropped in `tui/request.go` before they can repaint. |
 
-## TUI Landing And Input
+## TUI Input
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `ring@thebackupbox.net` | `tui/app.go:30-35` | Rotating placeholder sample in the target input. |
-| `@happynetbox.com` | `tui/app.go:30-35` | Rotating placeholder sample in the target input. |
-| `@plan.cat` | `tui/app.go:30-35` | Rotating placeholder sample in the target input. |
-| `@tilde.team` | `tui/app.go:30-35` | Rotating placeholder sample in the target input. |
-| `jonathan@tilde.team` | `tui/app.go:30-35` | Rotating placeholder sample in the target input. |
-| `target: ` | `tui/app.go:129` | Target input prompt. |
-| `No response yet.` | `tui/reader.go:28`, `tui/app.go:226` | Empty reader viewport on first launch or after returning to landing. |
-| `type a target and press ↵ · ? help` | `tui/statusbar.go:31-32` | Landing status bar hint. |
-| `error: <parse error>` | `tui/app.go:310-314` | TUI flash message after invalid input submit. |
+| `user@host or @host` | `tui/app.go` (`targetPlaceholder`) | Greyed-out hint in the empty target input. Teaches the two shapes and names no destination. |
+| `target: ` | `tui/app.go` (`newAppWithContext`) | Target input prompt. |
+| `No response yet.` | `tui/reader.go` (`newReader`) | The reader's empty viewport. Not shown at launch (launch is the startpage). Reappears if the reader is shown with no current entry. |
+| `error: <parse error>` | `tui/app.go` (`submit`) | Persistent flash after an invalid input submit. Not cleared by the flash timer. |
+| `error: cannot bookmark: <reason>` | `tui/app.go` (`toggleBookmark`) | Flash when the current target cannot be written as a bookmark record. |
+| `✓ bookmarked <target>` / `✓ removed <target>` | `tui/app.go` (`toggleBookmark`) | Transient flash after a successful pin or unpin. |
+| `copied <address>` | `tui/app.go` (`copyAddress`, About `y`) | Transient flash after copying an address or the issues URL. |
+| `nothing to copy` | `tui/app.go` (`copyAddress`) | Transient flash when `y` has no address. |
+
+## TUI Startpage
+
+The launch screen at `pos == -1`. Assembled by `buildSections` from the
+embedded catalog and the bookmarks file.
+
+| Message | Source | Surface |
+| --- | --- | --- |
+| `YOURS` / `CATALOG` | `tui/start.go` (`overviewOwnershipLabel`, `overviewCatalogLabel`) | Overview line above the list. `YOURS` is deliberately not `BOOKMARKS` — the section header already says that. |
+| `none yet` | `tui/start.go` (`overviewView`) | `YOURS` value when the user has no bookmarks. |
+| `<n>` | `tui/start.go` (`overviewView`) | `YOURS` value when there is at least one bookmark (a bare count, not `N bookmarks`). |
+| `1 community` / `<n> communities` | `tui/start.go` (`overviewView`, `countLabel`) | Catalog community count. |
+| `1 service` / `<n> services` | `tui/start.go` (`overviewView`, `countLabel`) | Catalog service count. |
+| `BOOKMARKS` / `COMMUNITIES` / `SERVICES` | `tui/sections.go` (`buildSections`) | Section headers. `PEOPLE` is assembled only if the catalog contains a `person` line; the shipped catalog has none. |
+| `★` | `tui/start.go` (`startBookmarkMarker`) | Prefix on a row the user pinned themselves. |
+| `no match for “<query>”` | `tui/start.go` (`noMatchMessage`) | First content row while a typed filter matches nothing. Names the query, not the catalog. |
+| `No entries.` | `tui/start.go` (`newStart`, bubbles `NoItems`) | List empty chrome. Unreachable while typing a zero-match filter (that state uses `noMatchMessage`); reachable only if the list itself has no items. |
+| `No bookmarks yet.` | `tui/app.go` (`startEmptyMessage`) | File-level empty body when the catalog is visible and there is nothing to show. |
+| `No bookmarks yet. The catalog is off — remove \`catalog off\` from <path> to see it.` | `tui/app.go` (`startEmptyMessage`) | File-level empty body when `catalog off` is set and there are no bookmarks. |
+| `<path>: <reason>` / `<path> line <n>: <reason>` / `<n> unreadable lines in <path> (line …)` | `tui/app.go` (`startNotice`) | Bookmark-file problems, named so the user edits the file actually in use. |
+| `expected "catalog off" or "catalog on"` | `tui/bookmarks.go` (`parseBookmarks`) | Reason on a bad `catalog` directive. |
+| `expected one target, got "…"` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line that is not a single target. |
+| `target is not valid UTF-8` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target is not UTF-8. |
+| `target contains a non-printing Unicode control` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target carries C1/Cf/Zl/Zp. |
+| `bad target "…": <parse error>` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target failed `ParseTarget`. |
+| `cannot locate a config directory: …` / `cannot read: …` / `cannot create: …` | `tui/bookmarks.go` (`loadBookmarks`, `initializeBookmarkData`) | File-level problems with no line number. |
 
 ## TUI Status Bar
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `◂ esc: <target>` | `tui/statusbar.go:41-44` | Back breadcrumb when history has a previous node. |
-| `esc back` | `tui/app.go:644-649`, `tui/app.go:691` | Back hint. Omitted from joined hints when the breadcrumb already shows the target. |
-| `? help` | `tui/app.go:644-649`, `tui/app.go:691` | Help hint. |
-| `<spinner> loading <target> · <elapsed> · esc cancel · q quit` | `tui/request.go` | Loading status bar. Elapsed time starts after one second. |
-| `<landed elapsed>` (`500µs`, `42ms`, `1.50s`) | `tui/statusbar.go` (`formatElapsed`, `statusBar.render`), `tui/app.go` (`buildStatusBar`) | Optional landed-response segment immediately before response metadata in reader, list, raw, focused-input, and links-panel views. It is included only when the complete ordinary status line fits; one cell short, the whole latency segment is dropped before existing metadata, hints, or priority/consequence information. It is absent on Start, About, and loading status. |
-| `r refresh` | `tui/app.go`, `tui/keys.go` | Refresh hint/status and enabled help binding for an ordinary landed reader response or user list. |
-| `r retry` | `tui/app.go`, `tui/keys.go` | Retry hint/status and enabled help binding for an empty-body failure or persistent failed-refresh warning. |
-| `refresh failed: <error> · showing previous response · r retry` | `tui/request.go`, `tui/app.go` | Persistent status after an empty-body refresh failure; the prior response remains visible. |
-| `retry failed: <error> · r retry` | `tui/request.go`, `tui/app.go` | Persistent status after an empty-body retry failure. |
-| `↵ go · esc cancel` | `tui/app.go:674-683` | Status bar while editing the target input over existing content. |
-| `<n> users` | `tui/app.go:698-700` | List metadata. |
-| `↵ go` | `tui/app.go:700-711` | List action hint. |
-| `/ filter` | `tui/app.go:700-711` | List action hint. |
-| `auto-detected` | `tui/app.go:702-704` | List flag for generic list detection. |
-| `v view source` | `tui/app.go` | List hint shown for generic lists. |
-| `partial (error)` | `tui/app.go:706-708` | List flag for parseable list bodies returned with an error. |
-| `partial (truncated)` | `tui/app.go:708-710` | List flag for parseable list bodies returned truncated. |
-| `page <n>/<total>` | `tui/app.go:712-714` | List pagination metadata. |
-| `↑↓ scroll` | `tui/app.go:715-719` | Reader scroll hint. |
-| `<scroll>%` | `tui/app.go:718-720` | Reader scroll position. |
-| `copied <address>` | `tui/app.go:597-604` | TUI flash after copying an address. |
+| `◂ esc: <target>` / `◂ esc` | `tui/statusbar.go` (`statusBar.render`) | Back breadcrumb when history has a previous node. The short form is the state-ladder shed of the destination. |
+| `esc back` | `tui/app.go` (`joinHints`) | Back hint. Omitted from joined hints when the breadcrumb already shows the target. |
+| `? help` | `tui/app.go` (`joinHints`, `startBar`) | Help hint on resting bars that use `joinHints` or `startBar`. The expanded overlay omits `?`. While Help is open, `statusBarModel` clears hints so the bar keeps address, flags, page, scroll, latency, and meta only. |
+| `<spinner> loading <target> · <elapsed> · esc cancel · q quit` | `tui/request.go` (`pendingPriorityStatus`) | Loading status. Elapsed time starts after one second. |
+| `<landed elapsed>` (`500µs`, `42ms`, `1.50s`) | `tui/statusbar.go` (`formatElapsed`), `tui/app.go` (`buildStatusBar`) | Optional landed-response segment. Shed first on a tight bar. Absent on Start, About, and loading. |
+| `r refresh` / `r retry` | `tui/app.go` (`refreshHint`) | Contextual refresh or retry. |
+| `refresh failed: <error> · showing previous response · r retry` | `tui/request.go` (`requestFailure.priorityStatus`) | Persistent status after an empty-body refresh failure. |
+| `retry failed: <error> · r retry` | `tui/request.go` (`requestFailure.priorityStatus`) | Persistent status after an empty-body retry failure. |
+| `type a target and press ↵ · ↓ browse · ? help` | `tui/app.go` (`startBar`) | Startpage, target input focused. |
+| `↵ go · b bookmark` / `↵ go · b remove` plus `/ filter · i target · ? help` | `tui/app.go` (`startBar`, `startBookmarkAction`) | Startpage, content focused. `b` names what it will do on the selected row. |
+| `1 entry` / `<n> entries` | `tui/app.go` (`startBar`, `countLabel`) | Startpage listing count (visible selectable rows). |
+| `page <n>/<total>` | `tui/app.go` (`startBar`, list branch of `buildStatusBar`) | Pagination when the startpage or user list has more than one page. |
+| `↵ go · esc cancel` | `tui/app.go` (`buildStatusBar`) | Editing the target over a landed response. |
+| `esc back · ? help` | `tui/app.go` (`buildStatusBar`) | View-source. No history breadcrumb: Esc returns to the same node. |
+| `type to filter · esc cancel` | `tui/app.go` (`buildStatusBar`) | Links panel, `/` just opened, query still empty. |
+| `enter apply · esc cancel` | `tui/app.go` (`buildStatusBar`) | Links panel, filter being typed. |
+| `↑/↓ move · esc clear filter` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, filter applied. |
+| `↑/↓ move · / filter · esc back` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, resting. Link actions come from `linkActionHints` (`↵ go`, `f go`, `y copy`). |
+| `1 user` / `<n> users` | `tui/app.go` (`buildStatusBar`, `countLabel`) | User-list metadata. |
+| `↵ go · / filter` plus `r refresh`/`r retry` | `tui/app.go` (`buildStatusBar`) | User-list resting hints, then `joinHints`. |
+| `v view source` | `tui/app.go` (`buildStatusBar`) | Extra list hint on a generic (auto-detected) list. |
+| `auto-detected` | `tui/app.go` (`buildStatusBar`) | List flag for generic list detection. |
+| `partial (error)` | `tui/app.go` (`buildStatusBar`) | List flag for a parseable list body returned with an error. |
+| `partial (truncated)` | `tui/app.go` (`buildStatusBar`) | List or reader flag when the body was cut. |
+| `↑↓ scroll` | `tui/app.go` (`buildStatusBar`) | Reader resting hint (then `joinHints`). |
+| `<scroll>%` | `tui/app.go` (`buildStatusBar`) | Reader scroll position when the body is taller than the viewport. |
+| `link <n>/<total> · <kind> · <actions>` | `tui/app.go` (`buildStatusBar`, `linkKindLabel`) | Reader with a focused link. Kinds: `finger`, `address (ambiguous)`, `url`, `email`, `social`, `forwarded finger`. |
+| `tab next` | `tui/app.go` (`buildStatusBar`) | Extra hint while a reader link is focused. |
+| `cross-relay: finger URL relay does not match current host` / `cross-relay: relay <host> does not match current host` | `tui/links.go` (`DetectLinks`) | `Link.Blocked` text, flashed on Enter and shown in the focused-link bar. |
+| `about lookit` | `tui/app.go` (`buildStatusBar`) | About, opened from the startpage: left-side host slot. |
+| `↵ go to author · y copy issues URL · esc back · q quit` | `tui/app.go` (`buildStatusBar`) | About, from the startpage (`esc back` only when there is no history breadcrumb). From a landed screen, `esc back` is omitted because `◂ esc: <origin>` is shown instead. |
 
 ## TUI Help
 
 These are app-level key binding labels. The expanded Help popover shows enabled
 bindings in priority order, so not every label is visible in every state or at
 every terminal height. Its displayed primary gesture does not remove hidden
-runtime aliases, and `? help` remains in the status bar rather than the popover.
+runtime aliases.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `i target` | `tui/keys.go:29` | Focus target input. |
-| `esc back` | `tui/keys.go:30` | Back/cancel binding. |
-| `↵ go` | `tui/keys.go:31` | Submit/open binding. |
-| `/ filter` | `tui/keys.go:32` | List filter binding. |
+| `i target` | `tui/keys.go` | Focus target input. |
+| `esc back` | `tui/keys.go` | Back/cancel binding. |
+| `↵ go` | `tui/keys.go` | Submit/open binding. |
+| `/ filter` | `tui/keys.go` | Filter binding. |
 | `v view source` | `tui/keys.go` | Raw/source view binding. |
-| `r refresh` / `r retry` | `tui/keys.go`, `tui/app.go` | Contextual refresh/retry binding; disabled outside an idle reader or list screen. |
-| `y copy` | `tui/keys.go:34` | Copy address binding. |
-| `? help` | `tui/keys.go:35` | Help binding. This is shown in the status bar, not inside the open help panel. |
-| `q quit` | `tui/keys.go:36` | Quit binding, disabled while the input is focused. |
-| `↑/↓ move` | `tui/keys.go:38` | Movement help, in the lists — startpage, user list, links panel. |
-| `↑/↓ scroll` | `tui/help.go` (`moveHelpBinding`) | The same binding relabelled in the reader, where there is no cursor and only the text moves. Matches the reader's own status-bar hint. |
-| `←/→ page` | `tui/keys.go:39` | Page help. |
+| `r refresh` / `r retry` | `tui/keys.go`, `tui/app.go` (`refreshHelp`) | Contextual refresh/retry; disabled outside an idle reader or list. |
+| `y copy` | `tui/keys.go` | Copy address binding. |
+| `? help` | `tui/keys.go` | Help binding. Shown in the status bar on resting screens, not inside the open overlay. |
+| `q quit` | `tui/keys.go` | Quit binding, disabled while the input is focused. |
+| `↑/↓ move` | `tui/keys.go` | Movement help in the lists (startpage, user list, links panel). |
+| `↑/↓ scroll` | `tui/help.go` (`moveHelpBinding`) | The same binding relabelled in the reader. Matches the reader's status-bar hint. |
+| `←/→ page` | `tui/keys.go` | Page help. |
 | `h home` | `tui/keys.go` | Open the startpage. |
 | `↓ browse` | `tui/keys.go` | Move from the focused target input into the startpage list; Tab remains an accepted alias. |
-| `b bookmark` / `b remove` | `tui/keys.go`, `tui/app.go` | Add or remove the current target in bookmarks. |
-| `L browse links` | `tui/keys.go` | Open the detected-links panel. |
-| `a about lookit` | `tui/keys.go`, `tui/app.go` | Open About from content or from Help, including Help over the focused input. |
-| `f go` | `tui/help.go` | Finger the selected ambiguous Finger link from the links panel. |
-| `tab next link` | `tui/keys.go` | Focus the next detected reader link; n remains an accepted alias. |
-| `shift+tab previous link` | `tui/keys.go` | Focus the previous detected reader link; N remains an accepted alias. |
+| `b bookmark` / `b remove` | `tui/keys.go`, `tui/app.go` (`updateKeymap`) | Add or remove the current target. On the startpage the label follows `startBookmarkAction`. |
+| `L browse links` | `tui/keys.go` | Open or close the detected-links panel. |
+| `a about lookit` | `tui/keys.go` | Open About from content or from Help, including Help over the focused input. |
+| `f go` | `tui/help.go` (`linksPanelHelpCandidates`) | Finger the selected ambiguous Finger link from the links panel. |
+| `tab next link` | `tui/keys.go` | Focus the next detected reader link; `n` remains an accepted alias. |
+| `shift+tab previous link` | `tui/keys.go` | Focus the previous detected reader link; `N` remains an accepted alias. |
+
+`g/G top/bottom` exists on `keyMap.Jump` but is intentionally omitted from Help.
+
+## TUI About
+
+| Message | Source | Surface |
+| --- | --- | --- |
+| `A modern TUI browser for the finger protocol` | `tui/about.go` (`aboutTagline`) | Tagline under the wordmark. |
+| `lookit <version> · MIT license` | `tui/about.go` (`aboutView`) | Identity line. |
+| `built <date>` | `tui/about.go` (`aboutView`) | Build-date row; hidden when the date is empty or `unknown`. |
+| `https://github.com/jonathandeamer/lookit` | `tui/about.go` (`aboutRepo`) | Repository URL. |
+| `Built with Charm` + `https://charm.sh` | `tui/about.go` (`aboutView`) | Credit. |
+| `Young software; bug reports & ideas welcome` | `tui/about.go` (`aboutView`) | Personality line. |
+| `Catalog inspired by` + `https://640kb.neocities.org/fingerverse/` | `tui/about.go` (`aboutView`) | Catalog credit. |
+| `finger jonathan@tilde.team` / `↵ go` | `tui/about.go` (`aboutView`) | First action. |
+| `Report a bug or idea` / `y copy issues URL` | `tui/about.go` (`aboutView`) | Second action. Copies `aboutIssuesURL`. |
+| `Thanks for supporting the small internet` | `tui/about.go` (`aboutView`) | Closing line. |
 
 ## TUI List
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `<host> — <n> users` | `tui/list.go:80` | Bubble list title. Currently hidden by `SetShowTitle(false)`, but still stored on the model. |
-| `<name> · <target>` | `tui/list.go:45-49` | User list row description when both name and explicit target are present. |
-| `Auto-detected user list from an unrecognized response — press v to view source.` | `tui/list.go` | Preamble note for generic list detection. |
-| `List truncated — showing first <max> of <total>` | `tui/list.go:165-170` | Preamble note when parsed list entries exceed `maxListEntries`. |
+| `<host> — 1 user` / `<host> — <n> users` | `tui/list.go` (`newList`) | Bubble list title. Hidden by `SetShowTitle(false)`, but still stored on the model. |
+| `<name> · <target>` | `tui/list.go` (`userItem.Description`) | User-list row description when both name and explicit target are present. |
+| `Auto-detected user list from an unrecognized response — press v to view source.` | `tui/list.go` (`newListWithPreamble`) | Preamble note for generic list detection. |
+| `List truncated — showing first <max> of <total>` | `tui/list.go` (`newListWithPreamble`) | Preamble note when parsed list entries exceed `maxListEntries`. |
+| `1 link` / `<n> links` | `tui/linkspanel.go` (`newLinksPanel`) | Links-panel title. Hidden by `SetShowTitle(false)`. |
 
 ## Inherited Component Text
 
-The TUI uses `charm.land/bubbles/v2/list`. Most built-in list chrome is hidden
-by `tui/list.go:80-83`, but the filter prompt is visible while filtering.
-These strings are not authored in this repo, so making them configurable would
-either require setting component fields after construction or wrapping the
-component.
+The TUI uses `charm.land/bubbles/v2/list`. Most built-in list chrome is hidden,
+but the filter prompt is visible while filtering. These strings are not
+authored in this repo, so making them configurable would either require
+setting component fields after construction or wrapping the component.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `Filter: ` | `$GOMODCACHE/charm.land/bubbles/v2@v2.1.0/list/list.go:216-218` | Filter input prompt shown after pressing `/` in a list. |
-| `Nothing matched` | `$GOMODCACHE/charm.land/bubbles/v2@v2.1.0/list/list.go:1149-1153` | Built-in filter status text. Status bar is hidden in lookit's list today, so this is not normally visible unless that setting changes. |
-| `No items` / `No items.` | `$GOMODCACHE/charm.land/bubbles/v2@v2.1.0/list/list.go:1156-1158`, `$GOMODCACHE/charm.land/bubbles/v2@v2.1.0/list/list.go:1209-1214` | Built-in empty states. Not expected in normal lookit flow because lists are only opened after parsing at least one user. |
-| `0 items`, `1 item`, `<n> items`, `<n> filtered` | `$GOMODCACHE/charm.land/bubbles/v2@v2.1.0/list/list.go:1134-1178` | Built-in list status text. Status bar is hidden in lookit's list today. |
+| `Filter: ` | `charm.land/bubbles/v2/list` (`FilterInput.Prompt`) | Filter input prompt shown after pressing `/` on the startpage, a user list, or the links panel. Lookit styles the prompt but does not yet replace this string (#118). |
+| `Nothing matched` | `charm.land/bubbles/v2/list` | Built-in filter status text. Status bar is hidden in lookit's lists today, so this is not normally visible unless that setting changes. |
+| `No items` / `No items.` | `charm.land/bubbles/v2/list` | Built-in empty states. The startpage overrides the noun to `entry`/`entries` (`No entries.`). User lists are only opened after parsing at least one user. |
+| `0 items`, `1 item`, `<n> items`, `<n> filtered` | `charm.land/bubbles/v2/list` | Built-in list status text. Status bar is hidden in lookit's lists today. |
 
 ## Notes For Future Configurability
 
 - Network errors are classified in `finger.QueryError`. Recognised failures
   get lookit's own sentence; unrecognised ones keep the underlying text.
   `errors.Is` / `errors.As` still unwrap to the original net error.
-- `render.RenderWithBackground` owns only the TUI reader's body/empty/error
+- `render.RenderWithWidth` owns only the TUI reader's body/empty/error
   presentation; response metadata and transient request state belong to the
   status bar.
 - TUI status-bar and help copy is state-dependent. Any configurable message
-  layer should preserve the keymap enablement rules in `tui/app.go:updateKeymap`.
+  layer should preserve the keymap enablement rules in `tui/app.go`
+  (`updateKeymap`).
 - Some list text comes from `bubbles/list`; check the exact module version in
-  `go.mod` before relying on upstream line numbers.
+  `go.mod` before relying on upstream identifiers.
+- Catalog notes are authored in `tui/catalog.txt` and enforced by
+  `TestCatalogNotesFitTheNoteColumn`. Do not copy them here.

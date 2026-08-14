@@ -80,24 +80,36 @@ recording starts from that same state.
 
 Every size/theme is recorded twice — once for chrome (`chrome-*.tape`, offline)
 and once for responses (`responses-*.tape`, loopback fingerd). Both families
-share the same four geometries:
+share the same six geometries. The sizes are not peers: record all of them,
+then judge each by its tier. An enhancement must reproduce on a first-class
+geometry. Diagnostic frames bound a first-class finding; they do not create
+one.
 
-| Size | Cells | Why |
-|---|---|---|
-| `*-80-dark.tape` | 80×24 | classic terminal |
-| `*-100-dark.tape` | 100×30 | startpage note column is designed at 100 columns |
-| `*-100-tall.tape` | 100×50 | the whole startpage in one frame — the density geometry |
-| `*-60-dark.tape` | 60×20 | below `startWideMinWidth` (72); stacked layout |
-| `*-45-dark.tape` | 45×24 | the narrow floor: a tmux split, a side-by-side pane |
-| `*-80-light.tape` | 80×24 | AdaptiveColor on a light terminal background |
+| Size | Cells | Tier | Why |
+|---|---|---|---|
+| `*-80-dark.tape` | 80×24 | First-class | classic terminal; the default design target |
+| `*-100-dark.tape` | 100×30 | First-class | startpage note column is designed at 100 columns |
+| `*-80-light.tape` | 80×24 | First-class | AdaptiveColor on a light terminal background |
+| `*-60-dark.tape` | 60×20 | Breakpoint | below `startWideMinWidth` (72); the stacked layout |
+| `*-100-tall.tape` | 100×50 | Diagnostic | the whole startpage in one frame — crowded vs truncated |
+| `*-45-dark.tape` | 45×24 | Diagnostic | the narrow floor: a tmux split, a side-by-side pane |
 
-`100×50` and `45×24` exist for judging composition, and each isolates one
-variable. At 24 or 30 rows the startpage shows only its top dozen entries, so
-"is this crowded" cannot be answered — 50 rows fits BOOKMARKS, COMMUNITIES and
-every SERVICES group at once. `45×24` keeps the 80-column tapes' height so
-width is the only thing that changed; 60 columns is *below* the stacked-layout
-threshold but is not actually narrow, and 45 is where a two-column layout runs
-out of room.
+**First-class** is what lookit is designed for (macOS terminals, typically
+80×24 and up, plus the 100-column note layout and light theme). Composition
+findings here can become issues. **Breakpoint** is a layout the product
+actually ships, so the broken rubric still applies — clip, collide, dishonest,
+illegible. Making 60×20 as nice as 80×24 does not. **Diagnostic** isolates one
+variable so the first-class screens can be judged at all. At 24 or 30 rows the
+startpage shows only its top dozen entries, so "is this crowded" cannot be
+answered — 50 rows fits BOOKMARKS, COMMUNITIES and every SERVICES group at
+once. `45×24` keeps the 80-column tapes' height so width is the only thing
+that changed; 60 columns is *below* the stacked-layout threshold but is not
+actually narrow, and 45 is where a two-column layout runs out of room. Do not
+add features whose only job is to fill 50-row surplus or comfort 45 columns.
+
+Do not open an enhancement whose only reproducing first-class geometry is
+empty. Write it on the review if you want a record; do not put it on the
+board.
 
 ### Calibrating a new size
 
@@ -209,7 +221,8 @@ section run more than about seven rows without a break? Where two mechanisms
 add vertical space — a section separator *and* an unconditional spacer — do
 they ever compound into a gap that reads as a mistake? Does the note column
 crowd the target column at 100, and which of the two gives way first at 45?
-`chrome-100-tall` is the primary evidence; `chrome-45-dark` is the stress case.
+`chrome-100-tall` is the density evidence for the first-class page;
+`chrome-45-dark` is diagnostic — it tells you what breaks, not what to build.
 
 **2. Hierarchy and scanning.** Two-second test: opening `start-input.png`
 cold, is it obvious where to start? Do the section headers carry more weight
@@ -239,16 +252,17 @@ merely finished? `start-bottom.png` and `start-nomatch.png` exist for this.
 Then run lenses 1–4 again on **help**, which is now responsive: it retains the
 longest prefix of its candidate set that fits, so what it drops between 100 and
 45 columns is a design decision no test asserts. Compare `help.png`,
-`list-help.png` and `reader-help.png` across all six geometries, and check on
-`responses-100-tall` whether a bottom-docked overlay reads as anchored or as
-stranded below forty rows of body.
+`list-help.png` and `reader-help.png` on the first-class tapes. A
+bottom-docked overlay that only looks stranded on `responses-100-tall` is a
+diagnostic note, not a reason to invent a new help geometry.
 
 Repeat lenses 1–4 once more, briefly, on the reader and the status chrome.
 
 Findings are worth more when they carry the frame that shows them. Rank by
-severity times how many geometries reproduce it: something wrong in one frame
-at one width is a note, and something wrong in every frame is a decision to
-revisit.
+severity times first-class reproduction, not times how many of the six tapes
+show it. A diagnostic or breakpoint frame can confirm or bound a first-class
+finding; it cannot promote a note into an issue. Something wrong only at 45
+or only as "60×20 would be nicer with a new interaction" stays a note.
 
 ## Contact sheets
 
@@ -258,16 +272,25 @@ review-sheet` alone rebuilds them from frames already on disk. Cells are in
 filename order and the target prints the manifest for each sheet as it goes.
 
 The sheet is an index, not the review — read it to find the frames worth
-opening at full size, then open those. Eight sheets is a practical first pass
-where 76 individual stills is not.
+opening at full size, then open those. Twelve sheets is a practical first pass
+where the individual stills are not. Triage in this order: `chrome-80-dark`,
+`chrome-100-dark`, `chrome-80-light` (and their `responses-*` pairs); then
+`chrome-100-tall` for density context; then `chrome-60-dark` and
+`chrome-45-dark` for the broken rubric only.
 
 ## Agent review
 
 1. `make review-tui` (or record the tape that matches the change).
-2. Read the eight contact sheets first to triage, then open the full-size
-   PNGs that look wrong. They are images; there is no GIF to review.
-3. Work the rubric against the scene list above.
-4. Visit every size/theme that shares the chrome you touched.
+2. Read the contact sheets in the order above to triage, then open the
+   full-size PNGs that look wrong. They are images; there is no GIF to review.
+3. Work the two rubrics against the scene list above. Apply the size tiers
+   when deciding whether a finding is an issue: first-class can create
+   enhancements; breakpoint only if the stacked layout is broken; diagnostic
+   never creates an enhancement on its own.
+4. Visit every first-class size/theme that shares the chrome you touched.
+   Record 60 and 45 as well when the change is in the stacked layout or in
+   wrapping/clipping — those tapes are how breaks there get caught. Do not
+   file work whose only beneficiary is one of those sizes.
 5. Leave `View()` tests and contrast tests as the regression net.
 
 Do not drive `./lookit` from this harness expecting a TTY — `tea.NewProgram`

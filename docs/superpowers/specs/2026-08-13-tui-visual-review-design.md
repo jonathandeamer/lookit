@@ -54,7 +54,15 @@ Recorded here rather than left as drift; the README is the current guide.
 - **Scenes added:** `b` bookmarking and `catalog off` (chrome), the help
   overlay on a landed reader and a mid-scroll reader (responses).
 - **Contact sheets** (`make review-sheet`) tile each tape into one image, so a
-  review triages eight sheets instead of opening 76 stills.
+  review triages the sheets instead of opening every still.
+- **Geometries are tiered, not peers.** First-class (`80×24` dark/light,
+  `100×30`) can create enhancements. `60×20` is the stacked-layout breakpoint:
+  the broken rubric still applies, "make it as nice as 80" does not.
+  `100×50` and `45×24` are diagnostic: they bound a first-class finding and
+  do not create an enhancement on their own. Rank by first-class reproduction,
+  not by how many of the six tapes show the frame. Recorded in
+  `docs/tui-review/README.md` after #101 and #102 were filed off diagnostic
+  and breakpoint composition.
 
 ## Non-goals
 

@@ -486,7 +486,7 @@ func TestStartOverviewAppliedFilterUsesOnlyMatchingGroups(t *testing.T) {
 	}
 	plainList := stripANSIForLandingTest(m.list.View())
 	bookmarkLine := lineContaining(t, plainList, "@tilde.team")
-	if strings.Contains(bookmarkLine, "◆") || strings.Contains(bookmarkLine, "BOOKMARK ") {
+	if strings.Contains(bookmarkLine, startBookmarkMarker) || strings.Contains(bookmarkLine, "◆") || strings.Contains(bookmarkLine, "BOOKMARK ") {
 		t.Fatalf("filtered bookmark row gained an ownership prefix: %q", bookmarkLine)
 	}
 	assertStartOverviewFits(t, m)
@@ -1945,6 +1945,29 @@ func TestStartOwnershipMarkerSurvivesTheNarrowLayout(t *testing.T) {
 	view := stripANSIForLandingTest(m.View())
 	if pinned := startRowLine(t, view, "@cosmic.voyage"); !strings.Contains(pinned, startBookmarkMarker+" @cosmic.voyage") {
 		t.Fatalf("pinned row loses its marker in the stacked layout:\n%s", pinned)
+	}
+}
+
+// TestStartOwnershipMarkerDropsWhenFlattened: match highlighting is computed
+// against entry.target, so a prefix on a flattened row would shift every
+// offset. Flattened views have also dropped their section headers, so the
+// marker has nothing left to distinguish.
+func TestStartOwnershipMarkerDropsWhenFlattened(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: "Collaborative science fiction", source: sourceBookmark, bookmarked: true},
+		}},
+	}, "", "")
+	m.list.SetFilterText("cosmic")
+
+	if got, want := startRowTarget(startEntry{target: "@cosmic.voyage", source: sourceBookmark}, true), "@cosmic.voyage"; got != want {
+		t.Fatalf("flattened startRowTarget = %q, want %q", got, want)
+	}
+	view := stripANSIForLandingTest(m.View())
+	if pinned := startRowLine(t, view, "@cosmic.voyage"); strings.Contains(pinned, startBookmarkMarker) {
+		t.Fatalf("flattened pinned row kept its ownership marker, which would shift filter-match offsets:\n%s", pinned)
 	}
 }
 

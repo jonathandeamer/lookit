@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 )
 
 func catalogFixture() []startEntry {
@@ -52,6 +53,35 @@ func TestBuildSectionsBookmarksComeFirstAndDedup(t *testing.T) {
 		if e.target == "@tilde.team" {
 			t.Error("@tilde.team appears in both BOOKMARKS and COMMUNITIES")
 		}
+	}
+}
+
+func TestBuildSectionsCopiesVisitedAfterTheCatalogOverlay(t *testing.T) {
+	want := time.Date(2026, 8, 11, 16, 0, 0, 0, time.UTC)
+	bm := bookmarkFile{
+		targets: []string{"@tilde.team", "@new.example"},
+		visited: map[string]time.Time{"@tilde.team": want},
+	}
+	got := buildSections(catalogFixture(), bm)
+	if len(got) == 0 || got[0].title != "BOOKMARKS" || len(got[0].entries) != 2 {
+		t.Fatalf("BOOKMARKS = %+v, want two pins", got)
+	}
+	matched := got[0].entries[0]
+	if matched.target != "@tilde.team" {
+		t.Fatalf("first pin = %q, want the catalog match", matched.target)
+	}
+	if !matched.visited.Equal(want) {
+		t.Errorf("catalog pin visited = %v, want %v (must be copied after the catalog overlay)", matched.visited, want)
+	}
+	if matched.note == "" {
+		t.Error("catalog pin lost its note; the overlay must still run")
+	}
+	unmatched := got[0].entries[1]
+	if unmatched.target != "@new.example" {
+		t.Fatalf("second pin = %q, want the unmatched target", unmatched.target)
+	}
+	if !unmatched.visited.IsZero() {
+		t.Errorf("unvisited pin visited = %v, want zero", unmatched.visited)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/list"
@@ -2174,6 +2175,193 @@ func TestStartUnpinnedRowShowsItsNoteAgain(t *testing.T) {
 	unpinned := buildSections(catalog, bookmarkFile{})
 	if got, want := startRowNote(unpinned[0].entries[0], false, false), catalog[0].note; got != want {
 		t.Fatalf("unpinned note = %q, want %q", got, want)
+	}
+}
+
+// useLocalZone points time.Local at loc for one test, restoring it afterwards.
+func useLocalZone(t *testing.T, loc *time.Location) {
+	t.Helper()
+	saved := time.Local
+	time.Local = loc
+	t.Cleanup(func() { time.Local = saved })
+}
+
+func TestRelativeDayBuckets(t *testing.T) {
+	useLocalZone(t, time.UTC)
+	now := time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		stamp string
+		want  string
+	}{
+		{"2026-08-14T02:00:00Z", "today"},
+		{"2026-08-13T23:00:00Z", "yesterday"},
+		{"2026-08-11T16:00:00Z", "3 days ago"},
+		{"2026-07-16T16:00:00Z", "29 days ago"},
+		{"2026-07-10T16:00:00Z", "1 month ago"},     // 35 days
+		{"2026-01-14T16:00:00Z", "7 months ago"},    // 212 days
+		{"2025-08-15T16:00:00Z", "11 months ago"},   // 364 days — still months
+		{"2025-08-14T16:00:00Z", "over 1 year ago"}, // 365 days
+		{"2024-08-14T16:00:00Z", "over 1 year ago"}, // 731 days — max bucket
+		{"2026-08-15T16:00:00Z", "today"},           // future clamps to today
+	} {
+		ts, err := time.Parse(time.RFC3339, tt.stamp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := relativeDay(ts, now); got != tt.want {
+			t.Errorf("relativeDay(%s) = %q, want %q", tt.stamp, got, tt.want)
+		}
+	}
+}
+
+// TestRelativeDayIsBoundedForAncientStamps pins the day walk's stopping point.
+// startRowNote runs relativeDay for every visible row on every render, so an
+// unbounded walk turns a year-0001 stamp — which the bookmarks parser accepts —
+// into hundreds of milliseconds of work per frame and hangs the startpage.
+func TestRelativeDayIsBoundedForAncientStamps(t *testing.T) {
+	useLocalZone(t, time.UTC)
+	now := time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC)
+	ancient := time.Date(1, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	start := time.Now()
+	got := relativeDay(ancient, now)
+	elapsed := time.Since(start)
+
+	if got != "over 1 year ago" {
+		t.Errorf("relativeDay(year 1) = %q, want over 1 year ago", got)
+	}
+	if elapsed > 10*time.Millisecond {
+		t.Errorf("relativeDay(year 1) took %s, want a bounded walk (well under 10ms)", elapsed)
+	}
+}
+
+func TestRelativeDayBucketsInLocalTime(t *testing.T) {
+	stamp, _ := time.Parse(time.RFC3339, "2026-08-14T02:30:00Z")
+	now, _ := time.Parse(time.RFC3339, "2026-08-14T16:00:00Z")
+
+	useLocalZone(t, time.UTC)
+	if got := relativeDay(stamp, now); got != "today" {
+		t.Errorf("UTC: relativeDay = %q, want today", got)
+	}
+
+	// UTC-8: the stamp is Aug 13 18:30 local, now is Aug 14 08:00 local.
+	useLocalZone(t, time.FixedZone("UTC-8", -8*3600))
+	if got := relativeDay(stamp, now); got != "yesterday" {
+		t.Errorf("UTC-8: relativeDay = %q, want yesterday (buckets are local calendar days)", got)
+	}
+}
+
+func TestRelativeDayCountsCalendarDaysAcrossDST(t *testing.T) {
+	// US spring-forward 2026-03-08: Saturday noon EST → Monday noon EDT is two
+	// calendar days but only 47 elapsed hours. Hours/24 would say "yesterday".
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip(err)
+	}
+	useLocalZone(t, loc)
+	stamp := time.Date(2026, 3, 7, 12, 0, 0, 0, loc)
+	now := time.Date(2026, 3, 9, 12, 0, 0, 0, loc)
+	if got := relativeDay(stamp, now); got != "2 days ago" {
+		t.Errorf("relativeDay across spring-forward = %q, want 2 days ago", got)
+	}
+}
+
+func TestStartRowNoteShowsTheVisitDate(t *testing.T) {
+	useLocalZone(t, time.UTC)
+	useNow(t, time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC))
+	visited := time.Date(2026, 8, 11, 16, 0, 0, 0, time.UTC)
+	pin := startEntry{target: "@plan.cat", source: sourceBookmark, bookmarked: true, visited: visited}
+
+	if got := startRowNote(pin, false, false); got != "3 days ago" {
+		t.Errorf("unselected pinned row = %q, want the date", got)
+	}
+	if got := startRowNote(pin, true, false); got != "3 days ago" {
+		t.Errorf("selected pinned row = %q, want the date (the cursor does not lift the row's text)", got)
+	}
+
+	unknown := startEntry{target: "@new.example", source: sourceBookmark, bookmarked: true}
+	if got := startRowNote(unknown, false, false); got != "" {
+		t.Errorf("unvisited pin = %q, want blank", got)
+	}
+
+	// Flattened, the catalog note returns and the date stands down: match
+	// offsets are computed against FilterValue (target + note) only when
+	// flattened, so the note must be what renders there.
+	described := startEntry{target: "@cosmic.voyage", note: "Collaborative science fiction", source: sourceBookmark, bookmarked: true, visited: visited}
+	if got := startRowNote(described, false, true); got != "Collaborative science fiction" {
+		t.Errorf("flattened pinned row = %q, want the catalog note", got)
+	}
+	if fv := (startItem{entry: described}).FilterValue(); fv != "@cosmic.voyage Collaborative science fiction" {
+		t.Errorf("FilterValue = %q, want target + note, date excluded", fv)
+	}
+}
+
+// A visited pin still highlights the catalog-note match when flattened —
+// the date must not be what splitStartMatches is scoring against.
+func TestStartVisitedPinHighlightsTheNoteWhenFlattened(t *testing.T) {
+	useLocalZone(t, time.UTC)
+	useNow(t, time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC))
+	common := testCommon()
+	common.width = 100
+	const note = "Collaborative science fiction"
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: note, source: sourceBookmark, bookmarked: true,
+				visited: time.Date(2026, 8, 11, 16, 0, 0, 0, time.UTC)},
+		}},
+	}, "", "")
+	m.list.SetFilterText("fiction")
+	m.list.SetFilterState(list.Filtering)
+
+	view := m.View()
+	plain := stripANSIForLandingTest(view)
+	if strings.Contains(plain, "3 days ago") {
+		t.Fatalf("flattened visited pin still shows the date:\n%s", plain)
+	}
+	if !strings.Contains(plain, note) {
+		t.Fatalf("flattened visited pin hides its note:\n%s", plain)
+	}
+	lineIndex := lineIndexContaining(t, plain, "@cosmic.voyage")
+	if got := underlinedText(strings.Split(view, "\n")[lineIndex]); got != "fiction" {
+		t.Fatalf("underlined text = %q, want %q", got, "fiction")
+	}
+}
+
+// A shelf mixing a visited and an unvisited pin takes both blank/not-blank
+// branches of rowEndsBlank within one section; the header gap must stay at one
+// row either way. Companion to TestStartSectionGapAfterASilentPinnedRow.
+func TestStartSectionGapAfterAMixedShelf(t *testing.T) {
+	useLocalZone(t, time.UTC)
+	useNow(t, time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC))
+	visited := time.Date(2026, 8, 11, 16, 0, 0, 0, time.UTC)
+	common := testCommon()
+	common.width = 40
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@plan.cat", source: sourceBookmark, bookmarked: true, visited: visited},
+			{target: "@new.example", source: sourceBookmark, bookmarked: true},
+		}},
+		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+			{target: "@graph.no", kind: kindCommunity, note: "Weather worldwide by place name", source: sourceCatalog},
+		}},
+	}, "", "")
+
+	plain := stripANSIForLandingTest(m.View())
+	if !strings.Contains(plain, "3 days ago") {
+		t.Fatalf("visited pin missing its date in the mixed shelf:\n%s", plain)
+	}
+	lines := strings.Split(plain, "\n")
+	header := lineIndexContaining(t, plain, "COMMUNITIES")
+	if header < 2 {
+		t.Fatalf("COMMUNITIES line = %d, want room for content and a gap:\n%s", header, plain)
+	}
+	if got := strings.TrimSpace(lines[header-1]); got != "" {
+		t.Fatalf("line before COMMUNITIES = %q, want blank:\n%s", got, plain)
+	}
+	// Last bookmark is unvisited, so the stacked note row that headerNeedsBlank
+	// keys off is blank — not the dated row above it.
+	if got := strings.TrimSpace(lines[header-2]); got == "" {
+		t.Fatalf("two blank lines before COMMUNITIES, want exactly one:\n%s", plain)
 	}
 }
 

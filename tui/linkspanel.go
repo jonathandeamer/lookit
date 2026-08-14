@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"fmt"
-
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 )
@@ -45,7 +43,7 @@ func newLinksPanel(common *commonModel, links []Link) linksPanel {
 	ld.Styles = st.listItem
 	ld.SetSpacing(0)
 	l.SetDelegate(ld)
-	l.Title = fmt.Sprintf("%d links", len(links))
+	l.Title = countLabel(len(links), "link", "links")
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)

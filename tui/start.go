@@ -127,7 +127,7 @@ func startCounts(items []list.Item) startOverviewCounts {
 // PEOPLE/kindPerson group, which carries sectionUnknown) is counted nowhere. The
 // shipped catalog contains no person entries, so the overview total equals
 // startBar's visible count; adding one would silently break that invariant.
-func startCountLabel(n int, singular, plural string) string {
+func countLabel(n int, singular, plural string) string {
 	if n == 1 {
 		return "1 " + singular
 	}
@@ -628,14 +628,14 @@ func (m startModel) overviewView() string {
 		if selectedSection == sectionCommunities {
 			style = gold
 		}
-		catalogValues = append(catalogValues, style.Render(startCountLabel(counts.communities, "community", "communities")))
+		catalogValues = append(catalogValues, style.Render(countLabel(counts.communities, "community", "communities")))
 	}
 	if counts.services > 0 {
 		style := valueStyle
 		if selectedSection == sectionServices {
 			style = gold
 		}
-		catalogValues = append(catalogValues, style.Render(startCountLabel(counts.services, "service", "services")))
+		catalogValues = append(catalogValues, style.Render(countLabel(counts.services, "service", "services")))
 	}
 	if len(catalogValues) > 0 {
 		gap := "  "

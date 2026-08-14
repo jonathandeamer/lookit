@@ -67,6 +67,18 @@ func TestStatusBarStartUsesSingularEntryLabel(t *testing.T) {
 	}
 }
 
+func TestStatusBarListUsesSingularUserLabel(t *testing.T) {
+	m := appModel{
+		common:  testCommon(),
+		pos:     0,
+		state:   stateList,
+		history: []histNode{{entry: Entry{Target: hostTarget(t, "@tilde.team")}, state: stateList, listUsers: 1}},
+	}
+	if got := m.buildStatusBar().meta; got != "1 user" {
+		t.Fatalf("list bar meta = %q, want %q", got, "1 user")
+	}
+}
+
 func TestStatusBarStartBookmarkActionIsContextual(t *testing.T) {
 	tests := []struct {
 		name   string

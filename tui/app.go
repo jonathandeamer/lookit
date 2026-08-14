@@ -1441,7 +1441,7 @@ func (m appModel) buildStatusBar() statusBar {
 
 	switch node.state {
 	case stateList:
-		bar.meta = fmt.Sprintf("%d users", node.listUsers)
+		bar.meta = countLabel(node.listUsers, "user", "users")
 		parts := []string{"↵ go", "/ filter"}
 		if !m.list.filtering() {
 			parts = append(parts, m.refreshHint())
@@ -1534,7 +1534,7 @@ func (m appModel) startBar(width int, st styles) statusBar {
 		}
 	}
 	if n > 0 {
-		bar.meta = startCountLabel(n, "entry", "entries")
+		bar.meta = countLabel(n, "entry", "entries")
 	}
 	bar.hints = fmt.Sprintf("↵ go · b %s · / filter · i target · ? help", m.startBookmarkAction())
 	return bar

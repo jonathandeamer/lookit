@@ -1038,24 +1038,23 @@ func TestDetectLinks_FingerCue_PortInHost_Drillable(t *testing.T) {
 	}
 }
 
-// TODO: uncomment in Task 11 when applyLinkOverlay is implemented
-// func TestApplyLinkOverlay_BodyNotHeader(t *testing.T) {
-// 	st := newStyles(true)
-// 	body := "visit https://example.com today\nplain line\n"
-// 	links := []Link{
-// 		{
-// 			Kind:   LinkURL,
-// 			Action: ActionCopy,
-// 			Raw:    "https://example.com",
-// 			Strong: true,
-// 		},
-// 	}
-// 	result := applyLinkOverlay(body, links, 0, st)
-// 	if !strings.Contains(result, "https://example.com") {
-// 		t.Errorf("applyLinkOverlay result missing URL: %q", result)
-// 	}
-// 	// The plain line must not be highlighted.
-// 	if strings.Contains(result, "\x1b") && strings.Count(result, "plain line") != 1 {
-// 		t.Errorf("plain line appears to be unexpectedly styled in overlay result")
-// 	}
-// }
+func TestApplyLinkOverlay_BodyNotHeader(t *testing.T) {
+	st := newStyles(true)
+	body := "visit https://example.com today\nplain line\n"
+	links := []Link{
+		{
+			Kind:   LinkURL,
+			Action: ActionCopy,
+			Raw:    "https://example.com",
+			Strong: true,
+		},
+	}
+	result := applyLinkOverlay(body, links, 0, st)
+	if !strings.Contains(result, "https://example.com") {
+		t.Errorf("applyLinkOverlay result missing URL: %q", result)
+	}
+	// The plain line must not be highlighted.
+	if strings.Contains(result, "\x1b") && strings.Count(result, "plain line") != 1 {
+		t.Errorf("plain line appears to be unexpectedly styled in overlay result")
+	}
+}

@@ -18,6 +18,8 @@ const (
 	startChromeRows      = 1
 	startWideMinWidth    = 72
 	startTargetColumnPct = 50
+	// Blank cells between the widest target and the note column.
+	startTargetColumnGap = 2
 )
 
 // startItem is one row: an entry, section header, or wide-layout spacer.
@@ -191,6 +193,33 @@ func newStartDelegate(common *commonModel, st styles) startDelegate {
 	return startDelegate{common: common, st: st}
 }
 
+// startTargetColumn is the width the target column holds: the widest target on
+// the page as currently drawn, plus a gap. Measured over every visible row
+// rather than per section, so the note column's left edge stays put down the
+// whole page instead of stepping with each section.
+//
+// It takes flattened rather than measuring both of a child's forms, because a
+// child draws as a token under its connector and only regains its full address
+// once a filter flattens the view. Reserving room for the address it is not
+// showing would pad the gutter for text that is not on the screen, which is
+// the walk this measurement exists to close.
+func startTargetColumn(items []list.Item, flattened bool) int {
+	widest := 0
+	for _, item := range items {
+		it, ok := item.(startItem)
+		if !ok || !it.selectable() {
+			continue
+		}
+		if w := lipgloss.Width(startRowTarget(it.entry, flattened)); w > widest {
+			widest = w
+		}
+	}
+	if widest == 0 {
+		return 0
+	}
+	return widest + startTargetColumnGap
+}
+
 func (d startDelegate) Height() int {
 	if d.common.width >= startWideMinWidth {
 		return 1
@@ -323,7 +352,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 
 	if d.Height() == 1 {
 		frame := titleStyle.GetHorizontalFrameSize()
-		targetWidth, noteWidth := startColumnWidths(m.Width(), frame)
+		targetWidth, noteWidth := startColumnWidths(m.Width(), frame, startTargetColumn(m.VisibleItems(), flattened))
 		target := renderStartField(rowTarget, targetWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
 		note := renderStartField(rowNote, noteWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
 		target = padStartField(target, targetWidth, startInlineStyle(titleStyle))
@@ -356,12 +385,15 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	fmt.Fprintf(w, "%s\n%s", titleStyle.Render(target), descStyle.Render(note)) //nolint:errcheck
 }
 
-func startColumnWidths(width, frame int) (int, int) {
+func startColumnWidths(width, frame, measured int) (int, int) {
 	available := width - frame
 	if available < 0 {
 		available = 0
 	}
-	target := available * startTargetColumnPct / 100
+	// The measured column hands the layout to the page's longest row, so the
+	// old fixed half survives as its ceiling: one very long address can crowd
+	// the notes, but it can never push them off the screen.
+	target := min(measured, available*startTargetColumnPct/100)
 	return target, available - target
 }
 

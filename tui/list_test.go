@@ -129,6 +129,14 @@ func TestGenericListFlaggedGeneric(t *testing.T) {
 	}
 }
 
+func TestListTitleUsesSingularUserLabel(t *testing.T) {
+	m := newList(testCommon(), hostTarget(t, "@tilde.team"), []User{{Login: "alrs"}})
+	wantTitle := "@tilde.team — 1 user"
+	if m.list.Title != wantTitle {
+		t.Fatalf("title = %q, want %q", m.list.Title, wantTitle)
+	}
+}
+
 func TestGenericListPreambleHasViewSourceNote(t *testing.T) {
 	users := []User{{Login: "betsy"}, {Login: "oleander"}}
 	body := []byte("betsy\noleander\n")

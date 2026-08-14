@@ -15,6 +15,13 @@ func findLink(links []Link, raw string) (Link, bool) {
 	return Link{}, false
 }
 
+func TestLinksPanelTitleUsesSingularLinkLabel(t *testing.T) {
+	p := newLinksPanel(testCommon(), []Link{{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}})
+	if got := p.list.Title; got != "1 link" {
+		t.Fatalf("links panel title = %q, want %q", got, "1 link")
+	}
+}
+
 // ---- Decline cases (DetectLinks must return zero matching links) ----
 
 func TestDetectLinks_Decline_HostlessAtAlice(t *testing.T) {

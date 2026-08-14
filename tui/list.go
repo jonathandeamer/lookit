@@ -77,7 +77,7 @@ func newList(common *commonModel, host finger.Target, users []User) listModel {
 	d := defaultUserDelegate(st)
 	l := list.New(items, d, width, height)
 	applyListStyles(&l, st)
-	l.Title = fmt.Sprintf("%s — %d users", host.Raw, len(users))
+	l.Title = fmt.Sprintf("%s — %s", host.Raw, countLabel(len(users), "user", "users"))
 	l.SetShowStatusBar(false)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)

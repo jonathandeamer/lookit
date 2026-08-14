@@ -50,16 +50,16 @@ No client-side MUST is unsatisfied.
 ingress, one considered-and-declined with reason. Remaining
 SHOULDs are server/admin duties or are already honored in spirit (§3.1).
 
-## MAYs and other client-capable options — deliberately deferred
+## MAYs and other client-capable options
 
-These are things a finger *client* could legitimately do. We have considered
-each and **deliberately deferred** it; none is a gap, and each has a recorded
-reason. They are listed so the choice is explicit rather than accidental.
+These are things a finger *client* could legitimately do. Each row records
+whether we implemented it, deferred it, or declined it, so the choice is
+explicit rather than accidental.
 
 | § | Option | Status | Reason |
 |---|---|---|---|
 | 2.5.4 | Send the **`/W` verbose token** (`/W user`) to request fuller output. | 🔶 deferred | Niche; few live servers honor it, and lookit has no verbosity control yet. The natural home is a future "verbose" toggle that prepends `/W `. No current UX demand. |
-| 2.4 | Emit **`{Q2}` host-to-host forwarding** queries (`user@host1@host2`). | 🔶 deferred | The RFC **RECOMMENDS** servers default {Q2} *off* (§3.2.1) and warns against gateways, so almost nothing answers a forwarded query. `ParseTarget` splits on the first `@`, so the chained form is not constructed today. Defensible to omit; revisit only if real demand appears. (Minor rough edge: the chained form currently fails at dial rather than with a tailored message.) |
+| 2.4 | Emit **`{Q2}` host-to-host forwarding** queries (`user@host@relay`). | ✅ one relay · 🔶 otherwise | One-relay `user@host@relay` and `@host@relay` (optional `:port` on the relay only) is constructed by `parseForwardedTarget` and sent as the RFC query line. Multi-relay, a port on the inner host, and forwarding inside a `finger://` URL are refused up front with `errMultipleRelays`, `errForwardedHostPort`, and `errURLForwarding` — they do not fail at dial. Server-supplied forwarded targets are refused by `ParseTargetPinned` (`ErrServerForwarding`) and never opened. |
 | 2.5.2 | "There **MAY** be a way for the user to run a program in response to a Finger query." | ➖ out of scope | This is a *server* feature (and one the RFC itself flags as dangerous, §3.2.5). A client has nothing to implement. |
 | 3.3 | Provide a **toggle** to view control / international characters. | ✅ declined | See §3.3 resolution → No toggle. Visualize-not-delete makes it unnecessary; recorded as a considered decision. |
 
@@ -68,9 +68,11 @@ reason. They are listed so the choice is explicit rather than accidental.
 Design: `docs/superpowers/specs/2026-05-31-rfc1288-control-char-filtering-design.md`.
 
 **What we do.** `finger.Query` sanitizes
-the response body once, at ingress (the
-single narrow waist every terminal-writing path flows through — the CLI and the
-TUI both branch only *after* `Query` returns). The body is walked rune by rune:
+the response body once, at ingress — the
+single narrow waist every terminal-writing path flows through. The TUI is the
+only body consumer (reader viewport, list delegate, view-source); `main.go`
+never renders a response. Every one of those paths runs only *after* `Query`
+returns. The body is walked rune by rune:
 
 - **Kept verbatim:** tab, newline, and every printable rune — including all
   valid multibyte UTF-8 (accents, box-drawing, emoji).

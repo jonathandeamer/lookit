@@ -1,10 +1,12 @@
 # Status bar state ladder
 
-**Status:** blocked, and handed off. Stacked on `statusbar-hint-priority`; do
-not implement until rules 1 and 2 from
+**Status:** accepted and in progress. Rules 1 and 2 from
 [`2026-08-14-status-bar-hint-priority-design.md`](2026-08-14-status-bar-hint-priority-design.md)
-have landed on `main`. Owned by the `statusbar-hint-priority` session as of
-14 August 2026 — see [Handoff](#handoff) at the foot of this document.
+are implemented in the same branch rather than on `main`, which is what the
+"do not implement until they land" condition was protecting against — there is
+no divergence to resync. The #76 conflict this document flagged is resolved:
+rule 2 now keeps the first hint over `? help`, so `r retry` survives a failed
+request. See [Handoff](#handoff) for the evidence and the settled decisions.
 
 ## Context
 
@@ -54,7 +56,24 @@ rule 2 decides which hints survive, the ladder decides what the survivors cost.
 Honesty flags keep their existing reservation ahead of the hints; that
 invariant is untouched.
 
-## Conflict to resolve first: rule 2 versus issue #76
+## Conflict to resolve first: rule 2 versus issue #76 — RESOLVED
+
+Resolved 14 August 2026 in commit `b12ab97`, before this ladder was started.
+The report below stands as written; only the resolution differs from the
+suggestion it offers.
+
+Rather than special-casing `node.entry.failed()`, `hintsWithin` now degrades in
+three stages and keeps **the first hint** as well as `? help`, then keeps the
+first hint alone when the two cannot both fit. Hint lists are built
+most-useful-first, so on a failed request the first hint is `r retry` and it
+survives without the renderer knowing which state it is in. Verified in a
+recorded still at 45 columns: `@127.0… ◂ esc: trunc@127.0.0.1:2479 · r retry`.
+
+The reported 60-column case did not reproduce against the implementation; only
+45 did. The substance was right either way.
+
+### The report, as filed
+
 
 Rule 2 pins `? help` by value with no state exception. On a failed request that
 drops `r retry` at 60 columns and below — exactly the outcome #76 was filed

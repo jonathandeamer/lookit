@@ -190,7 +190,13 @@ func TestStatusBarDropsLatencyBeforeExistingInformation(t *testing.T) {
 		Body:   []byte("Plan: hi\n"),
 		Meta:   finger.Meta{Elapsed: 123 * time.Millisecond},
 	})
-	m.common.width = lipgloss.Width("@x.example / alice") + 1 + lipgloss.Width("9 B · ↑↓ scroll · r refresh · ? help")
+	// The hint list must match what joinHints actually builds: with no esc
+	// target it appends "esc back" as well as "? help". Omitting it made this
+	// width 11 cells short, which only ever passed because the bar used to
+	// clip the address instead of shedding state. It now keeps the address and
+	// drops "9 B", so an honest width is what keeps this test about latency.
+	m.common.width = lipgloss.Width("@x.example / alice") + 1 +
+		lipgloss.Width("9 B · ↑↓ scroll · r refresh · esc back · ? help")
 	got := ansi.Strip(m.buildStatusBar().render())
 	if strings.Contains(got, "123ms") || !strings.Contains(got, "9 B") || !strings.Contains(got, "? help") {
 		t.Fatalf("latency displaced existing information: %q", got)
@@ -481,6 +487,54 @@ func TestStatusBarNarrowerThanHelpStillRenders(t *testing.T) {
 		out := b.render()
 		if got := lipgloss.Width(out); got > width {
 			t.Errorf("width %d: rendered %d cells, want at most %d", width, got, width)
+		}
+	}
+}
+
+// readerBar mirrors what buildStatusBar produces for a landed reader.
+func readerBar(width int) statusBar {
+	return statusBar{
+		host: "@127.0.0.1", user: "alice", escTarget: "@127.0.0.1",
+		latency: "2ms", meta: "1.2 KB", scroll: "42%",
+		hints: "↑↓ scroll · r refresh · ? help",
+		width: width, styles: newStyles(true),
+	}
+}
+
+// crumbSurvives anchors on the left of the line. Do not use strings.Contains:
+// the address also appears inside "◂ esc: <target>", which false-positives.
+func crumbSurvives(out, crumb string) bool {
+	return strings.HasPrefix(strings.TrimLeft(out, " "), crumb)
+}
+
+func TestStatusBarKeepsTheAddressDownTo45(t *testing.T) {
+	for _, width := range []int{45, 60, 80, 100} {
+		out := stripANSIForLandingTest(readerBar(width).render())
+		if !crumbSurvives(out, "@127.0.0.1 / alice") {
+			t.Errorf("width %d: %q clipped the address", width, out)
+		}
+		if got := lipgloss.Width(out); got > width {
+			t.Errorf("width %d: rendered %d cells", width, got)
+		}
+	}
+}
+
+// TestStatusBarShedsStateInLadderOrder: a bar still showing a cheaper segment
+// must still show every dearer one.
+func TestStatusBarShedsStateInLadderOrder(t *testing.T) {
+	for width := 30; width <= 110; width++ {
+		out := stripANSIForLandingTest(readerBar(width).render())
+		if strings.Contains(out, "2ms") && !strings.Contains(out, "1.2 KB") {
+			t.Errorf("width %d: %q kept latency but dropped meta", width, out)
+		}
+		if strings.Contains(out, "1.2 KB") && !strings.Contains(out, "42%") {
+			t.Errorf("width %d: %q kept meta but dropped scroll", width, out)
+		}
+		// scroll is rung 3 and the esc destination is rung 4, so the
+		// destination is the dearer of the two: scroll surviving implies it
+		// survives, not the other way round.
+		if strings.Contains(out, "42%") && !strings.Contains(out, "◂ esc: @127.0.0.1") {
+			t.Errorf("width %d: %q kept scroll but dropped the esc destination", width, out)
 		}
 	}
 }

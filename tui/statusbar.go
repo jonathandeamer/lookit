@@ -68,9 +68,19 @@ func (s priorityStatus) render(width int) string {
 // splitting on it recovers the individual hints losslessly.
 const hintSeparator = " · "
 
-// helpHint is pinned: it is the pointer to the overlay that carries every hint
-// hintsWithin is about to drop, so it is the last one to go.
+// helpHint is the pointer to the overlay. hintsWithin keeps it after the
+// first hint, then drops it if the two cannot both fit.
 const helpHint = "? help"
+
+// hintsFloor is the least hintsWithin will ever return without giving up: the
+// first hint, which is the one that matters. On a failed request that is
+// "r retry"; the state ladder may not shed below the width this needs.
+func (b statusBar) hintsFloor() string {
+	if b.hints == "" {
+		return ""
+	}
+	return strings.Split(b.hints, hintSeparator)[0]
+}
 
 // hintsWithin reduces the hint list to the whole hints that fit budget cells,
 // in three descending stages:
@@ -86,8 +96,11 @@ const helpHint = "? help"
 //  3. Give up and return "". render falls back to its ordinary ellipsis
 //     truncation, so a very narrow bar is no worse than before.
 func (b statusBar) hintsWithin(budget int) string {
-	if b.hints == "" || budget <= 0 || lipgloss.Width(b.hints) <= budget {
+	if b.hints == "" || lipgloss.Width(b.hints) <= budget {
 		return b.hints
+	}
+	if budget <= 0 {
+		return ""
 	}
 	parts := strings.Split(b.hints, hintSeparator)
 	for {
@@ -113,6 +126,32 @@ func (b statusBar) hintsWithin(budget int) string {
 	return ""
 }
 
+// stateLadder returns the bar at each rung of the state-shedding order,
+// richest first. render walks the rungs twice: first for a line that fits
+// with its hints intact, then for one that still fits the address plus the
+// hints' irreducible floor.
+//
+// The order is value, cheapest concession first: how long the request took,
+// then how big it was, then where in it you are, then where esc goes, then
+// that esc goes anywhere at all. render already applied exactly this test to
+// latency alone; this generalises that line rather than adding a mechanism
+// beside it.
+func (b statusBar) stateLadder() []statusBar {
+	rungs := []statusBar{b}
+	next := b
+	for _, reduce := range []func(*statusBar){
+		func(s *statusBar) { s.latency = "" },
+		func(s *statusBar) { s.meta = "" },
+		func(s *statusBar) { s.page, s.scroll = "", "" },
+		func(s *statusBar) { s.escShort = true },
+		func(s *statusBar) { s.escTarget, s.escShort = "", false },
+	} {
+		reduce(&next)
+		rungs = append(rungs, next)
+	}
+	return rungs
+}
+
 func (b statusBar) render() string {
 	if b.width <= 0 {
 		return ""
@@ -124,11 +163,38 @@ func (b statusBar) render() string {
 
 	// Right group: "◂ esc: X · page N/M · 42% · latency · meta · hints", dim, truncated whole if needed.
 	allFlags, _ := b.flagsWithin(b.width)
-	right := b.rightParts(false)
-	candidate := b.rightParts(true)
-	if b.latency != "" && b.fullWidth(candidate, allFlags) <= b.width {
-		right = candidate
+	// Walk the state ladder. Default to rung 1 (latency dropped) when neither
+	// pass finds a fit — the all-or-nothing test this generalises. Descending
+	// further without buying a whole address would surrender state for nothing.
+	rungs := b.stateLadder()
+	chosen, crumbFits := rungs[1], false
+	// Pass one: the richest rung at which the whole line fits with its hints
+	// intact. This is the original all-or-nothing latency test, widened to
+	// every state segment, and it keeps state from ever being bought with
+	// hints — the wrong currency, since latency is the cheapest thing here.
+	for _, rung := range rungs {
+		if b.fullWidth(rung.rightParts(true), allFlags) <= b.width {
+			chosen, crumbFits = rung, true
+			break
+		}
 	}
+	// Pass two: nothing fits whole, so find the richest rung whose state
+	// coexists with the address and at least the hints' irreducible floor.
+	// Below, the hints shed down to that floor to pay for it.
+	if !crumbFits {
+		for _, rung := range rungs {
+			probe := rung
+			probe.hints = b.hintsFloor()
+			if b.fullWidth(probe.rightParts(true), allFlags) <= b.width {
+				chosen, crumbFits = rung, true
+				break
+			}
+		}
+	}
+	// b is a value receiver, so this shapes only the line being rendered.
+	b.latency, b.meta, b.page = chosen.latency, chosen.meta, chosen.page
+	b.scroll, b.escTarget, b.escShort = chosen.scroll, chosen.escTarget, chosen.escShort
+	right := b.rightParts(true)
 	// Honesty flags take precedence over contextual hints. Reserve their room
 	// before truncating the right group so a new hint cannot hide a partial or
 	// auto-detected marker on a narrow terminal.
@@ -141,20 +207,25 @@ func (b statusBar) render() string {
 		rightBudget = 0
 	}
 	rightJoined := strings.Join(right, " · ")
-	// Shed whole hints before falling back to cutting a word. rightParts
-	// appends hints last when they exist, so the state is everything ahead of
-	// them and their budget is whatever it leaves.
-	if b.hints != "" && lipgloss.Width(rightJoined) > rightBudget {
+	// Shed whole hints before falling back to cutting a word. Their budget is
+	// whatever the chosen state rung and the *whole* breadcrumb leave, so the
+	// hints give way to the address rather than the address to the hints —
+	// which is the defect review item 20 describes. rightParts appends hints
+	// last when they exist, so the state is everything ahead of them.
+	// crumbFits gates this: hints give way only when doing so actually buys the
+	// whole address. Where the address cannot be whole at any rung — a bar
+	// narrower than the breadcrumb itself — surrendering hints would cost them
+	// for nothing, so the group is left alone and the breadcrumb collapses
+	// instead, which is what TestStatusBarDoesNotReserveSpaceForHiddenBreadcrumb
+	// has always asserted.
+	if over := b.fullWidth(right, allFlags) - b.width; crumbFits && b.hints != "" && over > 0 {
 		state := right[:len(right)-1]
-		hintBudget := rightBudget - lipgloss.Width(strings.Join(state, " · "))
-		if len(state) > 0 {
-			hintBudget -= lipgloss.Width(" · ")
-		}
-		// An empty result means not one hint fits beside the state. Leave the
-		// group alone rather than dropping the hints: below, a breadcrumb that
-		// cannot coexist collapses and hands its width back to them.
-		if kept := b.hintsWithin(hintBudget); kept != "" && kept != b.hints {
-			rightJoined = strings.Join(append(append([]string{}, state...), kept), " · ")
+		if kept := b.hintsWithin(lipgloss.Width(b.hints) - over); kept != b.hints {
+			trimmed := append([]string{}, state...)
+			if kept != "" {
+				trimmed = append(trimmed, kept)
+			}
+			rightJoined = strings.Join(trimmed, " · ")
 		}
 	}
 	rightText := ""

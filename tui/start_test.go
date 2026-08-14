@@ -1605,3 +1605,100 @@ func TestSplitStartMatchesMapsTargetAndNote(t *testing.T) {
 		t.Errorf("noteMatches = %v, want [0]", noteMatches)
 	}
 }
+
+func TestStartFilterNoMatchNamesTheQuery(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, threeSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typeStartFilter(t, m, "zzzzzz")
+
+	if got := len(m.list.VisibleItems()); got != 0 {
+		t.Fatalf("filter matched %d rows, want a zero-match filter for this test", got)
+	}
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "no match for “zzzzzz”") {
+		t.Fatalf("no-match message missing from view:\n%s", view)
+	}
+	if !strings.Contains(view, "zzzzzz") || !strings.Contains(view, "Filter:") {
+		t.Fatalf("filter prompt must survive alongside the message:\n%s", view)
+	}
+}
+
+func TestStartFilterNoMatchSitsBelowThePrompt(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, threeSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typeStartFilter(t, m, "zzzzzz")
+
+	lines := strings.Split(ansi.Strip(m.View()), "\n")
+	offset := m.filterPromptHeight()
+	if offset < 1 || offset >= len(lines) {
+		t.Fatalf("filter prompt height %d is outside the %d-line view", offset, len(lines))
+	}
+	if got := strings.TrimSpace(lines[offset]); got != "no match for “zzzzzz”" {
+		t.Fatalf("line %d = %q, want the no-match message", offset, got)
+	}
+	if !strings.Contains(lines[0], "Filter:") {
+		t.Fatalf("line 0 = %q, want the filter prompt", lines[0])
+	}
+}
+
+func TestStartFilterWithMatchesHasNoMessage(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, threeSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typeStartFilter(t, m, "plan")
+
+	if len(m.list.VisibleItems()) == 0 {
+		t.Fatal("expected at least one match for this test")
+	}
+	if strings.Contains(ansi.Strip(m.View()), "no match for") {
+		t.Fatal("a matching filter must not show the no-match message")
+	}
+}
+
+func TestStartEmptyFilterHasNoMessage(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, threeSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+
+	if strings.Contains(ansi.Strip(m.View()), "no match for") {
+		t.Fatal("pressing / with nothing typed must not show the no-match message")
+	}
+}
+
+func TestStartUnfilteredHasNoMessage(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, threeSections(), "", "")
+
+	if strings.Contains(ansi.Strip(m.View()), "no match for") {
+		t.Fatal("an unfiltered startpage must not show the no-match message")
+	}
+}
+
+func TestStartFilterNoMatchTruncatesAtNarrowWidth(t *testing.T) {
+	common := testCommon()
+	common.width = 20
+	m := newStart(common, threeSections(), "", "")
+	m, _ = m.update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typeStartFilter(t, m, "zzzzzzzzzzzzzzzzzzzz")
+
+	message := ansi.Strip(m.noMatchMessage())
+	if message == "" {
+		t.Fatal("expected a no-match message at 20 columns")
+	}
+	if strings.Contains(message, "\n") {
+		t.Fatalf("message must stay one row tall, got %q", message)
+	}
+	if w := lipgloss.Width(message); w > m.list.Width() {
+		t.Fatalf("message width %d exceeds list width %d: %q", w, m.list.Width(), message)
+	}
+	if !strings.HasSuffix(message, "…") {
+		t.Fatalf("message should truncate with an ellipsis at this width, got %q", message)
+	}
+}

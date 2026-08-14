@@ -48,7 +48,12 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 	conn, err := d.DialContext(dialCtx, "tcp", t.HostPort)
 	if err != nil {
 		meta.Elapsed = time.Since(start)
-		return nil, meta, fmt.Errorf("dial %s: %w", t.HostPort, err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The caller cancelled (esc, or the session ending). That is not a
+			// connection failure and must not be dressed up as one.
+			return nil, meta, ctxErr
+		}
+		return nil, meta, newQueryError(opDial, t.HostPort, opts.connectTimeout, err)
 	}
 	defer conn.Close()
 
@@ -113,7 +118,7 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 		// Timeout? Treat as truncated. Other errors propagate as-is.
 		if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
 			meta.Truncated = true
-			return body, meta, fmt.Errorf("read response timed out after %s: %w", opts.readTimeout, readErr)
+			return body, meta, newQueryError(opRead, t.HostPort, opts.readTimeout, readErr)
 		}
 		if len(body) > 0 {
 			// Finger servers commonly reset the connection right after sending
@@ -127,7 +132,7 @@ func queryWith(ctx context.Context, t Target, opts queryOpts) ([]byte, Meta, err
 			}
 			return body, meta, nil
 		}
-		return body, meta, fmt.Errorf("read response: %w", readErr)
+		return body, meta, newQueryError(opRead, t.HostPort, 0, readErr)
 	}
 	return body, meta, nil
 }

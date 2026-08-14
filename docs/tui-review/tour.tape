@@ -12,6 +12,14 @@
 # margin. Dropping these sleeps silently banks stills of the wrong screen.
 
 Hide
+# Let the shell finish starting before typing at it. ttyd's shell is cold on
+# the tape's first line, and a Type that lands before the prompt is dropped —
+# which silently skips the reset below and records the *previous* run's
+# bookmarks state, since a completed tour ends with the six-bookmark fixture in
+# place. That failure only appears on the second consecutive run, so it reads
+# as a mystery rather than as a dropped keystroke.
+Sleep 2s
+
 # lookit writes to the bookmarks file (the `b` still below), so each recording
 # gets a throwaway copy under the gitignored out/ tree. The fixture in
 # fixtures/xdg/ stays pristine and every run starts from the same state.
@@ -42,9 +50,12 @@ Screenshot out/tui-review/start-list.png
 Sleep 250ms
 
 # Bookmark + 6 communities + bbs parent → first service child (dict).
-# Wait on the child's note, which only appears when that row is selected.
+# Wait on the child's note, which only appears when that row is selected — so
+# this string is dict@bbs.airandwave.net's note in tui/catalog.txt, verbatim.
+# Editing that note without editing this line hangs the tape on a wait that can
+# never match, which is a two-minute timeout per geometry and no explanation.
 Down 8
-Wait+Screen /Dictionary lookup/
+Wait+Screen /Look up a word/
 Sleep 1500ms
 Screenshot out/tui-review/start-child.png
 Sleep 250ms

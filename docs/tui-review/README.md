@@ -76,6 +76,14 @@ the tracked fixture. The fixture ships one bookmark (`jonathan@tilde.team`) so
 the BOOKMARKS section is on screen and the catalog stays visible; each
 recording starts from that same state.
 
+Both tours therefore open with a `Sleep 2s` before their first `Type`. ttyd's
+shell is cold on a tape's first line and a keystroke that lands before the
+prompt is dropped — which would skip the reset and record whatever the last
+run left in `out/tui-review/xdg/`. A completed tour ends with the six-bookmark
+fixture in place, so the symptom is a *second* consecutive run drifting off the
+tape: `bookmark.png`'s `b` toggles a pin off instead of on, and its
+`Wait+Screen /bookmarked/` then times out two minutes later per geometry.
+
 ## Sizes and themes
 
 Every size/theme is recorded twice — once for chrome (`chrome-*.tape`, offline)
@@ -167,6 +175,16 @@ not `q`: lookit launches with the target input focused, so `q` types a literal
 unnoticed, but fatal once another scene follows. And lookit needs a full
 second to exit before the next shell line types, or the command lands in the
 target input instead.
+
+**Editing `tui/catalog.txt` can break this tape.** Three waits quote a catalog
+note verbatim, because the note is the only on-screen proof that the intended
+row is selected: `Look up a word` (`dict@bbs.airandwave.net`, for
+`start-child`), `lucky dip` (`textfile@typed-hole.org`, for `start-bottom`) and
+`Collaborative science fiction` (`@cosmic.voyage`, before the `b` press). A
+reworded note leaves a wait that can never match, and VHS answers that with a
+two-minute timeout per geometry and no explanation. Adding or removing a
+catalog line also moves rows: `start-child` counts eight `Down`s to the first
+service child, and `start-bottom` assumes `textfile` sorts last.
 
 `responses-tour.tape` fingers the loopback fixture (`:2479` named, `:2480` generic), then a closed port.
 

@@ -1058,7 +1058,7 @@ func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
 	if m.pos < 0 || m.pos >= len(m.history) {
 		return m
 	}
-	if entry.Err != nil && len(entry.Body) == 0 {
+	if entry.failed() {
 		m.requestFailure = &requestFailure{retry: request.retry, err: entry.Err}
 		return m
 	}
@@ -1461,13 +1461,8 @@ func (m appModel) buildStatusBar() statusBar {
 		}
 	default: // stateReader
 		if node.entry.failed() {
-			// No bytes landed, so a byte count and a scroll hint would both be
-			// false. A "partial (truncated)" flag would be false for the same
-			// reason: "partial" claims part of a response arrived, and here
-			// nothing did — even though a read deadline that delivered nothing
-			// does set Meta.Truncated (see finger.queryWith), so this case is
-			// real, not hypothetical. The error line plus "r retry" already
-			// tell the whole story.
+			// A read deadline can set Meta.Truncated with an empty body, so skip
+			// the truncation flag here as well as meta/scroll.
 			bar.hints = joinHints([]string{m.refreshHint()}, bar.escTarget)
 			return bar
 		}

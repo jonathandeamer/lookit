@@ -1049,6 +1049,9 @@ func (m *appModel) showRouted(routed routedEntry) {
 
 func (m appModel) landNavigation(entry Entry) appModel {
 	m.snapshot()
+	if entry.Err == nil {
+		stampVisit(entry.Target.Raw)
+	}
 	routed := routeEntry(entry)
 	m.showRouted(routed)
 	m.push(routed.node)
@@ -1063,6 +1066,9 @@ func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
 	if entry.failed() {
 		m.requestFailure = &requestFailure{retry: request.retry, err: entry.Err}
 		return m
+	}
+	if entry.Err == nil {
+		stampVisit(entry.Target.Raw)
 	}
 	view := refreshViewState{}
 	if request.view != nil {

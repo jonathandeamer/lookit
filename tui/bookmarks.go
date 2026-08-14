@@ -355,6 +355,31 @@ func updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool)
 	return []byte(strings.Join(lines, "\n")), true
 }
 
+// nowFn is the clock for visit stamps and relative dates, a package var so
+// tests control time — the same pattern bookmarksPathFn uses for the path.
+var nowFn = time.Now
+
+// stampVisit records a successful landing in the bookmarks file. Every
+// failure — no config dir, unreadable file, unwritable filesystem — degrades
+// silently: the date simply does not advance, and navigation is never blocked
+// by bookkeeping. A target with no record matches nothing, so unpinned
+// targets never write the file and a visit never adds a record.
+func stampVisit(raw string) {
+	path, err := bookmarksPathFn()
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	updated, changed := updateBookmarkLine(data, raw, nowFn())
+	if !changed {
+		return
+	}
+	_ = saveBookmarkData(path, updated) //nolint:errcheck // a stale date is the designed degradation
+}
+
 // rewriteBookmarkRecord replaces the record on line with target and stamp,
 // splicing on raw offsets so the user's own spacing survives: the leading
 // whitespace is kept, and everything from the first "#" onward (the gap before

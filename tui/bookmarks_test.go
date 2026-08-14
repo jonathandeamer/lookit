@@ -60,6 +60,14 @@ func useMissingTempBookmarks(t *testing.T) string {
 	return path
 }
 
+// useNow stubs nowFn for one test, restoring time.Now afterwards.
+func useNow(t *testing.T, now time.Time) {
+	t.Helper()
+	saved := nowFn
+	nowFn = func() time.Time { return now }
+	t.Cleanup(func() { nowFn = saved })
+}
+
 func TestParseBookmarksValidLines(t *testing.T) {
 	in := []byte("# my list\n\n@tilde.team\njonathan@tilde.team\nweather@bbs.airandwave.net # local comment\n")
 	got := parseBookmarks(in)

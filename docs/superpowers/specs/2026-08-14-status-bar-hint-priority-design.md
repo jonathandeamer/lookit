@@ -83,10 +83,17 @@ place hints are built, and the pinning rule must hold for any caller.
 ### Why the hints stay a string
 
 The obvious alternative is to make `hints` a `[]string` and join at render
-time, which is tidier and was this spec's first mechanism. It is rejected on
-collision grounds rather than taste: it rewrites roughly twenty `statusBar{…}`
-literals in `tui/statusbar_test.go`, and PR #86 is open against
-`tui/statusbar_test.go` and `tui/app.go` at the time of writing.
+time, which is tidier and was this spec's first mechanism. It was first
+deferred because PR #86 was open against `tui/statusbar_test.go` and
+`tui/app.go`; #86 has since merged, so that reason is gone and the choice needs
+a better one.
+
+It stands on scope. The field type is orthogonal to the decision: rule 2
+operates on units whichever way they are stored. Converting the field means
+rewriting roughly twenty `statusBar{…}` literals in `tui/statusbar_test.go` and
+fourteen assignment sites in `tui/app.go` — mechanical, but unrelated churn
+inside a change about which hints survive a narrow terminal, and churn is where
+review attention goes to die. It is worth doing, and worth doing on its own.
 
 The separator is not a guess. Every producer of `hints` joins with the same
 ` · `, so splitting recovers the units losslessly. The one string that is not a
@@ -112,7 +119,7 @@ bar beside a priority status. That behaviour is unchanged and independent.
 
 `tui/app.go` (rule 1, a few lines in `statusBarModel`), `tui/statusbar.go`
 (rule 2, in `render`), and new tests. No existing `statusBar{…}` literal
-changes shape, so the diff stays clear of PR #86. No change to the help
+changes shape. No change to the help
 overlay, the keymap, `finger/`, `render/`, or any user-facing string beyond
 which hints are shown.
 

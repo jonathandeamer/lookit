@@ -1580,6 +1580,35 @@ func TestStartRowTargetDrawsConnectors(t *testing.T) {
 	}
 }
 
+func TestStartRowTargetRendersFullAddressForNumericTokens(t *testing.T) {
+	// Issue #93: `1@happynetbox.com` (or any all-digit token) renders as a
+	// bare numeral under the connector, which reads as a list marker rather
+	// than a service name. The fix keeps the connector so the row still
+	// reads as a child, but shows the full address in place of the bare
+	// token.
+	single := startEntry{target: "1@happynetbox.com", child: true}
+	multi := startEntry{target: "12@happynetbox.com", child: true, lastChild: true}
+	letter := startEntry{target: "bot@happynetbox.com", child: true}
+	mixed := startEntry{target: "r2d2@happynetbox.com", child: true}
+	if got, want := startRowTarget(single, false), "   ├ 1@happynetbox.com"; got != want {
+		t.Errorf("single-digit child = %q, want %q", got, want)
+	}
+	if got, want := startRowTarget(multi, false), "   └ 12@happynetbox.com"; got != want {
+		t.Errorf("multi-digit child = %q, want %q", got, want)
+	}
+	// Non-numeric tokens keep the original token-only rendering.
+	if got, want := startRowTarget(letter, false), "   ├ bot"; got != want {
+		t.Errorf("letter child = %q, want %q", got, want)
+	}
+	if got, want := startRowTarget(mixed, false), "   ├ r2d2"; got != want {
+		t.Errorf("mixed child = %q, want %q", got, want)
+	}
+	// Flattened child still returns the bare address (parent is off screen).
+	if got, want := startRowTarget(single, true), "1@happynetbox.com"; got != want {
+		t.Errorf("flattened single-digit child = %q, want %q", got, want)
+	}
+}
+
 func TestStartRowNotePerState(t *testing.T) {
 	const note = "Saturday Morning Gemzine — back issues"
 	child := startEntry{target: "smog@typed-hole.org", note: note, child: true}

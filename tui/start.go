@@ -370,15 +370,39 @@ func startColumnWidths(width, frame int) (int, int) {
 // parent row above it states the host — but once the view flattens, the parent
 // may be off screen, so the full address returns and the connector goes with
 // it. Flattened is not the same as "a filter is active": see renderEntry.
+//
+// A child whose token reads as a numeral (`1`, `12`) would otherwise be
+// indistinguishable from a list numeral under the connector; in that case the
+// full address is rendered in its place so the row stays legible. The
+// connector is kept — it is what signals "this is a child of the row above" —
+// so the trade is purely about the label, not the tree shape. See issue #93.
 func startRowTarget(entry startEntry, flattened bool) string {
 	if !entry.child || flattened {
 		return entry.target
 	}
+	token := entryToken(entry.target)
 	connector := "├"
 	if entry.lastChild {
 		connector = "└"
 	}
-	return "   " + connector + " " + entryToken(entry.target)
+	if tokenAllNumeric(token) {
+		return "   " + connector + " " + entry.target
+	}
+	return "   " + connector + " " + token
+}
+
+// tokenAllNumeric reports whether s is non-empty and every rune is an ASCII
+// digit — the rule keyed on "looks like a numeral" from issue #93.
+func tokenAllNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // startRowNote is the note column's text. A child is silent by default, so the

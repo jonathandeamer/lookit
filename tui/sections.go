@@ -57,6 +57,7 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 				e.source = sourceBookmark
 			}
 			e.bookmarked = true
+			e.visited = bm.visited[target] // zero when unknown — the row renders blank
 			bookmarked = append(bookmarked, e)
 		}
 		sections = append(sections, startSection{id: sectionBookmarks, title: "BOOKMARKS", entries: bookmarked})

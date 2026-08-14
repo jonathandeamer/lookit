@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/list"
@@ -471,18 +472,17 @@ func tokenAllNumeric(s string) bool {
 // wherever the child renders as a listing rather than a member of a visible
 // group.
 //
-// A row on the user's own shelf is silent because the column belongs to it:
-// what the catalog says about a place is the catalog's line, and a pinned row
-// answers a different question. The cursor does not lift it — unlike a child's,
-// this silence is about whose row it is, and selecting it does not change that.
-// Suppression keys on source, not on the bookmarked flag, for the reason the
-// ownership marker does: a structural parent retained to head a SERVICES group
-// is stamped bookmarked but was built from the catalog, and blanking it would
-// silently strip a group header the user never pinned.
+// A pinned row's note column holds its last-visited date. The row is silent
+// only while the date is unknown — the cursor never lifts an unvisited row's
+// blank. Suppression keys on source, not on the bookmarked flag, for the
+// reason the ownership marker does: a structural parent retained to head a
+// SERVICES group is stamped bookmarked but was built from the catalog, and
+// blanking it would silently strip a group header the user never pinned.
 //
-// Both silences lift when a filter flattens the page. The entry keeps its note
-// throughout — suppression is a property of where the row renders, which is
-// what makes unpinning restore the description with no state to unwind, and
+// Both silences lift when a filter flattens the page, and a flattening filter
+// always restores the catalog note so "/" stays honest. The entry keeps its
+// note throughout — suppression is a property of where the row renders, which
+// is what makes unpinning restore the description with no state to unwind, and
 // what keeps FilterValue honest: "/" still matches a pinned row on its note,
 // and the flattened view it produces is exactly where that note is on screen.
 func startRowNote(entry startEntry, selected, flattened bool) string {
@@ -490,12 +490,51 @@ func startRowNote(entry startEntry, selected, flattened bool) string {
 		return entry.note
 	}
 	if entry.source == sourceBookmark {
-		return ""
+		if entry.visited.IsZero() {
+			return ""
+		}
+		return relativeDay(entry.visited, nowFn())
 	}
 	if entry.child && !selected {
 		return ""
 	}
 	return entry.note
+}
+
+// relativeDay renders a last-visited instant relative to now, fuzzier the
+// further back it goes. Buckets are calendar-day differences in the user's
+// local zone, not divisions of an elapsed duration: bucketing in UTC would
+// tell a user in UTC-8 that an evening visit happened "today" all through the
+// following morning. A future stamp (clock skew, hand-edit) clamps to today.
+func relativeDay(ts, now time.Time) string {
+	t, n := ts.In(time.Local), now.In(time.Local)
+	if t.After(n) {
+		return "today"
+	}
+	// Walk local midnights with AddDate. Dividing elapsed hours by 24 is
+	// wrong across DST: a spring-forward Saturday→Monday is 47 hours and
+	// would land in the "yesterday" bucket.
+	ty, tm, td := t.Date()
+	ny, nm, nd := n.Date()
+	cursor := time.Date(ty, tm, td, 0, 0, 0, 0, t.Location())
+	end := time.Date(ny, nm, nd, 0, 0, 0, 0, n.Location())
+	days := 0
+	for cursor.Before(end) {
+		cursor = cursor.AddDate(0, 0, 1)
+		days++
+	}
+	switch {
+	case days == 0:
+		return "today"
+	case days == 1:
+		return "yesterday"
+	case days < 30:
+		return fmt.Sprintf("%d days ago", days)
+	}
+	if months := days / 30; months < 12 {
+		return fmt.Sprintf("%d months ago", months)
+	}
+	return fmt.Sprintf("%d years ago", days/365)
 }
 
 // splitStartMatches maps filter-match offsets in FilterValue onto the target

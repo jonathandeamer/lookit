@@ -61,6 +61,8 @@ type startEntry struct {
 	note   string
 	source entrySource
 
+	visited time.Time // last-visited instant from the bookmarks file; zero = unknown
+
 	child      bool // drawn under its host's parent row behind a connector; renders its token only
 	lastChild  bool // final child of its group; draws "└" instead of "├"
 	structural bool // a parent copy of a target listed elsewhere; not counted, hidden while filtering

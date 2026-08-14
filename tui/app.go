@@ -1529,7 +1529,7 @@ func (m appModel) startBar(width int, st styles) statusBar {
 		}
 	}
 	if n > 0 {
-		bar.meta = fmt.Sprintf("%d entries", n)
+		bar.meta = startCountLabel(n, "entry", "entries")
 	}
 	bar.hints = fmt.Sprintf("↵ go · b %s · / filter · i target · ? help", m.startBookmarkAction())
 	return bar

@@ -54,6 +54,17 @@ func TestStatusBarStartDoesNotCountCatalogCredit(t *testing.T) {
 	}
 }
 
+func TestStatusBarStartUsesSingularEntryLabel(t *testing.T) {
+	sections := []startSection{{
+		id: sectionCommunities, title: "COMMUNITIES",
+		entries: []startEntry{{target: "@plan.cat", source: sourceCatalog}},
+	}}
+	m := appModel{start: newStart(testCommon(), sections, "", "")}
+	if got := m.startBar(80, newStyles(true)).meta; got != "1 entry" {
+		t.Fatalf("start bar meta = %q, want %q", got, "1 entry")
+	}
+}
+
 func TestStatusBarStartBookmarkActionIsContextual(t *testing.T) {
 	tests := []struct {
 		name   string

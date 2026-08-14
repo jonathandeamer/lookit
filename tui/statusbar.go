@@ -71,21 +71,35 @@ const hintSeparator = " · "
 // hintsWithin is about to drop, so it is the last one to go.
 const helpHint = "? help"
 
-// hintsWithin reduces the hint list to the whole hints that fit budget cells.
-// It drops from the end, because hint lists are built most-useful-first, and it
-// never drops helpHint while anything else remains.
+// hintsWithin reduces the hint list to the whole hints that fit budget cells,
+// in three descending stages:
 //
-// Returning "" means not even one hint fits; render falls back to its ordinary
-// ellipsis truncation, so a very narrow bar is no worse than before.
+//  1. Drop hints from the end, keeping the first and helpHint. Lists are built
+//     most-useful-first, so the tail loses least.
+//  2. If the first and helpHint still do not fit together, keep the first.
+//     helpHint is the pointer to the overlay, but it is not an action; on a
+//     failed request the first hint is "r retry", which is the only thing worth
+//     doing on that screen. Issue #76 exists because the bar spent its width on
+//     less useful facts than the retry, and stage 2 is what stops this
+//     function from reintroducing that.
+//  3. Give up and return "". render falls back to its ordinary ellipsis
+//     truncation, so a very narrow bar is no worse than before.
 func (b statusBar) hintsWithin(budget int) string {
 	if b.hints == "" || budget <= 0 || lipgloss.Width(b.hints) <= budget {
 		return b.hints
 	}
 	parts := strings.Split(b.hints, hintSeparator)
-	for len(parts) > 1 {
-		drop := len(parts) - 1
-		if parts[drop] == helpHint {
-			drop--
+	for {
+		drop := -1
+		for i := len(parts) - 1; i > 0; i-- {
+			if parts[i] == helpHint {
+				continue
+			}
+			drop = i
+			break
+		}
+		if drop < 0 {
+			break
 		}
 		parts = append(parts[:drop], parts[drop+1:]...)
 		if joined := strings.Join(parts, hintSeparator); lipgloss.Width(joined) <= budget {

@@ -443,6 +443,24 @@ func TestStatusBarShedsWholeHints(t *testing.T) {
 	}
 }
 
+// TestStatusBarKeepsRetryOnAFailedRequest: a failed request's hints are
+// "r retry · ? help". Retry is the only useful action on that screen, and #83
+// (issue #76) exists because the bar kept spending its width on less useful
+// facts. Shedding must not undo that by pinning "? help" over it.
+func TestStatusBarKeepsRetryOnAFailedRequest(t *testing.T) {
+	for _, width := range []int{45, 60, 80} {
+		b := statusBar{
+			host: "@127.0.0.1", user: "nobody",
+			escTarget: "trunc@127.0.0.1:2479", latency: "1ms",
+			hints: "r retry · ? help", width: width, styles: newStyles(true),
+		}
+		out := stripANSIForLandingTest(b.render())
+		if !strings.Contains(out, "r retry") {
+			t.Errorf("width %d: %q dropped %q", width, out, "r retry")
+		}
+	}
+}
+
 // TestStatusBarKeepsEveryHintWhenItFits guards against over-eager shedding.
 func TestStatusBarKeepsEveryHintWhenItFits(t *testing.T) {
 	b := statusBar{meta: "28 entries", hints: startHints, width: 100, styles: newStyles(true)}

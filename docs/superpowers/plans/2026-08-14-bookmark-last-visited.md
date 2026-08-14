@@ -58,9 +58,11 @@ func TestParseBookmarksReadsLastVisited(t *testing.T) {
 
 func TestParseBookmarksRejectsBadDate(t *testing.T) {
 	for _, line := range []string{
-		"@plan.cat friendly",           // two fields, second not a date
-		"@plan.cat 2026-08-14",         // date only, not RFC 3339
-		"@plan.cat 2026-08-14T15:04:05", // no zone
+		"@plan.cat friendly",                  // two fields, second not a date
+		"@plan.cat 2026-08-14",                // date only, not RFC 3339
+		"@plan.cat 2026-08-14T15:04:05",       // no zone
+		"@plan.cat 2026-08-14T15:04:05+00:00", // RFC 3339, but not the UTC Z form
+		"@plan.cat 2026-08-14T15:04:05-07:00", // offset zone
 		"@plan.cat 2026-08-14T15:04:05Z extra", // three fields
 	} {
 		got := parseBookmarks([]byte(line + "\n"))
@@ -81,6 +83,12 @@ func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
 	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)
 	if !got.visited["@plan.cat"].Equal(want) {
 		t.Errorf("visited[@plan.cat] = %v, want last-wins %v", got.visited["@plan.cat"], want)
+	}
+
+	// A later dateless duplicate is last-wins unknown, not "keep the earlier date".
+	got = parseBookmarks([]byte("@plan.cat 2026-08-14T00:00:00Z\n@plan.cat\n"))
+	if _, ok := got.visited["@plan.cat"]; ok {
+		t.Errorf("visited[@plan.cat] = %v, want absent after a trailing dateless duplicate", got.visited["@plan.cat"])
 	}
 }
 ```
@@ -125,7 +133,10 @@ func parseBookmarkTarget(line string) (string, time.Time, error) {
 		return fields[0], time.Time{}, nil
 	}
 	visited, err := time.Parse(time.RFC3339, fields[1])
-	if err != nil {
+	// Spec: strict RFC 3339 UTC at seconds precision (the Z form the write
+	// path emits). time.RFC3339 also accepts offsets and +00:00; those are
+	// refused so the file's grammar stays one token, not "any RFC 3339".
+	if err != nil || fields[1] != visited.UTC().Truncate(time.Second).Format(time.RFC3339) {
 		return "", time.Time{}, fmt.Errorf("bad last-visited date %q (want RFC 3339, e.g. 2026-08-14T15:04:05Z)", fields[1])
 	}
 	return fields[0], visited, nil
@@ -141,11 +152,13 @@ Update the three callers. In `parseBookmarks`:
 			continue
 		}
 		out.targets = append(out.targets, target)
-		if !visited.IsZero() {
-			if out.visited == nil {
-				out.visited = make(map[string]time.Time)
-			}
-			out.visited[target] = visited // last-wins, matching how the file treats repeats
+		if out.visited == nil {
+			out.visited = make(map[string]time.Time)
+		}
+		if visited.IsZero() {
+			delete(out.visited, target) // last-line wins, including a trailing dateless duplicate
+		} else {
+			out.visited[target] = visited
 		}
 ```
 
@@ -327,7 +340,7 @@ git commit -m "feat(bookmarks): rewrite a record's last-visited date in place"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tui/app_test.go` (patterns: `useTempBookmarks`, `hostTarget`, `deliverNavigation`, `newApp`, `stubFetch` all exist):
+Add `useNow` next to the other bookmarks stubs in `tui/bookmarks_test.go` (same package; Task 4's startpage tests need it too), and add `"time"` to that file's imports:
 
 ```go
 // useNow stubs nowFn for one test, restoring time.Now afterwards.
@@ -337,7 +350,11 @@ func useNow(t *testing.T, now time.Time) {
 	nowFn = func() time.Time { return now }
 	t.Cleanup(func() { nowFn = saved })
 }
+```
 
+Append to `tui/app_test.go` (patterns: `useTempBookmarks`, `hostTarget`, `deliverNavigation`, `deliverRefresh`, `newApp`, `stubFetch` all exist):
+
+```go
 func TestLandingStampsABookmarkedTarget(t *testing.T) {
 	path := useTempBookmarks(t)
 	now := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
@@ -418,13 +435,8 @@ func TestRefreshStampsTheVisit(t *testing.T) {
 	}
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m = deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
-	// Drive a real refresh: r replaces the current node, then deliver the result.
-	m.inputFocused = false
-	m.input.Blur()
-	_ = m.refreshCurrent() // the stub fetch is never invoked; deliver the result directly
 	fresh := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi again\n")}
-	next, _ := m.Update(fetchResultMsg{reqID: m.pending.id, entry: fresh})
-	m = next.(appModel)
+	m = deliverRefresh(m, fresh, false)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -463,7 +475,7 @@ func TestStampFailureDoesNotBreakTheLanding(t *testing.T) {
 }
 ```
 
-(`errors`, `os`, `path/filepath`, `strings`, `time` imports as needed; `TestMain` in `bookmarks_test.go` already isolates the default bookmarks path.)
+(`errors`, `os`, `path/filepath`, `strings`, `time` imports as needed in `app_test.go`; `useNow` lives in `bookmarks_test.go` with the other stubs. `TestMain` already isolates the default bookmarks path.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -531,7 +543,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-make check && git add tui/bookmarks.go tui/app.go tui/app_test.go
+make check && git add tui/bookmarks.go tui/bookmarks_test.go tui/app.go tui/app_test.go
 git commit -m "feat(tui): stamp a bookmark's last-visited date on a successful landing"
 ```
 
@@ -602,6 +614,21 @@ func TestRelativeDayBucketsInLocalTime(t *testing.T) {
 	}
 }
 
+func TestRelativeDayCountsCalendarDaysAcrossDST(t *testing.T) {
+	// US spring-forward 2026-03-08: Saturday noon EST → Monday noon EDT is two
+	// calendar days but only 47 elapsed hours. Hours/24 would say "yesterday".
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip(err)
+	}
+	useLocalZone(t, loc)
+	stamp := time.Date(2026, 3, 7, 12, 0, 0, 0, loc)
+	now := time.Date(2026, 3, 9, 12, 0, 0, 0, loc)
+	if got := relativeDay(stamp, now); got != "2 days ago" {
+		t.Errorf("relativeDay across spring-forward = %q, want 2 days ago", got)
+	}
+}
+
 func TestStartRowNoteShowsTheVisitDate(t *testing.T) {
 	useLocalZone(t, time.UTC)
 	useNow(t, time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC))
@@ -629,6 +656,37 @@ func TestStartRowNoteShowsTheVisitDate(t *testing.T) {
 	}
 	if fv := (startItem{entry: described}).FilterValue(); fv != "@cosmic.voyage Collaborative science fiction" {
 		t.Errorf("FilterValue = %q, want target + note, date excluded", fv)
+	}
+}
+
+// A visited pin still highlights the catalog-note match when flattened —
+// the date must not be what splitStartMatches is scoring against.
+func TestStartVisitedPinHighlightsTheNoteWhenFlattened(t *testing.T) {
+	useLocalZone(t, time.UTC)
+	useNow(t, time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC))
+	common := testCommon()
+	common.width = 100
+	const note = "Collaborative science fiction"
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: note, source: sourceBookmark, bookmarked: true,
+				visited: time.Date(2026, 8, 11, 16, 0, 0, 0, time.UTC)},
+		}},
+	}, "", "")
+	m.list.SetFilterText("fiction")
+	m.list.SetFilterState(list.Filtering)
+
+	view := m.View()
+	plain := stripANSIForLandingTest(view)
+	if strings.Contains(plain, "3 days ago") {
+		t.Fatalf("flattened visited pin still shows the date:\n%s", plain)
+	}
+	if !strings.Contains(plain, note) {
+		t.Fatalf("flattened visited pin hides its note:\n%s", plain)
+	}
+	lineIndex := lineIndexContaining(t, plain, "@cosmic.voyage")
+	if got := underlinedText(strings.Split(view, "\n")[lineIndex]); got != "fiction" {
+		t.Fatalf("underlined text = %q, want %q", got, "fiction")
 	}
 }
 
@@ -666,11 +724,11 @@ func TestStartSectionGapAfterAMixedShelf(t *testing.T) {
 }
 ```
 
-(`time` import as needed; `useNow` comes from Task 3's test block — if these tests land in `start_test.go` before that block exists, move `useNow` here and have Task 3 use it.)
+(Add `"time"` to `tui/start.go` and `tui/start_test.go` imports. `useNow` lives in `bookmarks_test.go` from Task 3. `underlinedText` already exists in this file.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `go test ./tui/ -run 'TestRelativeDay|TestStartRowNoteShowsTheVisitDate|TestStartSectionGapAfterAMixedShelf' -count=1 -v`
+Run: `go test ./tui/ -run 'TestRelativeDay|TestStartRowNoteShowsTheVisitDate|TestStartVisitedPinHighlights|TestStartSectionGapAfterAMixedShelf' -count=1 -v`
 Expected: FAIL — `relativeDay` / `startEntry.visited` undefined.
 
 - [ ] **Step 3: Implement**
@@ -717,11 +775,18 @@ func relativeDay(ts, now time.Time) string {
 	if t.After(n) {
 		return "today"
 	}
-	midnight := func(t time.Time) time.Time {
-		y, m, d := t.Date()
-		return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
+	// Walk local midnights with AddDate. Dividing elapsed hours by 24 is
+	// wrong across DST: a spring-forward Saturday→Monday is 47 hours and
+	// would land in the "yesterday" bucket.
+	ty, tm, td := t.Date()
+	ny, nm, nd := n.Date()
+	cursor := time.Date(ty, tm, td, 0, 0, 0, 0, t.Location())
+	end := time.Date(ny, nm, nd, 0, 0, 0, 0, n.Location())
+	days := 0
+	for cursor.Before(end) {
+		cursor = cursor.AddDate(0, 0, 1)
+		days++
 	}
-	days := int(midnight(n).Sub(midnight(t)).Hours() / 24)
 	switch {
 	case days == 0:
 		return "today"
@@ -761,13 +826,13 @@ Nothing else moves: the date lives in the note column, so `startTargetColumn` me
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go test ./tui/ -run 'TestRelativeDay|TestStartRowNote|TestStartSectionGap|TestStartOwnership' -count=1 -v`
+Run: `go test ./tui/ -run 'TestRelativeDay|TestStartRowNote|TestStartVisitedPinHighlights|TestStartSectionGap|TestStartOwnership' -count=1 -v`
 Expected: PASS, including the pre-existing #112 note-suppression tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-make check && git add tui/bookmarks.go tui/sections.go tui/start.go tui/start_test.go tui/app_test.go
+make check && git add tui/bookmarks.go tui/sections.go tui/start.go tui/start_test.go
 git commit -m "feat(startpage): show a bookmark's last-visited date in the note column"
 ```
 
@@ -806,4 +871,5 @@ git commit -m "docs: record the bookmarks file's last-visited grammar and rewrit
 
 - **Spec coverage:** grammar/parse (Task 1), rewrite + guard + byte splicing + exact-match (Task 2), stamping rules incl. refresh and silent failure (Task 3), rendering incl. local-zone buckets, future clamp, flattened stand-down, FilterValue exclusion, mixed-shelf gap (Task 4), docs (Task 5). The unknown-date scenario is covered by parse (one-field), render (zero time → blank), and stamp-failure tests.
 - **Out of scope per spec:** recency ordering of the shelf; `docs/tui-review` fixtures stay dateless.
-- **Type consistency:** `parseBookmarkTarget` returns `(string, time.Time, error)` in every task; `updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool)`; `relativeDay(ts, now time.Time) string`; `nowFn` introduced in Task 3 and consumed in Task 4 (`useNow` helper defined in Task 3's tests).
+- **Type consistency:** `parseBookmarkTarget` returns `(string, time.Time, error)` in every task; `updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool)`; `relativeDay(ts, now time.Time) string`; `nowFn` introduced in Task 3 and consumed in Task 4 (`useNow` lives in `bookmarks_test.go`).
+- **Plan fixes (2026-08-14 review):** parse requires the UTC `Z` form (not any RFC 3339); last-line-wins includes a trailing dateless duplicate; `relativeDay` walks calendar midnights so DST cannot collapse a 2-day span to "yesterday"; Task 3 refresh test uses the existing `deliverRefresh` helper; `useNow` is shared from `bookmarks_test.go`.

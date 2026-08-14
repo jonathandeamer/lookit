@@ -213,7 +213,7 @@ func (m appModel) linksPanelHelpCandidates() []key.Binding {
 			bindings = append(bindings, m.keys.Copy)
 		}
 	}
-	return append(bindings, m.keys.Filter, m.keys.About)
+	return append(bindings, m.keys.Filter, m.keys.About, m.keys.Quit)
 }
 
 func (m appModel) helpLayout() helpLayout {

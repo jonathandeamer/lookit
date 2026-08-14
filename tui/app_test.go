@@ -3967,6 +3967,71 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 	}
 }
 
+// TestStartBarShowsPageIndicatorWhenPaged: the launch screen was the one place
+// in the app that hid its own extent. At 80x24 roughly a third of the catalog
+// is on screen and bubbles' pagination dots in the corner were the only sign
+// the rest existed — while listBar has reported "page N/M" since the user list
+// shipped. The indicator has to survive the input-focused branch, because that
+// is the state the app launches in and the one most people see.
+func TestStartBarShowsPageIndicatorWhenPaged(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+
+	tp := m.start.list.Paginator.TotalPages
+	if tp <= 1 {
+		t.Fatalf("TotalPages = %d, want > 1 (80x24 must not hold the whole catalog for this test to mean anything)", tp)
+	}
+	want := fmt.Sprintf("page 1/%d", tp)
+
+	if got := m.startBar(80, newStyles(true)).page; got != want {
+		t.Fatalf("input-focused bar page = %q, want %q", got, want)
+	}
+	m.blurInput()
+	if got := m.startBar(80, newStyles(true)).page; got != want {
+		t.Fatalf("content-focused bar page = %q, want %q", got, want)
+	}
+	if bar := ansi.Strip(m.startBar(80, newStyles(true)).render()); !strings.Contains(bar, want) {
+		t.Fatalf("rendered bar dropped the page indicator at 80 columns:\n%s", bar)
+	}
+}
+
+// TestStartBarPageIndicatorTracksTheCurrentPage: the indicator is a position,
+// not a count, so it has to move with the cursor.
+func TestStartBarPageIndicatorTracksTheCurrentPage(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step.(appModel)
+	m.blurInput()
+	m.start.list.Select(len(m.start.list.Items()) - 1)
+
+	tp := m.start.list.Paginator.TotalPages
+	want := fmt.Sprintf("page %d/%d", tp, tp)
+	if got := m.startBar(80, newStyles(true)).page; got != want {
+		t.Fatalf("bar page on the last page = %q, want %q", got, want)
+	}
+}
+
+// TestStartBarOmitsPageIndicatorOnOnePage: a page indicator on a screen that
+// holds everything asserts an extent that isn't there. Mirrors listBar, which
+// only sets page when TotalPages > 1.
+func TestStartBarOmitsPageIndicatorOnOnePage(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	step, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 80})
+	m = step.(appModel)
+	m.blurInput()
+
+	if tp := m.start.list.Paginator.TotalPages; tp != 1 {
+		t.Fatalf("TotalPages = %d, want 1 (100x80 must hold the whole catalog for this test to mean anything)", tp)
+	}
+	if got := m.startBar(100, newStyles(true)).page; got != "" {
+		t.Fatalf("bar page = %q, want empty on a single-page startpage", got)
+	}
+}
+
 func TestEntryFailed(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -19,6 +19,7 @@ type statusBar struct {
 	host      string   // "@tilde.team" ("" only on the landing screen)
 	user      string   // "jonathan" ("" for a host directory)
 	escTarget string   // previous history node's target.Raw ("" at the root)
+	escShort  bool     // render "◂ esc" without its destination (state ladder rung 4)
 	flags     []string // honesty flags, e.g. {"auto-detected"}, {"partial (truncated)"}
 	page      string   // "page 2/4" when list has multiple pages; "" otherwise
 	scroll    string   // "42%" when reader is scrollable; "" otherwise
@@ -195,7 +196,14 @@ func (b statusBar) render() string {
 func (b statusBar) rightParts(includeLatency bool) []string {
 	var right []string
 	if b.escTarget != "" {
-		right = append(right, "◂ esc: "+b.escTarget)
+		// The affordance is what the user needs; the destination is a
+		// courtesy. Rung 4 of the state ladder keeps the first and drops the
+		// second, which buys 12-22 cells on a narrow bar.
+		if b.escShort {
+			right = append(right, "◂ esc")
+		} else {
+			right = append(right, "◂ esc: "+b.escTarget)
+		}
 	}
 	if b.page != "" {
 		right = append(right, b.page)

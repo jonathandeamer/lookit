@@ -484,3 +484,20 @@ func TestStatusBarNarrowerThanHelpStillRenders(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusBarEscDegradesToBareAffordance(t *testing.T) {
+	full := statusBar{escTarget: "trunc@127.0.0.1:2479", width: 80, styles: newStyles(true)}
+	if got := stripANSIForLandingTest(full.render()); !strings.Contains(got, "◂ esc: trunc@127.0.0.1:2479") {
+		t.Fatalf("precondition: %q, want the full destination", got)
+	}
+
+	short := full
+	short.escShort = true
+	got := stripANSIForLandingTest(short.render())
+	if !strings.Contains(got, "◂ esc") {
+		t.Errorf("%q dropped the esc affordance entirely", got)
+	}
+	if strings.Contains(got, "trunc@127.0.0.1:2479") {
+		t.Errorf("%q kept the destination, want it dropped", got)
+	}
+}

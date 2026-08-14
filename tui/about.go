@@ -60,12 +60,8 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	spark := lipgloss.NewStyle().Foreground(st.palette.AccentMint)
 	arrow := lipgloss.NewStyle().Foreground(st.palette.AccentViolet)
 
-	// Long lines (tagline, repo URL, the catalog credit) degrade by truncation on
-	// narrow terminals. Fit each line to the terminal *before* any JoinVertical,
-	// so a group is centered against lines that already fit: centering first and
-	// truncating after chops JoinVertical's own right-hand padding, which paints
-	// an ellipsis onto lines that were never too long and shifts the whole block
-	// off-centre once its widest line exceeds the terminal.
+	// Truncate before any JoinVertical so groups are measured against already-fit
+	// lines. Doing it after chops JoinVertical's right pad and paints … on short lines.
 	fit := func(lines ...string) []string {
 		if width <= 0 {
 			return lines
@@ -89,10 +85,7 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	identity = append(identity, dim.Render(aboutRepo))
 	identityBlock := lipgloss.JoinVertical(lipgloss.Center, fit(identity...)...)
 
-	// The two credits are peers — one for the toolkit, one for the catalog — so
-	// they share the bullets' weight rather than one hiding in the dim identity
-	// block. The catalog credit goes last: its URL is the longest line here, and
-	// the ragged edge is least visible at the bottom of a left-aligned group.
+	// Catalog last: its URL is the longest left-aligned line.
 	bullet := func(label, url string) string {
 		return spark.Render("✦ ") + text.Render(label+" ") + text.Hyperlink(url).Render(url)
 	}

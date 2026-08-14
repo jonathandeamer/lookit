@@ -72,11 +72,8 @@ func TestAboutViewNarrowTruncatesLongLines(t *testing.T) {
 	}
 }
 
-// Both credits render as bullets carrying an OSC 8 hyperlink, and neither is
-// left in the dim identity block.
-// Only lines that genuinely overflow may carry an ellipsis. Fitting after
-// centering used to truncate JoinVertical's right-hand padding instead, marking
-// every line as truncated and pushing the block off-centre.
+// Fitting after centering used to truncate JoinVertical's right-hand padding,
+// marking every line as truncated and pushing the block off-centre.
 func TestAboutViewNarrowOnlyEllipsizesOverlongLines(t *testing.T) {
 	const width = 60
 	plain := ansi.Strip(aboutView(newStyles(true), colorprofile.TrueColor, "v0.2.0", "2026-08-14", width, 24))
@@ -87,10 +84,18 @@ func TestAboutViewNarrowOnlyEllipsizesOverlongLines(t *testing.T) {
 		if ansi.StringWidth(ln) > width {
 			t.Fatalf("line exceeds width %d: %q", width, ln)
 		}
-		// A line ending in "…" must have been padded out to the full width; a
-		// short line wearing one is the padding-truncation bug.
-		if strings.HasSuffix(strings.TrimRight(ln, " "), "…") && ansi.StringWidth(ln) < width {
-			t.Fatalf("short line ellipsized at width %d: %q", width, ln)
+		// A genuine overflow is width cells of content ending in "…". Interior
+		// pad before the ellipsis is the old truncate-after-center bug.
+		trimmed := strings.TrimRight(ln, " ")
+		if !strings.HasSuffix(trimmed, "…") {
+			continue
+		}
+		if ansi.StringWidth(trimmed) != width {
+			t.Fatalf("ellipsized line is not %d cells of content: %q", width, ln)
+		}
+		content := strings.TrimSuffix(trimmed, "…")
+		if content != strings.TrimRight(content, " ") {
+			t.Fatalf("ellipsis after interior pad at width %d: %q", width, ln)
 		}
 	}
 	if !strings.Contains(plain, aboutTagline) {
@@ -112,6 +117,8 @@ func TestAboutViewNarrowOnlyEllipsizesOverlongLines(t *testing.T) {
 	t.Fatalf("wordmark line not found:\n%s", plain)
 }
 
+// Both credits render as bullets carrying an OSC 8 hyperlink, and neither is
+// left in the dim identity block.
 func TestAboutViewRendersCreditBulletsWithHyperlinks(t *testing.T) {
 	out := aboutView(newStyles(true), colorprofile.TrueColor, "v0.0.1", "2026-06-03", 80, 24)
 	plain := ansi.Strip(out)

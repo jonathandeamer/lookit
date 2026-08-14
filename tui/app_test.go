@@ -3985,3 +3985,52 @@ func TestEntryFailed(t *testing.T) {
 		})
 	}
 }
+
+// TestStatusBarDropsHintsWhileHelpIsOpen: the overlay lists the same commands,
+// better laid out, two lines above. State stays because the overlay never
+// shows it.
+func TestStatusBarDropsHintsWhileHelpIsOpen(t *testing.T) {
+	for name, base := range helpContextModels(t) {
+		if name != "reader no links" && name != "user list" && name != "start content" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			m := base
+			m.common.width, m.common.height = 100, 24
+			(&m).updateKeymap()
+			closed := m.statusBarModel()
+			if closed.hints == "" {
+				t.Fatalf("precondition: %s has no hints with help closed", name)
+			}
+
+			m.openHelp()
+			(&m).updateKeymap()
+			open := m.statusBarModel()
+			if open.hints != "" {
+				t.Errorf("hints with help open = %q, want empty", open.hints)
+			}
+			if open.meta != closed.meta {
+				t.Errorf("meta = %q, want it kept at %q", open.meta, closed.meta)
+			}
+			if open.host != closed.host || open.user != closed.user {
+				t.Errorf("breadcrumb = %q/%q, want it kept at %q/%q",
+					open.host, open.user, closed.host, closed.user)
+			}
+		})
+	}
+}
+
+// TestStatusBarFlashSurvivesHelp: a flash reports something that just happened
+// and the overlay never shows it, so it outranks the help rule.
+func TestStatusBarFlashSurvivesHelp(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 100, 24
+	m.blurInput()
+	m.openHelp()
+	m.flash = "copied jonathan@tilde.team"
+	(&m).updateKeymap()
+
+	if got := m.statusBarModel().hints; got != "copied jonathan@tilde.team" {
+		t.Errorf("hints = %q, want the flash to survive with help open", got)
+	}
+}

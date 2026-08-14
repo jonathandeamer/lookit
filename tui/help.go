@@ -169,11 +169,32 @@ func (m appModel) helpCandidates() []key.Binding {
 		open.SetEnabled(false)
 	}
 	return []key.Binding{
-		m.keys.Move, open, m.keys.Back, m.keys.FocusInput, m.keys.Home,
+		m.moveHelpBinding(), open, m.keys.Back, m.keys.FocusInput, m.keys.Home,
 		m.keys.Page, m.keys.LinkNext, m.keys.LinkPrev, m.keys.Filter,
 		m.keys.Browse, m.keys.Raw, m.keys.Refresh,
 		m.keys.Copy, m.keys.Bookmark, m.keys.LinkPanel, m.keys.About, m.keys.Quit,
 	}
+}
+
+// moveHelpBinding labels ↑/↓ for the view the overlay is describing. In a list
+// the keys move a selection and the viewport follows, so "move" names the
+// thing that moves. The reader has no cursor — nothing moves but the text —
+// and "scroll" is what the status bar already calls it there (app.go:1485,
+// against "move" in the list hints at :1432 and :1434). Over a landed reader
+// the bar and the overlay are on screen together, so they cannot disagree.
+//
+// The keys and the enabled flag are inherited: the retained set doubles as the
+// execute gate, so a relabelled binding must still match and still be
+// suppressed when Move is disabled.
+//
+// The links panel is a list and keeps "move"; it returns from
+// helpCandidates before reaching here.
+func (m appModel) moveHelpBinding() key.Binding {
+	binding := m.keys.Move
+	if m.state == stateReader {
+		binding.SetHelp("↑/↓", "scroll")
+	}
+	return binding
 }
 
 func (m appModel) linksPanelHelpCandidates() []key.Binding {

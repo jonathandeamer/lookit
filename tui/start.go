@@ -27,7 +27,7 @@ type startItem struct {
 	entry   startEntry
 	header  string // non-empty => this row is a section heading
 	section startSectionID
-	spacer  bool // one blank row before SERVICES in the one-line layout
+	spacer  bool // one blank row above a section header, in the one-line layout
 }
 
 func (i startItem) selectable() bool {
@@ -135,20 +135,15 @@ func startCountLabel(n int, singular, plural string) string {
 }
 
 func startItems(sections []startSection, width int) []list.Item {
-	hasCommunities := false
-	for _, section := range sections {
-		if section.id == sectionCommunities && len(section.entries) > 0 {
-			hasCommunities = true
-			break
-		}
-	}
-
 	var items []list.Item
-	if len(sections) > 0 {
-		items = append(items, startItem{spacer: true})
-	}
 	for _, s := range sections {
-		if width >= startWideMinWidth && hasCommunities && s.id == sectionServices && len(s.entries) > 0 {
+		// Exactly one blank row above every section header. The wide one-row
+		// layout needs a spacer item to produce it — except above the first
+		// header, where bubbles' reserved filter row (rendered whenever
+		// filtering is enabled, even with SetShowTitle(false)) already
+		// supplies one. The narrow two-row layout needs no spacer at any
+		// boundary, because renderHeader spends its first row on a blank.
+		if width >= startWideMinWidth && len(items) > 0 {
 			items = append(items, startItem{spacer: true})
 		}
 		items = append(items, startItem{header: s.title, section: s.id})
@@ -216,7 +211,7 @@ func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		return
 	}
 	if it.header != "" {
-		d.renderHeader(w, m.Width(), it.header)
+		d.renderHeader(w, m.Width(), it.header, d.headerNeedsBlank(m, index))
 		return
 	}
 	if !it.selectable() {
@@ -225,8 +220,59 @@ func (d startDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	d.renderEntry(w, m, index, it)
 }
 
-func (d startDelegate) renderHeader(w io.Writer, width int, header string) {
-	if d.Height() == 2 {
+// headerNeedsBlank reports whether a two-row header must spend its first row on
+// a blank to satisfy the one-blank-row-above-every-header rule. It must not
+// when the row above already renders empty, or the gap doubles.
+//
+// Two cases produce an already-blank row. At the top of a page bubbles' own
+// title row sits directly above, and it is empty unless the filter prompt is
+// in it. And a two-row entry whose note is absent — an unclassified bookmark,
+// or a grouped child whose note stays hidden until selected — leaves its
+// second row empty, which is why the gap used to depend on whether the last
+// entry of a section happened to carry a note.
+//
+// The one-row layout never needs this: its headers occupy a single row and the
+// gap is a spacer item instead.
+func (d startDelegate) headerNeedsBlank(m list.Model, index int) bool {
+	if d.Height() == 1 {
+		return false
+	}
+	items := m.VisibleItems()
+	start, _ := m.Paginator.GetSliceBounds(len(items))
+	if index <= start {
+		return m.FilterState() == list.Filtering
+	}
+	if index-1 >= len(items) {
+		return true
+	}
+	prev, ok := items[index-1].(startItem)
+	if !ok {
+		return true
+	}
+	return !d.rowEndsBlank(m, index-1, prev)
+}
+
+// rowEndsBlank reports whether a two-row row's second terminal row renders as
+// empty space. A selected row never does: the selection shelf draws its border
+// down both rows.
+func (d startDelegate) rowEndsBlank(m list.Model, index int, it startItem) bool {
+	if it.spacer {
+		return true
+	}
+	if it.header != "" || !it.selectable() {
+		return false
+	}
+	isSelected := index == m.Index()
+	if isSelected && m.FilterState() != list.Filtering {
+		return false
+	}
+	emptyFilter := m.FilterState() == list.Filtering && m.FilterValue() == ""
+	flattened := (m.FilterState() == list.Filtering || m.FilterState() == list.FilterApplied) && !emptyFilter
+	return startRowNote(it.entry, isSelected, flattened) == ""
+}
+
+func (d startDelegate) renderHeader(w io.Writer, width int, header string, needsBlank bool) {
+	if needsBlank {
 		fmt.Fprint(w, "\n") //nolint:errcheck
 	}
 	label := ansi.Truncate(header+" ", width, "…")
@@ -460,15 +506,50 @@ func (m *startModel) skipNonEntry(dir int) {
 	}
 }
 
+// noMatchMessage is the first content row while a typed filter matches nothing.
+// Bubbles leaves that region blank; name the query, not the catalog.
+func (m startModel) noMatchMessage() string {
+	if m.list.FilterState() != list.Filtering || len(m.list.VisibleItems()) > 0 {
+		return ""
+	}
+	query := strings.TrimSpace(m.list.FilterValue())
+	if query == "" {
+		return "" // "/" pressed with nothing typed: every row is still on screen
+	}
+	// PaddingLeft(2) puts the message on the same left edge as the entry rows it
+	// replaces and the filter prompt above it.
+	style := m.list.Styles.NoItems.PaddingLeft(2)
+	return ansi.Truncate(style.Render("no match for “"+query+"”"), m.list.Width(), "…")
+}
+
+// filterPromptHeight is the TitleBar-wrapped filter input. Derive the offset so
+// the message stays under the prompt; do not hardcode 2.
+func (m startModel) filterPromptHeight() int {
+	return lipgloss.Height(m.list.Styles.TitleBar.Render(m.list.FilterInput.View()))
+}
+
+// replaceLine overwrites line n of view, appending when the view is shorter so
+// the caller's line can never be silently dropped.
+func replaceLine(view string, n int, line string) string {
+	lines := strings.Split(view, "\n")
+	if n < 0 || n >= len(lines) {
+		return view + "\n" + line
+	}
+	lines[n] = line
+	return strings.Join(lines, "\n")
+}
+
 // View shows the file-level empty state only when the startpage has no rows AT
 // ALL. Gating on VisibleItems() instead would fire on a zero-match filter, where
 // it would assert something false ("no bookmarks yet") and swallow the filter
-// input the user is still typing into. A filter that matches nothing keeps the
-// list, which renders the filter input plus its own "No entries." (Styles.NoItems).
+// input the user is still typing into.
 func (m startModel) View() string {
 	body := m.empty
 	if len(m.list.Items()) > 0 || m.empty == "" {
 		body = m.list.View()
+		if message := m.noMatchMessage(); message != "" {
+			body = replaceLine(body, m.filterPromptHeight(), message)
+		}
 		if overview := m.overviewView(); overview != "" {
 			body = overview + "\n" + body
 		}

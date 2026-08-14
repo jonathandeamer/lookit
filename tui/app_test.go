@@ -3933,3 +3933,23 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 		})
 	}
 }
+
+func TestEntryFailed(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry Entry
+		want  bool
+	}{
+		{"error with no body", Entry{Err: errors.New("connection refused by 127.0.0.1:1")}, true},
+		{"error with a body", Entry{Body: []byte("half a plan\n"), Err: errors.New("read timed out")}, false},
+		{"body, no error", Entry{Body: []byte("a plan\n")}, false},
+		{"empty success", Entry{}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.entry.failed(); got != tc.want {
+				t.Errorf("failed() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -5,8 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/jonathandeamer/lookit/finger"
 )
@@ -60,6 +63,8 @@ type startEntry struct {
 	note   string
 	source entrySource
 
+	visited time.Time // last-visited instant from the bookmarks file; zero = unknown
+
 	child      bool // drawn under its host's parent row behind a connector; renders its token only
 	lastChild  bool // final child of its group; draws "└" instead of "├"
 	structural bool // a parent copy of a target listed elsewhere; not counted, hidden while filtering
@@ -75,6 +80,7 @@ type parseProblem struct {
 // bookmarkFile is the parsed user file.
 type bookmarkFile struct {
 	targets       []string
+	visited       map[string]time.Time // last-visited instant per target; absent = unknown
 	catalogHidden bool
 	problems      []parseProblem
 }
@@ -102,12 +108,20 @@ func parseBookmarks(data []byte) bookmarkFile {
 			}
 			continue
 		}
-		target, err := parseBookmarkTarget(line)
+		target, visited, err := parseBookmarkTarget(line)
 		if err != nil {
 			out.problems = append(out.problems, parseProblem{line: lineNo, reason: err.Error()})
 			continue
 		}
 		out.targets = append(out.targets, target)
+		if visited.IsZero() {
+			delete(out.visited, target) // last-line wins, including a trailing dateless duplicate
+			continue
+		}
+		if out.visited == nil {
+			out.visited = make(map[string]time.Time)
+		}
+		out.visited[target] = visited
 	}
 	return out
 }
@@ -141,23 +155,38 @@ func stripComment(line string) string {
 	return line
 }
 
-// parseBookmarkTarget accepts exactly one target token. Any other text is
-// refused because bookmark records carry no display metadata.
-func parseBookmarkTarget(line string) (string, error) {
+// parseBookmarkTarget accepts a target with an optional RFC 3339 last-visited
+// date: "<target>" or "<target> <timestamp>". Anything else is refused. A bad
+// date refuses the whole record — a line lookit cannot understand is surfaced
+// as a problem, never guessed at (the file's existing contract), and only a
+// validated time.Time ever reaches the display, so the file still needs no
+// sanitize call.
+func parseBookmarkTarget(line string) (string, time.Time, error) {
 	fields := strings.Fields(line)
-	if len(fields) != 1 {
-		return "", fmt.Errorf("expected one target, got %q", line)
+	if len(fields) == 0 || len(fields) > 2 {
+		return "", time.Time{}, fmt.Errorf("expected a target with an optional RFC 3339 date, got %q", line)
 	}
 	if err := validateTarget(fields[0]); err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
-	return fields[0], nil
+	if len(fields) == 1 {
+		return fields[0], time.Time{}, nil
+	}
+	visited, err := time.Parse(time.RFC3339, fields[1])
+	// Spec: strict RFC 3339 UTC at seconds precision (the Z form the write
+	// path emits). time.RFC3339 also accepts offsets and +00:00; those are
+	// refused so the file's grammar stays one token, not "any RFC 3339".
+	if err != nil || fields[1] != visited.UTC().Truncate(time.Second).Format(time.RFC3339) {
+		return "", time.Time{}, fmt.Errorf("bad last-visited date %q (want RFC 3339, e.g. 2026-08-14T15:04:05Z)", fields[1])
+	}
+	return fields[0], visited, nil
 }
 
 // validateBookmarkRecordTarget verifies that target survives the bookmark
-// file's comment and single-field grammar without changing identity.
+// file's comment-and-two-field grammar without changing identity. The add path
+// still passes a bare target, which parses as a one-field record.
 func validateBookmarkRecordTarget(target string) error {
-	parsed, err := parseBookmarkTarget(strings.TrimSpace(stripComment(target)))
+	parsed, _, err := parseBookmarkTarget(strings.TrimSpace(stripComment(target)))
 	if err != nil {
 		return err
 	}
@@ -286,13 +315,102 @@ func deleteBookmarkLine(data []byte, target string) []byte {
 	lines := strings.Split(string(data), "\n")
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
-		parsed, err := parseBookmarkTarget(strings.TrimSpace(stripComment(line)))
+		parsed, _, err := parseBookmarkTarget(strings.TrimSpace(stripComment(line)))
 		if err == nil && parsed == target {
 			continue
 		}
 		kept = append(kept, line)
 	}
 	return []byte(strings.Join(kept, "\n"))
+}
+
+// updateBookmarkLine rewrites the last-visited date on every valid record for
+// target — the write path's first in-place rewrite, so it is careful about
+// what it touches: only valid records whose target matches exactly are
+// rewritten (all duplicates, consistent with deleteBookmarkLine), each keeps
+// its leading whitespace and its trailing comment byte-identical, and
+// everything else — comments, malformed lines, blanks, directives, ordering —
+// is untouched. changed is false when no record matched; that is also the
+// "is it bookmarked?" test for the caller.
+func updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool) {
+	stamp := ts.UTC().Truncate(time.Second).Format(time.RFC3339)
+	lines := strings.Split(string(data), "\n")
+	changed := false
+	for i, line := range lines {
+		parsed, _, err := parseBookmarkTarget(strings.TrimSpace(stripComment(line)))
+		if err != nil || parsed != target {
+			continue
+		}
+		rewritten := rewriteBookmarkRecord(line, target, stamp)
+		// Round-trip guard: the emitted record must parse back to the same
+		// target and instant, or the line is left untouched rather than
+		// writing a record the parser would later refuse.
+		check, checkTS, err := parseBookmarkTarget(strings.TrimSpace(stripComment(rewritten)))
+		want, _ := time.Parse(time.RFC3339, stamp)
+		if err != nil || check != target || !checkTS.Equal(want) {
+			continue
+		}
+		lines[i] = rewritten
+		changed = true
+	}
+	if !changed {
+		return data, false
+	}
+	return []byte(strings.Join(lines, "\n")), true
+}
+
+// nowFn is the clock for visit stamps and relative dates, a package var so
+// tests control time — the same pattern bookmarksPathFn uses for the path.
+var nowFn = time.Now
+
+// stampVisitCmd runs stampVisit off the update loop. The write is a read plus
+// an atomic replace, and a config dir on a network filesystem — routine on the
+// tilde and pubnix boxes this client is pointed at — would otherwise stall
+// every landing for the duration of that round trip. Nothing observes the
+// result: the command reports no message, matching the silent degradation
+// stampVisit already documents.
+func stampVisitCmd(raw string) tea.Cmd {
+	return func() tea.Msg {
+		stampVisit(raw)
+		return nil
+	}
+}
+
+// stampVisit records a successful landing in the bookmarks file. Every
+// failure — no config dir, unreadable file, unwritable filesystem — degrades
+// silently: the date simply does not advance, and navigation is never blocked
+// by bookkeeping. A target with no record matches nothing, so unpinned
+// targets never write the file and a visit never adds a record.
+func stampVisit(raw string) {
+	path, err := bookmarksPathFn()
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	updated, changed := updateBookmarkLine(data, raw, nowFn())
+	if !changed {
+		return
+	}
+	_ = saveBookmarkData(path, updated) //nolint:errcheck // a stale date is the designed degradation
+}
+
+// rewriteBookmarkRecord replaces the record on line with target and stamp,
+// splicing on raw offsets so the user's own spacing survives: the leading
+// whitespace is kept, and everything from the first "#" onward (the gap before
+// it included) is copied byte-identical.
+func rewriteBookmarkRecord(line, target, stamp string) string {
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	rest := line[len(indent):]
+	gap, comment := "", ""
+	if i := strings.Index(rest, "#"); i >= 0 {
+		record := strings.TrimRight(rest[:i], " \t")
+		gap = rest[len(record):i]
+		comment = rest[i:]
+	}
+	return indent + target + " " + stamp + gap + comment
 }
 
 // saveBookmarkData writes atomically (temp file + rename) at 0600, creating the

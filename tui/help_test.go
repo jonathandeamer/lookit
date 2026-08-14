@@ -160,6 +160,48 @@ func TestHelpLayoutsByContext(t *testing.T) {
 	}
 }
 
+// TestHelpMoveLabelMatchesTheStatusBar pins ↑/↓'s wording to what the keys
+// actually do in each view. In a list they move a selection and the viewport
+// follows; in the reader there is no cursor and nothing moves but the text.
+//
+// app.go's status bar already draws this line — its list hints say "move"
+// (app.go:1432, :1434) and its reader hints say "scroll" (app.go:1485) — and
+// over a landed reader the bar and the help overlay are on screen at the same
+// time, so the two must agree rather than label one gesture two ways.
+func TestHelpMoveLabelMatchesTheStatusBar(t *testing.T) {
+	wants := map[string]string{
+		"start content":    "move",
+		"user list":        "move",
+		"reader no links":  "scroll",
+		"reader with link": "scroll",
+		"raw view":         "scroll",
+		"links URL":        "move",
+		"links ambiguous":  "move",
+		"links definite":   "move",
+	}
+	for name, m := range helpContextModels(t) {
+		want, ok := wants[name]
+		if !ok {
+			continue // focused input never offers ↑/↓
+		}
+		t.Run(name, func(t *testing.T) {
+			m.common.width, m.common.height = 200, 40
+			m.openHelp()
+			(&m).updateKeymap()
+			for _, binding := range m.helpLayout().bindings {
+				if binding.Help().Key != "↑/↓" {
+					continue
+				}
+				if got := binding.Help().Desc; got != want {
+					t.Fatalf("↑/↓ label = %q, want %q", got, want)
+				}
+				return
+			}
+			t.Fatal("no ↑/↓ binding in the help layout")
+		})
+	}
+}
+
 func TestHelpAdmissionMatchesRetainedBindingsAcrossContexts(t *testing.T) {
 	messages := []tea.KeyPressMsg{
 		{Code: tea.KeyEnter},

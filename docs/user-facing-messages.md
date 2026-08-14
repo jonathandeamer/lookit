@@ -118,7 +118,8 @@ runtime aliases, and `? help` remains in the status bar rather than the popover.
 | `y copy` | `tui/keys.go:34` | Copy address binding. |
 | `? help` | `tui/keys.go:35` | Help binding. This is shown in the status bar, not inside the open help panel. |
 | `q quit` | `tui/keys.go:36` | Quit binding, disabled while the input is focused. |
-| `↑/↓ move` | `tui/keys.go:38` | Movement help. |
+| `↑/↓ move` | `tui/keys.go:38` | Movement help, in the lists — startpage, user list, links panel. |
+| `↑/↓ scroll` | `tui/help.go` (`moveHelpBinding`) | The same binding relabelled in the reader, where there is no cursor and only the text moves. Matches the reader's own status-bar hint. |
 | `←/→ page` | `tui/keys.go:39` | Page help. |
 | `h home` | `tui/keys.go` | Open the startpage. |
 | `↓ browse` | `tui/keys.go` | Move from the focused target input into the startpage list; Tab remains an accepted alias. |

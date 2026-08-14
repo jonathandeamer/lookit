@@ -10,15 +10,16 @@ import (
 	"github.com/jonathandeamer/lookit/finger"
 )
 
-// errDial is the real net error from the issue: at 60 columns the word
-// "refused" — the part that says what went wrong — used to fall off screen.
-var errDial = errors.New("dial 127.0.0.1:1: dial tcp 127.0.0.1:1: connect: connection refused")
+// errDial is a long connection-failure message: at 60 columns the word
+// "reason" — the part that says what went wrong — used to fall off screen.
+// The renderer must wrap unclassified text, not assume a classified shape.
+var errDial = errors.New("couldn't reach a-very-long-hostname.example.org:79: some unclassified reason")
 
 func TestRenderWithWidthWrapsErrorLine(t *testing.T) {
 	target := finger.Target{HostPort: "127.0.0.1:1", Raw: "nobody@127.0.0.1:1"}
 	got := RenderWithWidth(target, nil, errDial, colorprofile.NoTTY, true, 60)
 
-	if !strings.Contains(got, "refused") {
+	if !strings.Contains(got, "reason") {
 		t.Fatalf("wrapped error dropped the reason:\n%q", got)
 	}
 	for _, line := range strings.Split(strings.TrimRight(got, "\n"), "\n") {

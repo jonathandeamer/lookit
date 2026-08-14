@@ -506,15 +506,50 @@ func (m *startModel) skipNonEntry(dir int) {
 	}
 }
 
+// noMatchMessage is the first content row while a typed filter matches nothing.
+// Bubbles leaves that region blank; name the query, not the catalog.
+func (m startModel) noMatchMessage() string {
+	if m.list.FilterState() != list.Filtering || len(m.list.VisibleItems()) > 0 {
+		return ""
+	}
+	query := strings.TrimSpace(m.list.FilterValue())
+	if query == "" {
+		return "" // "/" pressed with nothing typed: every row is still on screen
+	}
+	// PaddingLeft(2) puts the message on the same left edge as the entry rows it
+	// replaces and the filter prompt above it.
+	style := m.list.Styles.NoItems.PaddingLeft(2)
+	return ansi.Truncate(style.Render("no match for “"+query+"”"), m.list.Width(), "…")
+}
+
+// filterPromptHeight is the TitleBar-wrapped filter input. Derive the offset so
+// the message stays under the prompt; do not hardcode 2.
+func (m startModel) filterPromptHeight() int {
+	return lipgloss.Height(m.list.Styles.TitleBar.Render(m.list.FilterInput.View()))
+}
+
+// replaceLine overwrites line n of view, appending when the view is shorter so
+// the caller's line can never be silently dropped.
+func replaceLine(view string, n int, line string) string {
+	lines := strings.Split(view, "\n")
+	if n < 0 || n >= len(lines) {
+		return view + "\n" + line
+	}
+	lines[n] = line
+	return strings.Join(lines, "\n")
+}
+
 // View shows the file-level empty state only when the startpage has no rows AT
 // ALL. Gating on VisibleItems() instead would fire on a zero-match filter, where
 // it would assert something false ("no bookmarks yet") and swallow the filter
-// input the user is still typing into. A filter that matches nothing keeps the
-// list, which renders the filter input plus its own "No entries." (Styles.NoItems).
+// input the user is still typing into.
 func (m startModel) View() string {
 	body := m.empty
 	if len(m.list.Items()) > 0 || m.empty == "" {
 		body = m.list.View()
+		if message := m.noMatchMessage(); message != "" {
+			body = replaceLine(body, m.filterPromptHeight(), message)
+		}
 		if overview := m.overviewView(); overview != "" {
 			body = overview + "\n" + body
 		}

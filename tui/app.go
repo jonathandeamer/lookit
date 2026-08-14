@@ -1058,7 +1058,7 @@ func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
 	if m.pos < 0 || m.pos >= len(m.history) {
 		return m
 	}
-	if entry.Err != nil && len(entry.Body) == 0 {
+	if entry.failed() {
 		m.requestFailure = &requestFailure{retry: request.retry, err: entry.Err}
 		return m
 	}
@@ -1081,8 +1081,7 @@ func (m appModel) shouldRetry() bool {
 	if m.pos < 0 || m.pos >= len(m.history) {
 		return false
 	}
-	entry := m.history[m.pos].entry
-	return entry.Err != nil && len(entry.Body) == 0
+	return m.history[m.pos].entry.failed()
 }
 
 func (m appModel) refreshHelp() key.Help {
@@ -1461,6 +1460,12 @@ func (m appModel) buildStatusBar() statusBar {
 			bar.page = fmt.Sprintf("page %d/%d", m.list.list.Paginator.Page+1, tp)
 		}
 	default: // stateReader
+		if node.entry.failed() {
+			// A read deadline can set Meta.Truncated with an empty body, so skip
+			// the truncation flag here as well as meta/scroll.
+			bar.hints = joinHints([]string{m.refreshHint()}, bar.escTarget)
+			return bar
+		}
 		bar.meta = formatBytes(len(node.entry.Body))
 		// The render footer (which carried the truncation notice) is suppressed
 		// in the TUI. The error message still renders in the viewport via the

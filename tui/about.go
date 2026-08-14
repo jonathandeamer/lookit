@@ -13,6 +13,7 @@ const (
 	aboutRepo             = "https://github.com/jonathandeamer/lookit"
 	aboutFingerAuthor     = "jonathan@tilde.team"
 	aboutIssuesURL        = "https://github.com/jonathandeamer/lookit/issues"
+	aboutCharmURL         = "https://charm.sh"
 	aboutCatalogCreditURL = "https://640kb.neocities.org/fingerverse/"
 )
 
@@ -59,6 +60,19 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	spark := lipgloss.NewStyle().Foreground(st.palette.AccentMint)
 	arrow := lipgloss.NewStyle().Foreground(st.palette.AccentViolet)
 
+	// Truncate before any JoinVertical so groups are measured against already-fit
+	// lines. Doing it after chops JoinVertical's right pad and paints … on short lines.
+	fit := func(lines ...string) []string {
+		if width <= 0 {
+			return lines
+		}
+		out := make([]string, len(lines))
+		for i, ln := range lines {
+			out[i] = ansi.Truncate(ln, width, "…")
+		}
+		return out
+	}
+
 	identity := []string{
 		headerMark(st, profile),
 		dim.Render(aboutTagline),
@@ -68,16 +82,18 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	if builtAt != "" && builtAt != "unknown" {
 		identity = append(identity, dim.Render("built "+builtAt))
 	}
-	catalogCredit := "Catalog inspired by " +
-		lipgloss.NewStyle().Hyperlink(aboutCatalogCreditURL).Render(aboutCatalogCreditURL)
-	identity = append(identity, dim.Render(aboutRepo), dim.Render(catalogCredit))
-	identityBlock := lipgloss.JoinVertical(lipgloss.Center, identity...)
+	identity = append(identity, dim.Render(aboutRepo))
+	identityBlock := lipgloss.JoinVertical(lipgloss.Center, fit(identity...)...)
 
-	bullets := lipgloss.JoinVertical(
-		lipgloss.Left,
-		spark.Render("✦ ")+text.Render("Built with Charm https://charm.sh"),
+	// Catalog last: its URL is the longest left-aligned line.
+	bullet := func(label, url string) string {
+		return spark.Render("✦ ") + text.Render(label+" ") + text.Hyperlink(url).Render(url)
+	}
+	bullets := lipgloss.JoinVertical(lipgloss.Left, fit(
+		bullet("Built with Charm", aboutCharmURL),
 		spark.Render("✦ ")+text.Render("Young software; bug reports & ideas welcome"),
-	)
+		bullet("Catalog inspired by", aboutCatalogCreditURL),
+	)...)
 
 	// Right-pad the shorter action so both key hints align in a column.
 	left1 := arrow.Render("➜ ") + text.Render("finger "+aboutFingerAuthor)
@@ -90,11 +106,12 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 	pad := func(s string) string {
 		return s + strings.Repeat(" ", leftW-lipgloss.Width(s)+hintGap)
 	}
-	actions := lipgloss.JoinVertical(
-		lipgloss.Left,
+	actions := lipgloss.JoinVertical(lipgloss.Left, fit(
 		pad(left1)+dim.Render("↵ go"),
 		pad(left2)+dim.Render("y copy issues URL"),
-	)
+	)...)
+
+	closing := fit(dim.Render("Thanks for supporting the small internet"))[0]
 
 	block := lipgloss.JoinVertical(
 		lipgloss.Center,
@@ -104,18 +121,8 @@ func aboutView(st styles, profile colorprofile.Profile, version, builtAt string,
 		"",
 		actions,
 		"",
-		dim.Render("Thanks for supporting the small internet"),
+		closing,
 	)
-
-	// Per-line truncation so long lines (tagline, repo URL) degrade on narrow
-	// terminals instead of overflowing the placed width.
-	if width > 0 {
-		lines := strings.Split(block, "\n")
-		for i, ln := range lines {
-			lines[i] = ansi.Truncate(ln, width, "…")
-		}
-		block = strings.Join(lines, "\n")
-	}
 
 	if width <= 0 || height <= 0 {
 		return block

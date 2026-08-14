@@ -169,9 +169,11 @@ func TestQuery_ReadDeadline(t *testing.T) {
 		conn.Close()
 	}()
 
+	addr := ln.Addr().String()
+	readTimeout := 100 * time.Millisecond
 	ctx := context.Background()
-	body, meta, err := queryWith(ctx, Target{HostPort: ln.Addr().String()}, queryOpts{
-		readTimeout: 100 * time.Millisecond,
+	body, meta, err := queryWith(ctx, Target{HostPort: addr}, queryOpts{
+		readTimeout: readTimeout,
 	})
 	if err == nil {
 		t.Fatalf("expected timeout error, got nil")
@@ -181,6 +183,41 @@ func TestQuery_ReadDeadline(t *testing.T) {
 	}
 	if body == nil {
 		t.Logf("body is nil — acceptable; the point is Truncated=true")
+	}
+	want := addr + " stopped responding after " + readTimeout.String()
+	if err.Error() != want {
+		t.Fatalf("Error() = %q, want %q", err.Error(), want)
+	}
+	var qe *QueryError
+	if !errors.As(err, &qe) || qe.Op != opRead {
+		t.Fatalf("want a *QueryError with Op=%q, got %#v", opRead, err)
+	}
+}
+
+func TestQueryDialRefusedMessage(t *testing.T) {
+	// A listener opened and closed immediately gives a port nothing is on.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	target, err := ParseTarget("nobody@" + addr)
+	if err != nil {
+		t.Fatalf("ParseTarget: %v", err)
+	}
+	_, _, queryErr := Query(context.Background(), target)
+	if queryErr == nil {
+		t.Fatal("expected a dial failure against a closed port")
+	}
+	want := "connection refused by " + addr
+	if queryErr.Error() != want {
+		t.Fatalf("Error() = %q, want %q", queryErr.Error(), want)
+	}
+	var qe *QueryError
+	if !errors.As(queryErr, &qe) || qe.Op != opDial {
+		t.Fatalf("want a *QueryError with Op=%q, got %#v", opDial, queryErr)
 	}
 }
 

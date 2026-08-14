@@ -1865,3 +1865,122 @@ func TestStartFilterNoMatchTruncatesAtNarrowWidth(t *testing.T) {
 		t.Fatalf("message should truncate with an ellipsis at this width, got %q", message)
 	}
 }
+
+// startRowLine returns the rendered line carrying target, with styling stripped.
+func startRowLine(t *testing.T, view, target string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, target) {
+			return line
+		}
+	}
+	t.Fatalf("no rendered row carries %q in:\n%s", target, view)
+	return ""
+}
+
+// TestStartBookmarkedRowsCarryAnOwnershipMarker: BOOKMARKS rendered exactly
+// like the two sections lookit ships — same header band, same rows, same note
+// column — so the user's own shelf read as a third catalog section. A marker on
+// each pinned row says whose those rows are without asserting structure the
+// data does not have. See issue #97.
+func TestStartBookmarkedRowsCarryAnOwnershipMarker(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: "Collaborative science fiction", source: sourceBookmark, bookmarked: true},
+		}},
+		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+			{target: "@graph.no", kind: kindCommunity, note: "Weather worldwide by place name"},
+		}},
+	}, "", "")
+
+	view := stripANSIForLandingTest(m.View())
+	if pinned := startRowLine(t, view, "@cosmic.voyage"); !strings.Contains(pinned, startBookmarkMarker+" @cosmic.voyage") {
+		t.Fatalf("pinned row carries no ownership marker:\n%s", pinned)
+	}
+	if catalog := startRowLine(t, view, "@graph.no"); strings.Contains(catalog, startBookmarkMarker) {
+		t.Fatalf("catalog row carries the ownership marker, which belongs to the user's own rows:\n%s", catalog)
+	}
+}
+
+// TestStartOwnershipMarkerSkipsRetainedCatalogParents: pinning a host that also
+// heads a SERVICES group moves it to BOOKMARKS, but the group still needs a
+// parent row, so assembly retains a structural copy and stamps it bookmarked
+// (sections.go). That copy is bookmarked and was built from the catalog, so the
+// marker keys on source rather than on bookmark state — otherwise a group
+// header outside BOOKMARKS wears the user's mark.
+func TestStartOwnershipMarkerSkipsRetainedCatalogParents(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@happynetbox.com", kind: kindCommunity, note: "Not just .plan files", source: sourceBookmark, bookmarked: true},
+		}},
+		{id: sectionServices, title: "SERVICES", entries: []startEntry{
+			{target: "@happynetbox.com", kind: kindService, note: "Not just .plan files", structural: true, bookmarked: true},
+			{target: "bot@happynetbox.com", kind: kindService, note: "A bot", child: true, lastChild: true},
+		}},
+	}, "", "")
+
+	view := stripANSIForLandingTest(m.View())
+	if got := strings.Count(view, startBookmarkMarker); got != 1 {
+		t.Fatalf("the marker appears %d times, want 1 (the BOOKMARKS row only):\n%s", got, view)
+	}
+}
+
+// TestStartOwnershipMarkerSurvivesTheNarrowLayout: below startWideMinWidth a
+// row stacks its target and note over two terminal rows. Ownership is a
+// property of the row, not of the wide layout, so the marker travels with the
+// target.
+func TestStartOwnershipMarkerSurvivesTheNarrowLayout(t *testing.T) {
+	common := testCommon()
+	common.width = 60
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: "Collaborative science fiction", source: sourceBookmark, bookmarked: true},
+		}},
+	}, "", "")
+
+	view := stripANSIForLandingTest(m.View())
+	if pinned := startRowLine(t, view, "@cosmic.voyage"); !strings.Contains(pinned, startBookmarkMarker+" @cosmic.voyage") {
+		t.Fatalf("pinned row loses its marker in the stacked layout:\n%s", pinned)
+	}
+}
+
+// TestStartOwnershipMarkerIsMeasuredWithItsTarget: the gutter is measured from
+// the longest row as drawn (#92), so the marker has to be part of what is
+// measured. The row that proves it is a pinned row that is also the longest on
+// the page — padding hides an unmeasured marker everywhere else, but here the
+// target fills the column and the note loses its gap entirely.
+func TestStartOwnershipMarkerIsMeasuredWithItsTarget(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	longest, note := "@zaibatsu.circumlunar.space", "Sundogs seeking asylum"
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: longest, kind: kindCommunity, note: note, source: sourceBookmark, bookmarked: true},
+		}},
+		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+			{target: "@graph.no", kind: kindCommunity, note: "Weather worldwide by place name"},
+		}},
+	}, "", "")
+
+	line := startRowLine(t, stripANSIForLandingTest(m.View()), note)
+	gap := startNoteCell(t, line, note) - startNoteCell(t, line, longest) - lipgloss.Width(longest)
+	if gap != startTargetColumnGap {
+		t.Fatalf("pinned note leaves %d cells after the longest target, want %d; the marker must be measured with it", gap, startTargetColumnGap)
+	}
+}
+
+// startNoteCell reports the terminal column a note begins at. strings.Index
+// would report a byte offset, and a pinned row's marker and selection shelf are
+// three bytes each — enough to make an aligned column look four cells out.
+func startNoteCell(t *testing.T, line, note string) int {
+	t.Helper()
+	i := strings.Index(line, note)
+	if i < 0 {
+		t.Fatalf("line %q does not carry note %q", line, note)
+	}
+	return lipgloss.Width(line[:i])
+}

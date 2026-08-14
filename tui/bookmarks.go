@@ -320,6 +320,57 @@ func deleteBookmarkLine(data []byte, target string) []byte {
 	return []byte(strings.Join(kept, "\n"))
 }
 
+// updateBookmarkLine rewrites the last-visited date on every valid record for
+// target — the write path's first in-place rewrite, so it is careful about
+// what it touches: only valid records whose target matches exactly are
+// rewritten (all duplicates, consistent with deleteBookmarkLine), each keeps
+// its leading whitespace and its trailing comment byte-identical, and
+// everything else — comments, malformed lines, blanks, directives, ordering —
+// is untouched. changed is false when no record matched; that is also the
+// "is it bookmarked?" test for the caller.
+func updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool) {
+	stamp := ts.UTC().Truncate(time.Second).Format(time.RFC3339)
+	lines := strings.Split(string(data), "\n")
+	changed := false
+	for i, line := range lines {
+		parsed, _, err := parseBookmarkTarget(strings.TrimSpace(stripComment(line)))
+		if err != nil || parsed != target {
+			continue
+		}
+		rewritten := rewriteBookmarkRecord(line, target, stamp)
+		// Round-trip guard: the emitted record must parse back to the same
+		// target and instant, or the line is left untouched rather than
+		// writing a record the parser would later refuse.
+		check, checkTS, err := parseBookmarkTarget(strings.TrimSpace(stripComment(rewritten)))
+		want, _ := time.Parse(time.RFC3339, stamp)
+		if err != nil || check != target || !checkTS.Equal(want) {
+			continue
+		}
+		lines[i] = rewritten
+		changed = true
+	}
+	if !changed {
+		return data, false
+	}
+	return []byte(strings.Join(lines, "\n")), true
+}
+
+// rewriteBookmarkRecord replaces the record on line with target and stamp,
+// splicing on raw offsets so the user's own spacing survives: the leading
+// whitespace is kept, and everything from the first "#" onward (the gap before
+// it included) is copied byte-identical.
+func rewriteBookmarkRecord(line, target, stamp string) string {
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	rest := line[len(indent):]
+	gap, comment := "", ""
+	if i := strings.Index(rest, "#"); i >= 0 {
+		record := strings.TrimRight(rest[:i], " \t")
+		gap = rest[len(record):i]
+		comment = rest[i:]
+	}
+	return indent + target + " " + stamp + gap + comment
+}
+
 // saveBookmarkData writes atomically (temp file + rename) at 0600, creating the
 // directory 0700 if needed.
 func saveBookmarkData(path string, data []byte) error {

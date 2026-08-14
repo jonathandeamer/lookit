@@ -537,3 +537,52 @@ func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
 		t.Errorf("visited[@plan.cat] = %v, want absent after a trailing dateless duplicate", got.visited["@plan.cat"])
 	}
 }
+
+func TestUpdateBookmarkLineStampsTheDate(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "# my shelf\n@plan.cat\n\njonathan@tilde.team 2026-01-01T00:00:00Z # the author\ncatalog off\n"
+	want := "# my shelf\n@plan.cat 2026-08-14T15:04:05Z\n\njonathan@tilde.team 2026-08-14T15:04:05Z # the author\ncatalog off\n"
+	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
+	if !changed || string(got) != in[:len("# my shelf\n")]+"@plan.cat 2026-08-14T15:04:05Z\n\njonathan@tilde.team 2026-01-01T00:00:00Z # the author\ncatalog off\n" {
+		t.Fatalf("first target: changed=%v got=\n%q", changed, got)
+	}
+	got, changed = updateBookmarkLine(got, "jonathan@tilde.team", ts)
+	if !changed || string(got) != want {
+		t.Fatalf("second target: changed=%v got=\n%q\nwant=\n%q", changed, got, want)
+	}
+}
+
+func TestUpdateBookmarkLinePreservesSpacingAndComments(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "  @plan.cat   2026-01-01T00:00:00Z   #  spaced comment\n"
+	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
+	if !changed {
+		t.Fatal("changed = false, want the record rewritten")
+	}
+	s := string(got)
+	if !strings.HasPrefix(s, "  @plan.cat 2026-08-14T15:04:05Z") {
+		t.Errorf("lost leading whitespace or record: %q", s)
+	}
+	if !strings.HasSuffix(s, "#  spaced comment\n") {
+		t.Errorf("comment text changed: %q", s)
+	}
+}
+
+func TestUpdateBookmarkLineNoMatchWritesNothing(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "@plan.cat\n@tilde.team not-a-date\n" // second line: malformed, never rewritten
+	got, changed := updateBookmarkLine([]byte(in), "tilde.team:79", ts)
+	if changed || string(got) != in {
+		t.Fatalf("changed=%v got=%q, want the file byte-identical (exact match only; malformed lines untouched)", changed, got)
+	}
+}
+
+func TestUpdateBookmarkLineUpdatesEveryDuplicate(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "@plan.cat\n@plan.cat 2026-01-01T00:00:00Z\n"
+	want := "@plan.cat 2026-08-14T15:04:05Z\n@plan.cat 2026-08-14T15:04:05Z\n"
+	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
+	if !changed || string(got) != want {
+		t.Fatalf("changed=%v got=%q, want both duplicates at %q", changed, got, want)
+	}
+}

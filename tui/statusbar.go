@@ -167,13 +167,18 @@ func (b statusBar) render() string {
 	// pass finds a fit — the all-or-nothing test this generalises. Descending
 	// further without buying a whole address would surrender state for nothing.
 	rungs := b.stateLadder()
-	chosen, crumbFits := rungs[1], false
+	// Default to the latency-dropped rung when neither pass finds a fit — the
+	// all-or-nothing test this generalises. Descending further without buying
+	// a whole address would surrender state for nothing. stateLadder always
+	// returns one rung per reducer plus the untouched bar, so index 1 exists;
+	// the max guards a future reducer list being emptied.
+	chosen, crumbFits := rungs[min(1, len(rungs)-1)], false
 	// Pass one: the richest rung at which the whole line fits with its hints
 	// intact. This is the original all-or-nothing latency test, widened to
 	// every state segment, and it keeps state from ever being bought with
 	// hints — the wrong currency, since latency is the cheapest thing here.
 	for _, rung := range rungs {
-		if b.fullWidth(rung.rightParts(true), allFlags) <= b.width {
+		if b.fullWidth(rung.rightParts(), allFlags) <= b.width {
 			chosen, crumbFits = rung, true
 			break
 		}
@@ -185,7 +190,7 @@ func (b statusBar) render() string {
 		for _, rung := range rungs {
 			probe := rung
 			probe.hints = b.hintsFloor()
-			if b.fullWidth(probe.rightParts(true), allFlags) <= b.width {
+			if b.fullWidth(probe.rightParts(), allFlags) <= b.width {
 				chosen, crumbFits = rung, true
 				break
 			}
@@ -194,7 +199,7 @@ func (b statusBar) render() string {
 	// b is a value receiver, so this shapes only the line being rendered.
 	b.latency, b.meta, b.page = chosen.latency, chosen.meta, chosen.page
 	b.scroll, b.escTarget, b.escShort = chosen.scroll, chosen.escTarget, chosen.escShort
-	right := b.rightParts(true)
+	right := b.rightParts()
 	// Honesty flags take precedence over contextual hints. Reserve their room
 	// before truncating the right group so a new hint cannot hide a partial or
 	// auto-detected marker on a narrow terminal.
@@ -208,16 +213,16 @@ func (b statusBar) render() string {
 	}
 	rightJoined := strings.Join(right, " · ")
 	// Shed whole hints before falling back to cutting a word. Their budget is
-	// whatever the chosen state rung and the *whole* breadcrumb leave, so the
-	// hints give way to the address rather than the address to the hints —
-	// which is the defect review item 20 describes. rightParts appends hints
-	// last when they exist, so the state is everything ahead of them.
-	// crumbFits gates this: hints give way only when doing so actually buys the
-	// whole address. Where the address cannot be whole at any rung — a bar
-	// narrower than the breadcrumb itself — surrendering hints would cost them
-	// for nothing, so the group is left alone and the breadcrumb collapses
-	// instead, which is what TestStatusBarDoesNotReserveSpaceForHiddenBreadcrumb
-	// has always asserted.
+	// whatever the chosen rung and the *whole* breadcrumb leave, so the hints
+	// give way to the address rather than the address to the hints — the
+	// defect review item 20 describes. rightParts appends hints last, so the
+	// state is everything ahead of them.
+	//
+	// crumbFits gates it, because hints should only give way when that actually
+	// buys a whole address. On a bar narrower than the breadcrumb itself no rung
+	// can deliver one, so the group is left alone and the breadcrumb collapses
+	// instead — what TestStatusBarDoesNotReserveSpaceForHiddenBreadcrumb has
+	// always asserted.
 	if over := b.fullWidth(right, allFlags) - b.width; crumbFits && b.hints != "" && over > 0 {
 		state := right[:len(right)-1]
 		if kept := b.hintsWithin(lipgloss.Width(b.hints) - over); kept != b.hints {
@@ -264,7 +269,10 @@ func (b statusBar) render() string {
 	return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)
 }
 
-func (b statusBar) rightParts(includeLatency bool) []string {
+// rightParts lists the right group in render order. It reports what the bar's
+// fields say, and decides nothing: whether latency appears is settled upstream
+// by stateLadder blanking the field, not by a flag here.
+func (b statusBar) rightParts() []string {
 	var right []string
 	if b.escTarget != "" {
 		// The affordance is what the user needs; the destination is a
@@ -282,7 +290,7 @@ func (b statusBar) rightParts(includeLatency bool) []string {
 	if b.scroll != "" {
 		right = append(right, b.scroll)
 	}
-	if includeLatency && b.latency != "" {
+	if b.latency != "" {
 		right = append(right, b.latency)
 	}
 	if b.meta != "" {

@@ -539,6 +539,76 @@ func TestStatusBarShedsStateInLadderOrder(t *testing.T) {
 	}
 }
 
+// listBar mirrors what buildStatusBar produces for a paged user list. It is
+// the only state carrying `page`, which rung 3 sheds alongside `scroll`.
+func listBar(width int) statusBar {
+	return statusBar{
+		host: "@tilde.team", escTarget: "@tilde.team",
+		page: "page 2/4", latency: "2ms", meta: "12 users",
+		hints: "↵ go · / filter · r refresh · ? help",
+		width: width, styles: newStyles(true),
+	}
+}
+
+// linkedReaderBar mirrors a reader with a focused link: the longest hint list
+// the app produces, against a full complement of state.
+func linkedReaderBar(width int) statusBar {
+	return statusBar{
+		host: "@127.0.0.1", user: "alice", escTarget: "@127.0.0.1",
+		latency: "2ms", meta: "1.2 KB", scroll: "42%",
+		hints: "link 1/2 · URL · ↵ go · y copy · tab next · r refresh",
+		width: width, styles: newStyles(true),
+	}
+}
+
+// TestStatusBarLadderAcrossStates covers the two states the spec names that
+// readerBar does not reach. The list state matters most: it is the only one
+// with `page`, so without it half of rung 3 goes unexercised.
+func TestStatusBarLadderAcrossStates(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		bar   func(int) statusBar
+		crumb string
+	}{
+		{"list", listBar, "@tilde.team"},
+		{"reader with focused link", linkedReaderBar, "@127.0.0.1 / alice"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, width := range []int{45, 60, 80, 100} {
+				out := stripANSIForLandingTest(tt.bar(width).render())
+				if !crumbSurvives(out, tt.crumb) {
+					t.Errorf("width %d: %q clipped the address", width, out)
+				}
+				if got := lipgloss.Width(out); got > width {
+					t.Errorf("width %d: rendered %d cells", width, got)
+				}
+			}
+			// Ladder order, swept: a bar showing a cheaper segment must still
+			// show every dearer one.
+			for width := 30; width <= 110; width++ {
+				out := stripANSIForLandingTest(tt.bar(width).render())
+				if strings.Contains(out, "2ms") && !strings.Contains(out, "users") &&
+					!strings.Contains(out, "1.2 KB") {
+					t.Errorf("width %d: %q kept latency but dropped meta", width, out)
+				}
+			}
+		})
+	}
+}
+
+// TestStatusBarListShedsPageWithScroll pins the half of rung 3 that readerBar
+// cannot reach. `meta` is rung 2 and `page` is rung 3, so meta is the cheaper
+// of the two and goes first: meta surviving implies page survives, never the
+// reverse.
+func TestStatusBarListShedsPageWithScroll(t *testing.T) {
+	for width := 30; width <= 110; width++ {
+		out := stripANSIForLandingTest(listBar(width).render())
+		if strings.Contains(out, "12 users") && !strings.Contains(out, "page 2/4") {
+			t.Errorf("width %d: %q kept meta but dropped page, which is dearer", width, out)
+		}
+	}
+}
+
 func TestStatusBarEscDegradesToBareAffordance(t *testing.T) {
 	full := statusBar{escTarget: "trunc@127.0.0.1:2479", width: 80, styles: newStyles(true)}
 	if got := stripANSIForLandingTest(full.render()); !strings.Contains(got, "◂ esc: trunc@127.0.0.1:2479") {

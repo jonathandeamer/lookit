@@ -257,6 +257,81 @@ func TestStartFilterDropsSectionGap(t *testing.T) {
 	}
 }
 
+// startRowColumns finds the rendered row carrying target and reports the
+// columns its target and note begin at. Both come from the same line: a
+// selected row draws a shelf that shifts its content right, so comparing a
+// column taken from one row with a column taken from another measures the
+// shelf as well as the layout.
+func startRowColumns(t *testing.T, view, target, note string) (int, int) {
+	t.Helper()
+	for _, line := range strings.Split(stripANSIForLandingTest(view), "\n") {
+		targetColumn := strings.Index(line, target)
+		noteColumn := strings.Index(line, note)
+		if targetColumn >= 0 && noteColumn >= 0 {
+			return targetColumn, noteColumn
+		}
+	}
+	t.Fatalf("no rendered row carries both %q and %q in:\n%s", target, note, stripANSIForLandingTest(view))
+	return -1, -1
+}
+
+// TestStartNoteColumnTracksTheLongestTarget: the gutter was pinned at half the
+// width, so a nine-cell target had roughly forty blank cells before its note
+// while the whole composition hung on the left third of the screen. It is
+// measured from the longest target on the page instead.
+func TestStartNoteColumnTracksTheLongestTarget(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	longest := "@zaibatsu.circumlunar.space"
+	m := newStart(common, []startSection{{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+		{target: "@graph.no", kind: kindCommunity, note: "Weather worldwide by place name"},
+		{target: longest, kind: kindCommunity, note: "Sundogs seeking asylum"},
+	}}}, "", "")
+
+	targetColumn, noteColumn := startRowColumns(t, m.View(), longest, "Sundogs seeking asylum")
+	if got, want := noteColumn-targetColumn, lipgloss.Width(longest)+startTargetColumnGap; got != want {
+		t.Fatalf("note column starts %d cells after the target column, want %d (longest target plus its gap)", got, want)
+	}
+}
+
+// TestStartNoteColumnMeasuresTheRowsAsDrawn: a grouped child draws as a token
+// under its connector and only regains its full address once a filter flattens
+// the view. Measuring the column against the address it is not currently
+// showing would pad the gutter for text that is not on the screen — which is
+// the walk this issue is about.
+func TestStartNoteColumnMeasuresTheRowsAsDrawn(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	parent := "@bbs.airandwave.net"
+	m := newStart(common, []startSection{{id: sectionServices, title: "SERVICES", entries: []startEntry{
+		{target: parent, kind: kindService, note: "Over two dozen services"},
+		{target: "dict@bbs.airandwave.net", kind: kindService, note: "Dictionary lookup", child: true, lastChild: true},
+	}}}, "", "")
+
+	targetColumn, noteColumn := startRowColumns(t, m.View(), parent, "Over two dozen services")
+	if got, want := noteColumn-targetColumn, lipgloss.Width(parent)+startTargetColumnGap; got != want {
+		t.Fatalf("note column starts %d cells after the target column, want %d (the widest row as drawn, plus its gap)", got, want)
+	}
+}
+
+// TestStartNoteColumnNeverTakesMoreThanHalfTheWidth: measuring the column from
+// the longest target hands the page's layout to its longest row, so one very
+// long address could otherwise push every note off the screen. The old fixed
+// half becomes the ceiling.
+func TestStartNoteColumnNeverTakesMoreThanHalfTheWidth(t *testing.T) {
+	common := testCommon()
+	common.width = 80
+	m := newStart(common, []startSection{{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+		{target: "@a.example", kind: kindCommunity, note: "a short note"},
+		{target: "someone@" + strings.Repeat("long", 15) + ".example", kind: kindCommunity, note: "a very wide row"},
+	}}}, "", "")
+
+	targetColumn, noteColumn := startRowColumns(t, m.View(), "@a.example", "a short note")
+	if got := noteColumn - targetColumn; got > m.list.Width()/2 {
+		t.Fatalf("note column starts %d cells after the target column, want no more than half of %d", got, m.list.Width())
+	}
+}
+
 func TestStartOverviewWideCountsAssembledRows(t *testing.T) {
 	common := testCommon()
 	common.width = 80

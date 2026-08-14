@@ -1531,6 +1531,18 @@ func (m *appModel) resize() {
 // had nothing to advertise but typing.
 func (m appModel) startBar(width int, st styles) statusBar {
 	bar := statusBar{width: width, styles: st}
+	// The window into the catalog is small and was barely signposted: at 80x24
+	// roughly a third of it is on screen, and bubbles' pagination dots in the
+	// corner were the only sign the rest existed. Report position in the words
+	// listBar already uses, rather than inventing a second vocabulary for it.
+	//
+	// Set before the input-focused branch: the app launches with the target
+	// input focused, so that is the state in which the page's extent most needs
+	// stating. The state ladder sheds it on a narrow bar (statusbar.go), after
+	// latency and meta and before any hint is cut.
+	if tp := m.start.list.Paginator.TotalPages; tp > 1 {
+		bar.page = fmt.Sprintf("page %d/%d", m.start.list.Paginator.Page+1, tp)
+	}
 	if m.inputFocused {
 		bar.hints = "type a target and press ↵ · ↓ browse · ? help"
 		return bar

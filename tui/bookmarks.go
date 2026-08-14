@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -75,6 +76,7 @@ type parseProblem struct {
 // bookmarkFile is the parsed user file.
 type bookmarkFile struct {
 	targets       []string
+	visited       map[string]time.Time // last-visited instant per target; absent = unknown
 	catalogHidden bool
 	problems      []parseProblem
 }
@@ -102,12 +104,20 @@ func parseBookmarks(data []byte) bookmarkFile {
 			}
 			continue
 		}
-		target, err := parseBookmarkTarget(line)
+		target, visited, err := parseBookmarkTarget(line)
 		if err != nil {
 			out.problems = append(out.problems, parseProblem{line: lineNo, reason: err.Error()})
 			continue
 		}
 		out.targets = append(out.targets, target)
+		if out.visited == nil {
+			out.visited = make(map[string]time.Time)
+		}
+		if visited.IsZero() {
+			delete(out.visited, target) // last-line wins, including a trailing dateless duplicate
+		} else {
+			out.visited[target] = visited
+		}
 	}
 	return out
 }
@@ -141,23 +151,38 @@ func stripComment(line string) string {
 	return line
 }
 
-// parseBookmarkTarget accepts exactly one target token. Any other text is
-// refused because bookmark records carry no display metadata.
-func parseBookmarkTarget(line string) (string, error) {
+// parseBookmarkTarget accepts a target with an optional RFC 3339 last-visited
+// date: "<target>" or "<target> <timestamp>". Anything else is refused. A bad
+// date refuses the whole record — a line lookit cannot understand is surfaced
+// as a problem, never guessed at (the file's existing contract), and only a
+// validated time.Time ever reaches the display, so the file still needs no
+// sanitize call.
+func parseBookmarkTarget(line string) (string, time.Time, error) {
 	fields := strings.Fields(line)
-	if len(fields) != 1 {
-		return "", fmt.Errorf("expected one target, got %q", line)
+	if len(fields) == 0 || len(fields) > 2 {
+		return "", time.Time{}, fmt.Errorf("expected a target with an optional RFC 3339 date, got %q", line)
 	}
 	if err := validateTarget(fields[0]); err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
-	return fields[0], nil
+	if len(fields) == 1 {
+		return fields[0], time.Time{}, nil
+	}
+	visited, err := time.Parse(time.RFC3339, fields[1])
+	// Spec: strict RFC 3339 UTC at seconds precision (the Z form the write
+	// path emits). time.RFC3339 also accepts offsets and +00:00; those are
+	// refused so the file's grammar stays one token, not "any RFC 3339".
+	if err != nil || fields[1] != visited.UTC().Truncate(time.Second).Format(time.RFC3339) {
+		return "", time.Time{}, fmt.Errorf("bad last-visited date %q (want RFC 3339, e.g. 2026-08-14T15:04:05Z)", fields[1])
+	}
+	return fields[0], visited, nil
 }
 
 // validateBookmarkRecordTarget verifies that target survives the bookmark
-// file's comment and single-field grammar without changing identity.
+// file's comment-and-two-field grammar without changing identity. The add path
+// still passes a bare target, which parses as a one-field record.
 func validateBookmarkRecordTarget(target string) error {
-	parsed, err := parseBookmarkTarget(strings.TrimSpace(stripComment(target)))
+	parsed, _, err := parseBookmarkTarget(strings.TrimSpace(stripComment(target)))
 	if err != nil {
 		return err
 	}
@@ -286,7 +311,7 @@ func deleteBookmarkLine(data []byte, target string) []byte {
 	lines := strings.Split(string(data), "\n")
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
-		parsed, err := parseBookmarkTarget(strings.TrimSpace(stripComment(line)))
+		parsed, _, err := parseBookmarkTarget(strings.TrimSpace(stripComment(line)))
 		if err == nil && parsed == target {
 			continue
 		}

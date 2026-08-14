@@ -1362,12 +1362,12 @@ func TestLinksPanelHelpContext(t *testing.T) {
 		{
 			name:   "ambiguous",
 			link:   Link{Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true},
-			wantGo: "f",
+			wantGo: "f go",
 		},
 		{
 			name:   "definite",
 			link:   Link{Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target},
-			wantGo: "↵",
+			wantGo: "↵ go",
 		},
 	}
 	for _, tt := range tests {
@@ -1377,7 +1377,6 @@ func TestLinksPanelHelpContext(t *testing.T) {
 			(&m).updateKeymap()
 
 			view := ansi.Strip(m.helpView())
-			keys := strings.Join(helpKeys(m.helpLayout().bindings), ",")
 			for _, want := range []string{"move", "filter", "back", "copy", "about lookit", "quit"} {
 				if !strings.Contains(view, want) {
 					t.Fatalf("panel help missing %q:\n%s", want, view)
@@ -1388,12 +1387,14 @@ func TestLinksPanelHelpContext(t *testing.T) {
 					t.Fatalf("panel help contains non-panel action %q:\n%s", unwanted, view)
 				}
 			}
+			// Column padding inserts spaces between a key and its label
+			// ("f   go"). Collapse them so the assertion still binds the
+			// verb to that key, the way the reader help test does for ↵ go.
 			if tt.wantGo != "" {
-				if !strings.Contains(view, "go") {
-					t.Fatalf("panel help missing go:\n%s", view)
-				}
-				if !strings.Contains(keys, tt.wantGo) {
-					t.Fatalf("panel help missing go key %q in %q:\n%s", tt.wantGo, keys, view)
+				collapsed := strings.ReplaceAll(view, " ", "")
+				want := strings.ReplaceAll(tt.wantGo, " ", "")
+				if !strings.Contains(collapsed, want) {
+					t.Fatalf("panel help missing %q:\n%s", tt.wantGo, view)
 				}
 			}
 			if tt.noGo && strings.Contains(view, "go") {

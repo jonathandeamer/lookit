@@ -608,6 +608,28 @@ func (m *startModel) setSize(width, height int) {
 	m.list.SetSize(width, h)
 }
 
+// The overview's two labels. The ownership one is deliberately not the word
+// "BOOKMARKS": the section header three lines below already says that, and at
+// the top of the page, where a reader is orienting, the repetition was the
+// loudest thing on screen. Naming whose the rows are also says something the
+// header does not.
+const (
+	overviewOwnershipLabel = "YOURS"
+	overviewCatalogLabel   = "CATALOG"
+)
+
+// overviewLabel renders a label with the gap that follows it. Stacked (narrow),
+// the labels are different lengths and their values belong in one column, so it
+// pads to the longer label; on one line the groups are separated by │ and
+// alignment means nothing, so it pads to a plain two spaces.
+func (m startModel) overviewLabel(label string, style lipgloss.Style) string {
+	column := lipgloss.Width(label)
+	if m.common.width < startWideMinWidth {
+		column = max(lipgloss.Width(overviewOwnershipLabel), lipgloss.Width(overviewCatalogLabel))
+	}
+	return style.Render(label) + strings.Repeat(" ", column-lipgloss.Width(label)+2)
+}
+
 func (m startModel) overviewCounts() startOverviewCounts {
 	if m.list.FilterState() == list.FilterApplied {
 		return startCounts(m.list.VisibleItems())
@@ -643,7 +665,7 @@ func (m startModel) overviewView() string {
 		if counts.bookmarks > 0 {
 			value = fmt.Sprintf("%d", counts.bookmarks)
 		}
-		groups = append(groups, bookmarksStyle.Render("BOOKMARKS")+"  "+valueStyle.Render(value))
+		groups = append(groups, m.overviewLabel(overviewOwnershipLabel, bookmarksStyle)+valueStyle.Render(value))
 	}
 
 	var catalogValues []string
@@ -662,11 +684,7 @@ func (m startModel) overviewView() string {
 		catalogValues = append(catalogValues, style.Render(countLabel(counts.services, "service", "services")))
 	}
 	if len(catalogValues) > 0 {
-		gap := "  "
-		if m.common.width < startWideMinWidth {
-			gap = "    "
-		}
-		groups = append(groups, labelStyle.Render("CATALOG")+gap+strings.Join(catalogValues, " · "))
+		groups = append(groups, m.overviewLabel(overviewCatalogLabel, labelStyle)+strings.Join(catalogValues, " · "))
 	}
 	if len(groups) == 0 {
 		return ""

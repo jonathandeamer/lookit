@@ -54,9 +54,9 @@ func sectionGapSections() []startSection {
 	}
 }
 
-// startHeaderLineIndex finds the rendered section header for title. The
-// overview line also contains "BOOKMARKS", so match the header's trailing
-// rule rather than the word alone.
+// startHeaderLineIndex finds the rendered section header for title. Match the
+// header's trailing rule rather than the word alone, so this cannot be fooled
+// by the same word appearing in a row or in the overview above.
 func startHeaderLineIndex(t *testing.T, lines []string, title string) int {
 	t.Helper()
 	for i, line := range lines {
@@ -262,11 +262,46 @@ func TestStartOverviewWideCountsAssembledRows(t *testing.T) {
 	common.width = 80
 	m := newStart(common, threeSections(), "", "")
 	got := stripANSIForLandingTest(m.overviewView())
-	want := "BOOKMARKS  1 │ CATALOG  2 communities · 2 services"
+	want := "YOURS  1 │ CATALOG  2 communities · 2 services"
 	if got != want {
 		t.Fatalf("overview = %q, want %q", got, want)
 	}
 	assertStartOverviewFits(t, m)
+}
+
+// TestStartOverviewDoesNotRepeatTheSectionHeader: the overview line and the
+// BOOKMARKS header sit three lines apart at the very top of the page, where a
+// reader is orienting, so the first two things they read must not be the same
+// word. The overview names whose the section is; the header names the section.
+func TestStartOverviewDoesNotRepeatTheSectionHeader(t *testing.T) {
+	for _, width := range []int{100, 80, 45} {
+		common := testCommon()
+		common.width = width
+		m := newStart(common, threeSections(), "", "")
+		overview := stripANSIForLandingTest(m.overviewView())
+		if strings.Contains(overview, "BOOKMARKS") {
+			t.Fatalf("width %d: overview = %q, want it not to repeat the BOOKMARKS header", width, overview)
+		}
+		if !strings.Contains(stripANSIForLandingTest(m.list.View()), "BOOKMARKS") {
+			t.Fatalf("width %d: the BOOKMARKS section header should still be on the page", width)
+		}
+	}
+}
+
+// TestStartOverviewNarrowAlignsValues: stacked, the two labels are different
+// lengths, and their values still belong in one column.
+func TestStartOverviewNarrowAlignsValues(t *testing.T) {
+	common := testCommon()
+	common.width = 40
+	m := newStart(common, threeSections(), "", "")
+	lines := strings.Split(stripANSIForLandingTest(m.overviewView()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("overview = %#v, want two stacked lines", lines)
+	}
+	first, second := strings.Index(lines[0], "1"), strings.Index(lines[1], "2")
+	if first != second {
+		t.Fatalf("values start at columns %d and %d, want one column:\n%q\n%q", first, second, lines[0], lines[1])
+	}
 }
 
 func TestStartOverviewNarrowStacksOwnershipAndCatalog(t *testing.T) {
@@ -274,7 +309,7 @@ func TestStartOverviewNarrowStacksOwnershipAndCatalog(t *testing.T) {
 	common.width = 40
 	m := newStart(common, threeSections(), "", "")
 	got := strings.Split(stripANSIForLandingTest(m.overviewView()), "\n")
-	want := []string{"BOOKMARKS  1", "CATALOG    2 communities · 2 services"}
+	want := []string{"YOURS    1", "CATALOG  2 communities · 2 services"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("overview = %#v, want %#v", got, want)
 	}
@@ -292,13 +327,13 @@ func TestStartOverviewUnfilteredGroupRules(t *testing.T) {
 		{
 			name:     "no bookmarks",
 			sections: threeSections()[1:],
-			want:     "BOOKMARKS  none yet │ CATALOG  2 communities · 2 services",
+			want:     "YOURS  none yet │ CATALOG  2 communities · 2 services",
 			noHeader: true,
 		},
 		{
 			name:     "catalog off",
 			sections: threeSections()[:1],
-			want:     "BOOKMARKS  1",
+			want:     "YOURS  1",
 		},
 		{
 			name:  "file empty",
@@ -311,7 +346,7 @@ func TestStartOverviewUnfilteredGroupRules(t *testing.T) {
 				{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{{target: "@plan.cat", kind: kindCommunity}}},
 				{id: sectionServices, title: "SERVICES", entries: []startEntry{{target: "date@example.com", kind: kindService}}},
 			},
-			want: "BOOKMARKS  none yet │ CATALOG  1 community · 1 service",
+			want: "YOURS  none yet │ CATALOG  1 community · 1 service",
 		},
 	}
 
@@ -342,7 +377,7 @@ func TestStartOverviewPinnedCatalogRowsMoveToBookmarks(t *testing.T) {
 	common.width = 80
 	m := newStart(common, sections, "", "")
 	got := stripANSIForLandingTest(m.overviewView())
-	want := "BOOKMARKS  1 │ CATALOG  1 community · 1 service"
+	want := "YOURS  1 │ CATALOG  1 community · 1 service"
 	if got != want {
 		t.Fatalf("overview = %q, want %q", got, want)
 	}
@@ -362,7 +397,7 @@ func TestStartOverviewAppliedFilterUsesOnlyMatchingGroups(t *testing.T) {
 	m.list.SetFilterText("shared-match")
 
 	got := stripANSIForLandingTest(m.overviewView())
-	want := "BOOKMARKS  1 │ CATALOG  1 service"
+	want := "YOURS  1 │ CATALOG  1 service"
 	if got != want {
 		t.Fatalf("filtered overview = %q, want %q", got, want)
 	}
@@ -382,7 +417,7 @@ func TestStartOverviewAppliedFilterUsesOnlyMatchingGroups(t *testing.T) {
 	assertStartOverviewFits(t, m)
 
 	m.list.ResetFilter()
-	if got := stripANSIForLandingTest(m.overviewView()); got != "BOOKMARKS  1 │ CATALOG  2 communities · 2 services" {
+	if got := stripANSIForLandingTest(m.overviewView()); got != "YOURS  1 │ CATALOG  2 communities · 2 services" {
 		t.Fatalf("cleared overview = %q", got)
 	}
 }
@@ -411,9 +446,9 @@ func TestStartOverviewHighlightsSelectedSectionOnly(t *testing.T) {
 		gold   string
 		others []string
 	}{
-		{name: "bookmark", target: "@tilde.team", gold: "BOOKMARKS", others: []string{"2 communities", "2 services"}},
-		{name: "community", target: "@plan.cat", gold: "2 communities", others: []string{"BOOKMARKS", "2 services"}},
-		{name: "service", target: "quake@bbs.airandwave.net", gold: "2 services", others: []string{"BOOKMARKS", "2 communities"}},
+		{name: "bookmark", target: "@tilde.team", gold: "YOURS", others: []string{"2 communities", "2 services"}},
+		{name: "community", target: "@plan.cat", gold: "2 communities", others: []string{"YOURS", "2 services"}},
+		{name: "service", target: "quake@bbs.airandwave.net", gold: "2 services", others: []string{"YOURS", "2 communities"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -442,7 +477,7 @@ func TestStartOverviewHighlightSurvivesContinuationPage(t *testing.T) {
 	if strings.Contains(stripANSIForLandingTest(m.list.View()), "COMMUNITIES") {
 		t.Fatal("continuation page unexpectedly retained the inline section header")
 	}
-	assertStartOverviewGoldSegment(t, m.overviewView(), common, "8 communities", "BOOKMARKS")
+	assertStartOverviewGoldSegment(t, m.overviewView(), common, "8 communities", "YOURS")
 }
 
 func TestStartOverviewFilteredBookmarkKeepsOwnershipHighlight(t *testing.T) {
@@ -458,7 +493,7 @@ func TestStartOverviewFilteredBookmarkKeepsOwnershipHighlight(t *testing.T) {
 	if strings.Contains(stripANSIForLandingTest(m.list.View()), "BOOKMARKS") {
 		t.Fatal("flat filtered results unexpectedly retained the inline bookmark header")
 	}
-	assertStartOverviewGoldSegment(t, m.overviewView(), common, "BOOKMARKS", "1 service")
+	assertStartOverviewGoldSegment(t, m.overviewView(), common, "YOURS", "1 service")
 }
 
 func TestStartOverviewInputFocusHasNoSelectedSegment(t *testing.T) {
@@ -485,7 +520,7 @@ func TestStartSizingIncludesNoticeAndOverview(t *testing.T) {
 		t.Fatalf("list height = %d, want %d (body minus chrome, notice, and overview)", got, want)
 	}
 	plain := stripANSIForLandingTest(m.View())
-	wantPrefix := "first warning\nsecond warning\n\nBOOKMARKS  1\nCATALOG    2 communities · 2 services\n"
+	wantPrefix := "first warning\nsecond warning\n\nYOURS    1\nCATALOG  2 communities · 2 services\n"
 	if !strings.HasPrefix(plain, wantPrefix) {
 		t.Fatalf("view order =\n%q\nwant prefix\n%q", plain, wantPrefix)
 	}

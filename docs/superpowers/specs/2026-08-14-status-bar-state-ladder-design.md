@@ -1,9 +1,10 @@
 # Status bar state ladder
 
-**Status:** blocked. Stacked on `statusbar-hint-priority`; do not implement
-until rules 1 and 2 from
+**Status:** blocked, and handed off. Stacked on `statusbar-hint-priority`; do
+not implement until rules 1 and 2 from
 [`2026-08-14-status-bar-hint-priority-design.md`](2026-08-14-status-bar-hint-priority-design.md)
-have landed on `main`.
+have landed on `main`. Owned by the `statusbar-hint-priority` session as of
+14 August 2026 — see [Handoff](#handoff) at the foot of this document.
 
 ## Context
 
@@ -88,3 +89,160 @@ focused-link reader, and list states:
 - At 100 columns the focused-link reader shows every action and the full
   address.
 - No width produces a line wider than the terminal, and none panics.
+
+## Handoff
+
+Written by the session that scoped this (worktree `statusbar-width`, branch
+`worktree-statusbar-width`, commit 60663e4) for the session that will build it.
+That branch is frozen at one docs commit — this file — and will not move again,
+so there is nothing to sync. Cherry-pick it or read it with
+`git show worktree-statusbar-width:<path>`; both worktrees share the object
+store. No `tui/` file was touched.
+
+### Where this came from
+
+Items 19 and 20 of the TUI visual review artefact *The Startpage Keyhole*
+(13 August 2026), reviewed against `main` at 53790bd..d8c71f3.
+
+- **Item 19** is done and needs nothing. #83 (ef62492) added the
+  `node.entry.failed()` branch at `tui/app.go:1463`, which drops `meta` and
+  `scroll` on a failure. The artefact was recorded before that merge, so its
+  `0 B` and phantom scroll hint are already gone. What its 45-column frame
+  still showed is the truncation order — this document.
+- **Item 20** is the breadcrumb clipping. Rules 1 and 2 cover it at 60–100
+  columns. This ladder covers what is left at 45.
+
+### Decisions already taken, so they are not relitigated
+
+Jonathan chose these; they are settled unless he reopens them.
+
+1. **The bar stays one line.** A two-line bar when rows are spare was
+   considered and rejected: it moves `bodyHeight`, `resize`, every sub-model's
+   sizing and all twelve review tapes, and it stops the bar being a fixed
+   landmark. Item 20's "forty rows sit empty above it" framing is *not* an
+   invitation to spend height.
+2. **Fix the drop order, don't just shorten the strings.** Abbreviating
+   segments buys ~20 cells once and leaves the cut order still wrong.
+3. **Stack, don't merge or supersede.** Rules 1 and 2 stand as specced for the
+   hint half; this ladder only governs the state segments that spec
+   deliberately leaves alone. Folding this into rule 2 was explicitly
+   considered and set aside.
+
+### Open conflict, unresolved at handoff
+
+Rule 2 regresses #76 — see [the section above](#conflict-to-resolve-first-rule-2-versus-issue-76).
+Messaged to the `statusbar-hint-priority` session on 14 August 2026; no reply
+had arrived when this was written. It is a decision for the rule-2 owner, and
+it should be settled before or alongside this ladder, because both change what
+survives a narrow bar.
+
+### Reproducing the measurements
+
+The evidence tables come from a throwaway probe, deliberately not committed.
+Recreate it as `tui/zz_probe_test.go`, run `go test ./tui/ -run TestProbe
+-count=1 -v`, and delete it — it prints rendered bars, it asserts nothing.
+
+```go
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+)
+
+// applyRule2 simulates the hint-priority spec's rule 2: drop whole trailing
+// hints until the bar fits, never dropping "? help". Replace with the real
+// implementation once it exists.
+func applyRule2(b statusBar) statusBar {
+	units := strings.Split(b.hints, " · ")
+	for {
+		b.hints = strings.Join(units, " · ")
+		if b.fullWidth(b.rightParts(true), strings.Join(b.flags, "  ")) <= b.width {
+			return b
+		}
+		if len(units) <= 1 {
+			return b
+		}
+		if units[len(units)-1] == "? help" {
+			units = append(append([]string{}, units[:len(units)-2]...), "? help")
+			continue
+		}
+		units = units[:len(units)-1]
+	}
+}
+
+func TestProbeBars(t *testing.T) {
+	st := newStyles(true)
+	cases := []struct {
+		name string
+		b    statusBar
+	}{
+		{"error", statusBar{host: "@127.0.0.1", user: "nobody", escTarget: "trunc@127.0.0.1:2479",
+			latency: "1ms", hints: "r retry · ? help", styles: st}},
+		{"readerplain", statusBar{host: "@127.0.0.1", user: "alice", escTarget: "@127.0.0.1",
+			latency: "2ms", meta: "1.2 KB", hints: "↑↓ scroll · r refresh · ? help", styles: st}},
+		{"readerlink", statusBar{host: "@127.0.0.1", user: "alice", escTarget: "@127.0.0.1",
+			latency: "2ms", meta: "1.2 KB", hints: "link 1/2 · URL · ↵ go · y copy · tab next · r refresh", styles: st}},
+		{"list", statusBar{host: "@tilde.team", escTarget: "@tilde.team", latency: "42ms",
+			meta: "37 users", page: "page 2/4", hints: "↵ go · / filter · r refresh · ? help", styles: st}},
+	}
+	for _, c := range cases {
+		for _, w := range []int{45, 60, 80, 100} {
+			b := c.b
+			b.width = w
+			fmt.Printf("%-11s %3d |%s|\n", c.name, w, ansi.Strip(applyRule2(b).render()))
+		}
+		fmt.Println()
+	}
+}
+```
+
+The four `statusBar` literals mirror what `buildStatusBar` (`tui/app.go:1375`)
+actually produces in those states; they were read off it, not invented. Two
+traps found while using this probe:
+
+- Do not test "the address survived" with `strings.Contains(out, crumb)`. The
+  `list` case gives a false positive, because `@tilde.team` also appears inside
+  `◂ esc: @tilde.team`. Anchor on the left of the line instead.
+- `render` budgets the right group first and gives the left the remainder, so
+  a left-side change only shows up through a right-side one. That asymmetry is
+  the defect, and it is easy to mistake for a broken assertion.
+
+### Current behaviour, for the before/after
+
+Today's `main`, help closed, no rule 2:
+
+| Width | State | Rendered |
+|---|---|---|
+| 100 | reader, link focused | `@127.0.0.1 / ali… ◂ esc: @127.0.0.1 · 1.2 KB · link 1/2 · URL · ↵ go · y copy · tab next · r refresh` |
+| 45 | failed reader | `◂ esc: trunc@127.0.0.1:2479 · r retry · ? he…` |
+| 45 | reader | `◂ esc: @127.0.0.1 · 1.2 KB · ↑↓ scroll · r r…` |
+
+Note the 100-column row: both ends clipped, and `2ms` silently dropped by the
+one all-or-nothing fit test `render` already has (`tui/statusbar.go:141`). That
+test is the seed of this ladder — generalise it rather than writing a new
+mechanism beside it.
+
+### Repo constraints worth restating
+
+From `CLAUDE.md`, the ones this task will actually hit:
+
+- `make check` before committing. The `tui` race tests take ~75s; budget for it.
+- Conventional Commits, and **no AI co-author or "Generated with" trailers**
+  anywhere outward-facing — commits, PR bodies, issue bodies.
+- Branch → PR → green `test` → squash merge. Never a direct push to `main`.
+- Edit ≠ ship: pushing, opening a PR, and enabling auto-merge each need an
+  explicit go-ahead from Jonathan.
+- Pair every colour with a light/dark value. Not expected to arise here — the
+  ladder changes which segments render, not how they are styled.
+
+### Not in scope
+
+- Review finding 21 (the bar is right-aligned on an otherwise left-aligned
+  page). Separate taste call.
+- Re-recording the review stills (`make review-tui`, ~7 min, needs the loopback
+  fingerd). Worth doing once this and rules 1–2 have both landed, so the frames
+  show the finished bar rather than an intermediate state.

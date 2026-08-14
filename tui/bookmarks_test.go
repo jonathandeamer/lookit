@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestMain points every test at an existing empty bookmarks file by default, so
@@ -57,6 +58,14 @@ func useMissingTempBookmarks(t *testing.T) string {
 	path := filepath.Join(t.TempDir(), "lookit", "bookmarks")
 	useBookmarksPath(t, path)
 	return path
+}
+
+// useNow stubs nowFn for one test, restoring time.Now afterwards.
+func useNow(t *testing.T, now time.Time) {
+	t.Helper()
+	saved := nowFn
+	nowFn = func() time.Time { return now }
+	t.Cleanup(func() { nowFn = saved })
 }
 
 func TestParseBookmarksValidLines(t *testing.T) {
@@ -481,5 +490,104 @@ func TestParseCatalogLineKeepsTheWholeNote(t *testing.T) {
 	}
 	if got, want := entry.note, "Saturday Morning Gemzine | back issues"; got != want {
 		t.Fatalf("note = %q, want %q", got, want)
+	}
+}
+
+func TestParseBookmarksReadsLastVisited(t *testing.T) {
+	got := parseBookmarks([]byte("@plan.cat 2026-08-14T15:04:05Z\njonathan@tilde.team\n"))
+	if len(got.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", got.problems)
+	}
+	if len(got.targets) != 2 {
+		t.Fatalf("targets = %+v, want 2", got.targets)
+	}
+	want := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	if !got.visited["@plan.cat"].Equal(want) {
+		t.Errorf("visited[@plan.cat] = %v, want %v", got.visited["@plan.cat"], want)
+	}
+	if _, ok := got.visited["jonathan@tilde.team"]; ok {
+		t.Errorf("visited[jonathan@tilde.team] present, want absent for a dateless record")
+	}
+}
+
+func TestParseBookmarksRejectsBadDate(t *testing.T) {
+	for _, line := range []string{
+		"@plan.cat friendly",                   // two fields, second not a date
+		"@plan.cat 2026-08-14",                 // date only, not RFC 3339
+		"@plan.cat 2026-08-14T15:04:05",        // no zone
+		"@plan.cat 2026-08-14T15:04:05+00:00",  // RFC 3339, but not the UTC Z form
+		"@plan.cat 2026-08-14T15:04:05-07:00",  // offset zone
+		"@plan.cat 2026-08-14T15:04:05Z extra", // three fields
+	} {
+		got := parseBookmarks([]byte(line + "\n"))
+		if len(got.targets) != 0 {
+			t.Errorf("%q: targets = %+v, want none (a bad date refuses the record)", line, got.targets)
+		}
+		if len(got.problems) != 1 {
+			t.Errorf("%q: problems = %+v, want exactly 1 reported problem", line, got.problems)
+		}
+	}
+}
+
+func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
+	got := parseBookmarks([]byte("@plan.cat 2026-08-01T00:00:00Z\n@plan.cat 2026-08-14T00:00:00Z\n"))
+	if len(got.targets) != 2 {
+		t.Fatalf("targets = %+v, want both duplicate rows kept", got.targets)
+	}
+	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)
+	if !got.visited["@plan.cat"].Equal(want) {
+		t.Errorf("visited[@plan.cat] = %v, want last-wins %v", got.visited["@plan.cat"], want)
+	}
+
+	// A later dateless duplicate is last-wins unknown, not "keep the earlier date".
+	got = parseBookmarks([]byte("@plan.cat 2026-08-14T00:00:00Z\n@plan.cat\n"))
+	if _, ok := got.visited["@plan.cat"]; ok {
+		t.Errorf("visited[@plan.cat] = %v, want absent after a trailing dateless duplicate", got.visited["@plan.cat"])
+	}
+}
+
+func TestUpdateBookmarkLineStampsTheDate(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "# my shelf\n@plan.cat\n\njonathan@tilde.team 2026-01-01T00:00:00Z # the author\ncatalog off\n"
+	want := "# my shelf\n@plan.cat 2026-08-14T15:04:05Z\n\njonathan@tilde.team 2026-08-14T15:04:05Z # the author\ncatalog off\n"
+	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
+	if !changed || string(got) != in[:len("# my shelf\n")]+"@plan.cat 2026-08-14T15:04:05Z\n\njonathan@tilde.team 2026-01-01T00:00:00Z # the author\ncatalog off\n" {
+		t.Fatalf("first target: changed=%v got=\n%q", changed, got)
+	}
+	got, changed = updateBookmarkLine(got, "jonathan@tilde.team", ts)
+	if !changed || string(got) != want {
+		t.Fatalf("second target: changed=%v got=\n%q\nwant=\n%q", changed, got, want)
+	}
+}
+
+func TestUpdateBookmarkLinePreservesSpacingAndComments(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "  @plan.cat   2026-01-01T00:00:00Z   #  spaced comment\n"
+	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
+	if !changed {
+		t.Fatal("changed = false, want the record rewritten")
+	}
+	s := string(got)
+	if want := "  @plan.cat 2026-08-14T15:04:05Z   #  spaced comment\n"; s != want {
+		t.Errorf("got %q, want indent + record + original gap + comment", s)
+	}
+}
+
+func TestUpdateBookmarkLineNoMatchWritesNothing(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "@plan.cat\n@tilde.team not-a-date\n" // second line: malformed, never rewritten
+	got, changed := updateBookmarkLine([]byte(in), "tilde.team:79", ts)
+	if changed || string(got) != in {
+		t.Fatalf("changed=%v got=%q, want the file byte-identical (exact match only; malformed lines untouched)", changed, got)
+	}
+}
+
+func TestUpdateBookmarkLineUpdatesEveryDuplicate(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "@plan.cat\n@plan.cat 2026-01-01T00:00:00Z\n"
+	want := "@plan.cat 2026-08-14T15:04:05Z\n@plan.cat 2026-08-14T15:04:05Z\n"
+	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
+	if !changed || string(got) != want {
+		t.Fatalf("changed=%v got=%q, want both duplicates at %q", changed, got, want)
 	}
 }

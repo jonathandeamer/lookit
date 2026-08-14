@@ -14,7 +14,8 @@
 # flattened matches and bookmark rows are listings, so they show the note.
 #
 # Compiled into the binary; users override nothing here. Their own list lives
-# in ~/.config/lookit/bookmarks as one target per line, and "catalog off" there
+# in ~/.config/lookit/bookmarks as one target per line (optional RFC 3339
+# last-visited date), and "catalog off" there
 # hides all of this.
 #
 # Every entry was probed live on 2026-08-11 (re-probed 2026-08-12, when two

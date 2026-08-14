@@ -748,6 +748,30 @@ func TestStartDelegateResponsiveHeight(t *testing.T) {
 	}
 }
 
+func TestStartSetSizeFromZeroWidthCountsOverview(t *testing.T) {
+	common := testCommon()
+	common.width = 0
+	common.height = 36
+	m := newStart(common, twoSections(), "", "")
+	if got := m.list.Width(); got != 0 {
+		t.Fatalf("precondition: list width = %d, want 0 so the first wide layout is the first SetSize", got)
+	}
+
+	m.setSize(100, 34)
+	if got := m.overviewHeight(); got != 1 {
+		t.Fatalf("overview height = %d, want 1 at 100 columns", got)
+	}
+	want := 34 - startChromeRows - m.noticeHeight() - m.overviewHeight()
+	if got := m.list.Height(); got != want {
+		t.Fatalf("first wide setSize list height = %d, want %d", got, want)
+	}
+
+	m.setSize(100, 34)
+	if got := m.list.Height(); got != want {
+		t.Fatalf("second setSize list height = %d, want %d (must be idempotent)", got, want)
+	}
+}
+
 func TestStartSelectionShelfFollowsContentFocus(t *testing.T) {
 	common := testCommon()
 	common.width = 80

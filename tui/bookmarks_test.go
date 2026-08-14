@@ -174,7 +174,7 @@ func TestResolveBookmarksPathFallsBackToDotConfig(t *testing.T) {
 
 func TestAppendBookmarkLinePreservesFile(t *testing.T) {
 	in := []byte("# my careful notes\n\ncatalog off\n\n@plan.cat\n")
-	got := string(appendBookmarkLine(in, "@tilde.team"))
+	got := string(appendBookmarkLine(in, "@tilde.team", time.Time{}))
 	want := "# my careful notes\n\ncatalog off\n\n@plan.cat\n@tilde.team\n"
 	if got != want {
 		t.Fatalf("appendBookmarkLine =\n%q\nwant\n%q", got, want)
@@ -182,7 +182,7 @@ func TestAppendBookmarkLinePreservesFile(t *testing.T) {
 }
 
 func TestAppendBookmarkLineToEmptyFile(t *testing.T) {
-	got := string(appendBookmarkLine(nil, "@plan.cat"))
+	got := string(appendBookmarkLine(nil, "@plan.cat", time.Time{}))
 	if want := "@plan.cat\n"; got != want {
 		t.Fatalf("appendBookmarkLine = %q, want %q", got, want)
 	}
@@ -317,7 +317,7 @@ func TestInitializeBookmarkDataReadsConcurrentWinnerWithoutClobbering(t *testing
 		t.Fatalf("publish concurrent winner: %v", err)
 	}
 
-	file := initializeBookmarkData(path, appendBookmarkLine(nil, aboutFingerAuthor))
+	file := initializeBookmarkData(path, appendBookmarkLine(nil, aboutFingerAuthor, time.Time{}))
 	if len(file.problems) != 0 {
 		t.Fatalf("problems = %+v, want none", file.problems)
 	}
@@ -343,7 +343,7 @@ func TestInitializeBookmarkDataReportsConcurrentWinnerReadFailure(t *testing.T) 
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	file := initializeBookmarkData(path, appendBookmarkLine(nil, aboutFingerAuthor))
+	file := initializeBookmarkData(path, appendBookmarkLine(nil, aboutFingerAuthor, time.Time{}))
 	if len(file.targets) != 0 {
 		t.Fatalf("targets = %+v, want none", file.targets)
 	}

@@ -463,15 +463,39 @@ func tokenAllNumeric(s string) bool {
 	return true
 }
 
-// startRowNote is the note column's text. A child is silent by default, so the
-// section reads as a list of tokens rather than a wall of prose; its note
-// returns on the row the cursor is on, and wherever the child renders as a
-// listing rather than a member of a visible group.
+// startRowNote is the note column's text. Two rows are silent, for different
+// reasons.
+//
+// A child is silent by default, so the section reads as a list of tokens rather
+// than a wall of prose; its note returns on the row the cursor is on, and
+// wherever the child renders as a listing rather than a member of a visible
+// group.
+//
+// A row on the user's own shelf is silent because the column belongs to it:
+// what the catalog says about a place is the catalog's line, and a pinned row
+// answers a different question. The cursor does not lift it — unlike a child's,
+// this silence is about whose row it is, and selecting it does not change that.
+// Suppression keys on source, not on the bookmarked flag, for the reason the
+// ownership marker does: a structural parent retained to head a SERVICES group
+// is stamped bookmarked but was built from the catalog, and blanking it would
+// silently strip a group header the user never pinned.
+//
+// Both silences lift when a filter flattens the page. The entry keeps its note
+// throughout — suppression is a property of where the row renders, which is
+// what makes unpinning restore the description with no state to unwind, and
+// what keeps FilterValue honest: "/" still matches a pinned row on its note,
+// and the flattened view it produces is exactly where that note is on screen.
 func startRowNote(entry startEntry, selected, flattened bool) string {
-	if !entry.child || selected || flattened {
+	if flattened {
 		return entry.note
 	}
-	return ""
+	if entry.source == sourceBookmark {
+		return ""
+	}
+	if entry.child && !selected {
+		return ""
+	}
+	return entry.note
 }
 
 // splitStartMatches maps filter-match offsets in FilterValue onto the target

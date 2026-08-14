@@ -506,14 +506,8 @@ func (m *startModel) skipNonEntry(dir int) {
 	}
 }
 
-// noMatchMessage is the body copy for a filter that matches nothing. It names
-// the query rather than the catalog: nothing is wrong with the catalog, and the
-// query is the thing the user can change. Bubbles cannot supply this — its
-// populatedView returns an empty string while the filter is being typed, so the
-// "No entries." configured in newStart is unreachable in exactly this state.
-//
-// FilterApplied with zero matches is unreachable: bubbles' AcceptWhileFiltering
-// handler resets filtering when the accepted filter matched nothing.
+// noMatchMessage is the first content row while a typed filter matches nothing.
+// Bubbles leaves that region blank; name the query, not the catalog.
 func (m startModel) noMatchMessage() string {
 	if m.list.FilterState() != list.Filtering || len(m.list.VisibleItems()) > 0 {
 		return ""
@@ -528,10 +522,8 @@ func (m startModel) noMatchMessage() string {
 	return ansi.Truncate(style.Render("no match for “"+query+"”"), m.list.Width(), "…")
 }
 
-// filterPromptHeight is how many rows bubbles draws above the list's content
-// region while filtering: Styles.TitleBar wrapped around the single-line filter
-// input, two rows with the default TitleBar's bottom padding. Derived rather
-// than hardcoded so a style change moves the message with the prompt.
+// filterPromptHeight is the TitleBar-wrapped filter input. Derive the offset so
+// the message stays under the prompt; do not hardcode 2.
 func (m startModel) filterPromptHeight() int {
 	return lipgloss.Height(m.list.Styles.TitleBar.Render(m.list.FilterInput.View()))
 }
@@ -550,16 +542,11 @@ func replaceLine(view string, n int, line string) string {
 // View shows the file-level empty state only when the startpage has no rows AT
 // ALL. Gating on VisibleItems() instead would fire on a zero-match filter, where
 // it would assert something false ("no bookmarks yet") and swallow the filter
-// input the user is still typing into. A filter that matches nothing keeps the
-// list and overwrites the blank first row of its content region with
-// noMatchMessage: bubbles' own "No entries." (Styles.NoItems) is unreachable
-// while a filter is being typed.
+// input the user is still typing into.
 func (m startModel) View() string {
 	body := m.empty
 	if len(m.list.Items()) > 0 || m.empty == "" {
 		body = m.list.View()
-		// A zero-match filter leaves the list's content region blank (bubbles
-		// returns early while filtering); overwrite its first row.
 		if message := m.noMatchMessage(); message != "" {
 			body = replaceLine(body, m.filterPromptHeight(), message)
 		}

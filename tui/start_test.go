@@ -2197,8 +2197,9 @@ func TestRelativeDayBuckets(t *testing.T) {
 		{"2026-08-13T23:00:00Z", "yesterday"},
 		{"2026-08-11T16:00:00Z", "3 days ago"},
 		{"2026-07-16T16:00:00Z", "29 days ago"},
-		{"2026-07-10T16:00:00Z", "1 months ago"}, // 35 days
+		{"2026-07-10T16:00:00Z", "1 month ago"},  // 35 days
 		{"2026-01-14T16:00:00Z", "7 months ago"}, // 212 days
+		{"2025-08-19T16:00:00Z", "1 year ago"},   // 360 days — not "0 years ago"
 		{"2024-08-14T16:00:00Z", "2 years ago"},  // 731 days
 		{"2026-08-15T16:00:00Z", "today"},        // future clamps to today
 	} {
@@ -2315,8 +2316,8 @@ func TestStartSectionGapAfterAMixedShelf(t *testing.T) {
 	common.width = 40
 	m := newStart(common, []startSection{
 		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
-			{target: "@new.example", source: sourceBookmark, bookmarked: true},
 			{target: "@plan.cat", source: sourceBookmark, bookmarked: true, visited: visited},
+			{target: "@new.example", source: sourceBookmark, bookmarked: true},
 		}},
 		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
 			{target: "@graph.no", kind: kindCommunity, note: "Weather worldwide by place name", source: sourceCatalog},
@@ -2324,6 +2325,9 @@ func TestStartSectionGapAfterAMixedShelf(t *testing.T) {
 	}, "", "")
 
 	plain := stripANSIForLandingTest(m.View())
+	if !strings.Contains(plain, "3 days ago") {
+		t.Fatalf("visited pin missing its date in the mixed shelf:\n%s", plain)
+	}
 	lines := strings.Split(plain, "\n")
 	header := lineIndexContaining(t, plain, "COMMUNITIES")
 	if header < 2 {
@@ -2332,6 +2336,8 @@ func TestStartSectionGapAfterAMixedShelf(t *testing.T) {
 	if got := strings.TrimSpace(lines[header-1]); got != "" {
 		t.Fatalf("line before COMMUNITIES = %q, want blank:\n%s", got, plain)
 	}
+	// Last bookmark is unvisited, so the stacked note row that headerNeedsBlank
+	// keys off is blank — not the dated row above it.
 	if got := strings.TrimSpace(lines[header-2]); got == "" {
 		t.Fatalf("two blank lines before COMMUNITIES, want exactly one:\n%s", plain)
 	}

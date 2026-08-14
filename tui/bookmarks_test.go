@@ -568,11 +568,8 @@ func TestUpdateBookmarkLinePreservesSpacingAndComments(t *testing.T) {
 		t.Fatal("changed = false, want the record rewritten")
 	}
 	s := string(got)
-	if !strings.HasPrefix(s, "  @plan.cat 2026-08-14T15:04:05Z") {
-		t.Errorf("lost leading whitespace or record: %q", s)
-	}
-	if !strings.HasSuffix(s, "#  spaced comment\n") {
-		t.Errorf("comment text changed: %q", s)
+	if want := "  @plan.cat 2026-08-14T15:04:05Z   #  spaced comment\n"; s != want {
+		t.Errorf("got %q, want indent + record + original gap + comment", s)
 	}
 }
 

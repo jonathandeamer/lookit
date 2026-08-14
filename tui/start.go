@@ -532,9 +532,21 @@ func relativeDay(ts, now time.Time) string {
 		return fmt.Sprintf("%d days ago", days)
 	}
 	if months := days / 30; months < 12 {
-		return fmt.Sprintf("%d months ago", months)
+		return ago(months, "month")
 	}
-	return fmt.Sprintf("%d years ago", days/365)
+	// days/365 is 0 for 360–364, which would print "0 years ago".
+	years := days / 365
+	if years < 1 {
+		years = 1
+	}
+	return ago(years, "year")
+}
+
+func ago(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit + " ago"
+	}
+	return fmt.Sprintf("%d %ss ago", n, unit)
 }
 
 // splitStartMatches maps filter-match offsets in FilterValue onto the target

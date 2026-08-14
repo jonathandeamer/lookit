@@ -33,8 +33,10 @@ type startSection struct {
 //     to the row itself, and startRowNote (start.go) is the one place that
 //     decides so.
 //
-// The bookmark file stores targets only. A catalog match supplies its authored
-// metadata; an unmatched target stays unclassified with a blank description.
+// The bookmark file stores targets and an optional last-visited date. A catalog
+// match supplies its authored metadata; an unmatched target stays unclassified
+// with a blank description. The date is copied after that overlay so it is not
+// wiped by the catalog entry.
 func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 	// Group lines are excluded from every listing map: they describe a header,
 	// not a place, so a bookmark must never inherit one.

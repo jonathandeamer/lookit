@@ -4137,6 +4137,27 @@ func TestLandingDoesNotStampAnUnbookmarkedTarget(t *testing.T) {
 	}
 }
 
+func TestLandingStampsATruncatedSuccess(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	if err := os.WriteFile(path, []byte("alice@plan.cat\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	deliverNavigation(m, Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan: hi\n"),
+		Meta:   finger.Meta{Truncated: true},
+	})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "2026-08-14T15:04:05Z") {
+		t.Fatalf("bookmarks = %q, want a stamp: post-body reset is Err == nil", data)
+	}
+}
+
 func TestLandingDoesNotStampAnErroredFetch(t *testing.T) {
 	path := useTempBookmarks(t)
 	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
@@ -4194,6 +4215,34 @@ func TestRefreshStampsTheVisit(t *testing.T) {
 	}
 	if strings.Contains(got, "2026-08-14T15:04:05Z") {
 		t.Fatalf("bookmarks = %q, want T1 replaced by the refresh stamp", data)
+	}
+}
+
+func TestRefreshDoesNotStampAPartialBody(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	if err := os.WriteFile(path, []byte("alice@plan.cat\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m = deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
+	nowFn = func() time.Time { return time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC) }
+	partial := Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan: cut off"),
+		Err:    errors.New("read: connection reset"),
+	}
+	deliverRefresh(m, partial, false)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "2026-08-14T15:04:05Z") {
+		t.Fatalf("bookmarks = %q, want the successful landing stamp kept", data)
+	}
+	if strings.Contains(got, "2026-08-14T16:00:00Z") {
+		t.Fatalf("bookmarks = %q, want no refresh stamp when Err != nil", data)
 	}
 }
 

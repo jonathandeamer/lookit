@@ -112,14 +112,14 @@ func parseBookmarks(data []byte) bookmarkFile {
 			continue
 		}
 		out.targets = append(out.targets, target)
+		if visited.IsZero() {
+			delete(out.visited, target) // last-line wins, including a trailing dateless duplicate
+			continue
+		}
 		if out.visited == nil {
 			out.visited = make(map[string]time.Time)
 		}
-		if visited.IsZero() {
-			delete(out.visited, target) // last-line wins, including a trailing dateless duplicate
-		} else {
-			out.visited[target] = visited
-		}
+		out.visited[target] = visited
 	}
 	return out
 }

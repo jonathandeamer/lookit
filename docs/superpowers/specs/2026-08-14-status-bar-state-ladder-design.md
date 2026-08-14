@@ -1,6 +1,6 @@
 # Status bar state ladder
 
-**Status:** accepted and in progress. Rules 1 and 2 from
+**Status:** implemented. Rules 1 and 2 from
 [`2026-08-14-status-bar-hint-priority-design.md`](2026-08-14-status-bar-hint-priority-design.md)
 are implemented in the same branch rather than on `main`, which is what the
 "do not implement until they land" condition was protecting against — there is
@@ -265,3 +265,24 @@ From `CLAUDE.md`, the ones this task will actually hit:
 - Re-recording the review stills (`make review-tui`, ~7 min, needs the loopback
   fingerd). Worth doing once this and rules 1–2 have both landed, so the frames
   show the finished bar rather than an intermediate state.
+
+## Outcome
+
+Implemented 2026-08-14. `render` walks the ladder in two passes: the richest
+rung that still fits the whole hint list, then — if none does — the richest
+rung that still fits the address plus the first hint. Hints give way only
+when that actually produces a whole address. Measured in recorded stills:
+
+| Width | State | Before (`main`) | After |
+|---|---|---|---|
+| 45 | failed reader | `◂ esc: trunc@127.0.0.1:2479 · r retry · ? he…` | `@127.0.0.1 / nobody   ◂ esc · r retry · ? help` |
+| 45 | reader | `◂ esc: @127.0.0.1 · 1.2 KB · ↑↓ scroll · r r…` | `@127.0.0.1 / alice   ◂ esc · ↑↓ scroll · ? help` |
+| 60 | reader | address clipped; dest and latency kept | `@127.0.0.1 / alice   ◂ esc · ↑↓ scroll · r refresh · ? help` |
+| 100 | reader, help closed | dest kept; latency silently dropped | `@127.0.0.1 / alice   ◂ esc: @127.0.0.1:2479 · 684µs · 144 B · ↑↓ scroll · r refresh · ? help` |
+| 100 | reader, link focused | `@127.0.0.1 / ali…` and `r refresh` both cut | `@127.0.0.1 / alice   ◂ esc: @127.0.0.1:2479 · link 1/2 · finger · ↵ go · y copy · tab next · r refresh` |
+| 100 | reader, help open | bar repeated the overlay's commands | `@127.0.0.1 / alice   ◂ esc: @127.0.0.1:2479 · 1ms · 144 B` |
+
+The address is whole at every width down to 45. `r retry` is present on the
+failed request. At 100 columns with help closed, every state segment and
+every hint is present. The 60-column reader keeps the address and the full
+hint list by dropping dest, latency, meta and scroll percentage.

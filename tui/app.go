@@ -664,9 +664,9 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if request.intent == requestRefresh {
-			return m.landRefresh(msg.entry, request), nil
+			return m.landRefresh(msg.entry, request)
 		}
-		return m.landNavigation(msg.entry), nil
+		return m.landNavigation(msg.entry)
 
 	case clearFlashMsg:
 		m.flash = ""
@@ -1047,28 +1047,30 @@ func (m *appModel) showRouted(routed routedEntry) {
 	m.reader.setEntryWithLinks(routed.node.entry, routed.node.links)
 }
 
-func (m appModel) landNavigation(entry Entry) appModel {
+func (m appModel) landNavigation(entry Entry) (appModel, tea.Cmd) {
 	m.snapshot()
+	var cmd tea.Cmd
 	if entry.Err == nil {
-		stampVisit(entry.Target.Raw)
+		cmd = stampVisitCmd(entry.Target.Raw)
 	}
 	routed := routeEntry(entry)
 	m.showRouted(routed)
 	m.push(routed.node)
 	m.requestFailure = nil
-	return m
+	return m, cmd
 }
 
-func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
+func (m appModel) landRefresh(entry Entry, request pendingRequest) (appModel, tea.Cmd) {
 	if m.pos < 0 || m.pos >= len(m.history) {
-		return m
+		return m, nil
 	}
 	if entry.failed() {
 		m.requestFailure = &requestFailure{retry: request.retry, err: entry.Err}
-		return m
+		return m, nil
 	}
+	var cmd tea.Cmd
 	if entry.Err == nil {
-		stampVisit(entry.Target.Raw)
+		cmd = stampVisitCmd(entry.Target.Raw)
 	}
 	view := refreshViewState{}
 	if request.view != nil {
@@ -1079,7 +1081,7 @@ func (m appModel) landRefresh(entry Entry, request pendingRequest) appModel {
 	m.showRouted(routed)
 	m.restoreRefreshView(view)
 	m.requestFailure = nil
-	return m
+	return m, cmd
 }
 
 func (m appModel) shouldRetry() bool {

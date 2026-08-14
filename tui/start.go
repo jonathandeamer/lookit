@@ -519,7 +519,10 @@ func relativeDay(ts, now time.Time) string {
 	cursor := time.Date(ty, tm, td, 0, 0, 0, 0, t.Location())
 	end := time.Date(ny, nm, nd, 0, 0, 0, 0, n.Location())
 	days := 0
-	for cursor.Before(end) {
+	// Stop at the last bucket boundary: every value from 365 up renders the
+	// same, and walking them one day at a time is unbounded work on every
+	// render for a stamp an epoch-era clock or a hand-edit can supply.
+	for days < 365 && cursor.Before(end) {
 		cursor = cursor.AddDate(0, 0, 1)
 		days++
 	}

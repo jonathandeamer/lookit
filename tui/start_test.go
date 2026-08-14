@@ -2214,6 +2214,27 @@ func TestRelativeDayBuckets(t *testing.T) {
 	}
 }
 
+// TestRelativeDayIsBoundedForAncientStamps pins the day walk's stopping point.
+// startRowNote runs relativeDay for every visible row on every render, so an
+// unbounded walk turns a year-0001 stamp — which the bookmarks parser accepts —
+// into hundreds of milliseconds of work per frame and hangs the startpage.
+func TestRelativeDayIsBoundedForAncientStamps(t *testing.T) {
+	useLocalZone(t, time.UTC)
+	now := time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC)
+	ancient := time.Date(1, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	start := time.Now()
+	got := relativeDay(ancient, now)
+	elapsed := time.Since(start)
+
+	if got != "over 1 year ago" {
+		t.Errorf("relativeDay(year 1) = %q, want over 1 year ago", got)
+	}
+	if elapsed > 10*time.Millisecond {
+		t.Errorf("relativeDay(year 1) took %s, want a bounded walk (well under 10ms)", elapsed)
+	}
+}
+
 func TestRelativeDayBucketsInLocalTime(t *testing.T) {
 	stamp, _ := time.Parse(time.RFC3339, "2026-08-14T02:30:00Z")
 	now, _ := time.Parse(time.RFC3339, "2026-08-14T16:00:00Z")

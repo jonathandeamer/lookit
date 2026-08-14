@@ -9,6 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -360,6 +362,19 @@ func updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool)
 // nowFn is the clock for visit stamps and relative dates, a package var so
 // tests control time — the same pattern bookmarksPathFn uses for the path.
 var nowFn = time.Now
+
+// stampVisitCmd runs stampVisit off the update loop. The write is a read plus
+// an atomic replace, and a config dir on a network filesystem — routine on the
+// tilde and pubnix boxes this client is pointed at — would otherwise stall
+// every landing for the duration of that round trip. Nothing observes the
+// result: the command reports no message, matching the silent degradation
+// stampVisit already documents.
+func stampVisitCmd(raw string) tea.Cmd {
+	return func() tea.Msg {
+		stampVisit(raw)
+		return nil
+	}
+}
 
 // stampVisit records a successful landing in the bookmarks file. Every
 // failure — no config dir, unreadable file, unwritable filesystem — degrades

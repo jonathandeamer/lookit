@@ -20,6 +20,8 @@ const (
 	startTargetColumnPct = 50
 	// Blank cells between the widest target and the note column.
 	startTargetColumnGap = 2
+	// startBookmarkMarker precedes a row the user pinned themselves.
+	startBookmarkMarker = "★"
 )
 
 // startItem is one row: an entry, section header, or wide-layout spacer.
@@ -408,8 +410,32 @@ func startColumnWidths(width, frame, measured int) (int, int) {
 // full address is rendered in its place so the row stays legible. The
 // connector is kept — it is what signals "this is a child of the row above" —
 // so the trade is purely about the label, not the tree shape. See issue #93.
+//
+// A row the user pinned themselves carries a marker, because BOOKMARKS
+// otherwise renders exactly like the sections lookit ships and reads as a third
+// catalog section (issue #97). Two things about it:
+//
+// It keys on source, not on the bookmarked flag. They differ: a catalog parent
+// retained to head a SERVICES group is stamped bookmarked when its target is
+// pinned (sections.go), so the flag would mark a group header outside
+// BOOKMARKS. Only source names the list that built the row.
+//
+// It goes in the target text rather than the row's left padding, so the
+// measured gutter counts it and pinned notes keep the column the rest of the
+// page uses. The cost is that BOOKMARKS targets sit two cells right of the
+// catalog's — read as an indented, marked block, the same idiom the child
+// connector already uses. Like the connector, it drops when the view flattens:
+// match highlighting is computed against entry.target, so a prefix there would
+// shift every offset, and a flattened view has dropped its section headers
+// anyway.
 func startRowTarget(entry startEntry, flattened bool) string {
-	if !entry.child || flattened {
+	if flattened {
+		return entry.target
+	}
+	if !entry.child {
+		if entry.source == sourceBookmark {
+			return startBookmarkMarker + " " + entry.target
+		}
 		return entry.target
 	}
 	token := entryToken(entry.target)

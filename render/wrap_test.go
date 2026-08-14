@@ -12,8 +12,7 @@ import (
 
 // errDial is a long connection-failure message: at 60 columns the word
 // "reason" — the part that says what went wrong — used to fall off screen.
-// finger no longer produces the raw Go dial error this once was, but the
-// renderer must still wrap whatever unclassified text it's handed.
+// The renderer must wrap unclassified text, not assume a classified shape.
 var errDial = errors.New("couldn't reach a-very-long-hostname.example.org:79: some unclassified reason")
 
 func TestRenderWithWidthWrapsErrorLine(t *testing.T) {

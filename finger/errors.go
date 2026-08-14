@@ -15,11 +15,8 @@ const (
 	opRead = "read"
 )
 
-// FailureKind is the classified reason a query failed.
-//
-// Only kinds lookit recognises are given lookit's own words. FailureUnknown
-// keeps the underlying error's text verbatim, so a summarised failure is never
-// a lost failure — the guarantee that makes it safe to rewrite the rest.
+// FailureKind is the classified reason a query failed. FailureUnknown keeps
+// the underlying error's text verbatim.
 type FailureKind int
 
 const (
@@ -32,15 +29,8 @@ const (
 	FailureTimeout
 )
 
-// QueryError is a connection failure in lookit's voice. Go's dialer produces
-// text like "dial tcp 127.0.0.1:1: connect: connection refused", which repeats
-// the address and exposes its own call structure; the useful content is the
-// address and the reason. The original error is kept in Err, so errors.Is and
-// errors.As still work and nothing is diagnostically lost.
-//
-// This lives in finger/ because finger/ is the layer holding the net error
-// values to classify; classifying anywhere else would mean parsing error
-// strings.
+// QueryError is a connection failure in lookit's voice. Err is the original
+// net error so errors.Is / errors.As still work.
 type QueryError struct {
 	Op      string        // opDial or opRead
 	Addr    string        // the target's host:port
@@ -117,12 +107,8 @@ func classify(err error) FailureKind {
 	return FailureUnknown
 }
 
-// dnsReason returns just the reason a DNS lookup failed — *net.DNSError's own
-// Error() renders "lookup <name>: <reason>", and quoting that whole string in
-// a message that already names the host would repeat the host, exactly the
-// flaw this type exists to remove. Falls back to the error's full text if the
-// error isn't a *net.DNSError or carries no reason, so nothing is silently
-// dropped.
+// dnsReason is just the *net.DNSError reason. Error() already names the host
+// as "lookup <name>: <reason>", so quoting that whole string would repeat it.
 func dnsReason(err error) string {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) && dnsErr.Err != "" {

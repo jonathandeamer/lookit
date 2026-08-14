@@ -78,9 +78,8 @@ func TestReaderSetSize(t *testing.T) {
 }
 
 // dialErrText is a long connection-failure message: at 60 columns the reason
-// ("reason") used to be clipped off the right edge unreachably. finger no
-// longer produces the raw Go dial error this once was, but the reader must
-// still wrap whatever unclassified text it's handed without clipping it.
+// ("reason") used to be clipped off the right edge unreachably. The reader
+// must wrap unclassified text, not assume a classified shape.
 const dialErrText = "couldn't reach a-very-long-hostname.example.org:79: some unclassified reason"
 
 func TestReaderWrapsErrorAtViewportWidth(t *testing.T) {

@@ -46,15 +46,48 @@ address, bytes, page, scroll, latency and flags are not in the overlay, so the
 bar is the only place they exist. Hints are removed because the overlay is
 showing the same commands, better laid out, two lines away.
 
-**2. When hints do not fit, whole hints are dropped from the end, and `? help`
-is never dropped.** Today the joined string is cut mid-word wherever the budget
-runs out. Instead, drop trailing hints one at a time until the remainder fits,
-always retaining `? help`. A bar that cannot fit `? help` alone falls back to
-the existing ellipsis truncation, so there is no width at which this renders
-worse than today.
+**2. When hints do not fit, whole hints are dropped from the end.** Today the
+joined string is cut mid-word wherever the budget runs out. Instead, drop
+trailing hints one at a time until the remainder fits, in three descending
+stages:
 
-The third finding needs no rule of its own. Both changes hand width back to the
-left group, so the breadcrumb reclaims it as a consequence.
+1. Drop from the end, keeping the first hint and `? help`.
+2. If those two still do not fit together, keep the first hint alone.
+3. Give up, and let the existing ellipsis truncation take over — so there is no
+   width at which this renders worse than today.
+
+### Amendment: `? help` is not pinned above the first hint
+
+An earlier draft of this spec pinned `? help` unconditionally, on the reasoning
+that it is the pointer to the overlay carrying everything else. Implemented that
+way it regressed issue #76, which #83 had just closed.
+
+A failed request's hints are `r retry · ? help`. At 45 columns the unconditional
+pin dropped `r retry` and kept `? help`, leaving the bar advertising a help
+overlay on a screen whose only useful action it had just discarded — the same
+category of mistake as the `0 B` that #83 removed.
+
+Stage 2 is the correction. `? help` is a pointer; the first hint is an action,
+and hint lists are built most-useful-first, so "the first hint" is a sound proxy
+for "the one that matters" without the renderer needing to know which state the
+app is in.
+
+Caught by a parallel session reviewing this spec before implementation. It
+reported the regression at 60 columns and below; only 45 reproduced against the
+implementation, which is the difference between simulating a rule and running
+it. The substance was right and the fix is the same either way.
+
+The third finding needs no rule of its own **at 60 columns and above**. Both
+changes hand width back to the left group, so the breadcrumb reclaims it as a
+consequence.
+
+At 45 columns it does not. Hints are already down to their last entry there and
+`◂ esc: trunc@127.0.0.1:2479` alone is 27 cells, so the address stays clipped.
+Closing that gap means extending the drop order past the hints and into the
+state segments this spec deliberately leaves alone — `latency`, `meta`,
+`page`/`scroll`, and degrading `◂ esc: <target>` to a bare `◂ esc`. That is
+specced separately in
+`2026-08-14-status-bar-state-ladder-design.md` and is out of scope here.
 
 ### What this deliberately does not do
 

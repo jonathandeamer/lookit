@@ -56,8 +56,19 @@ func deliverNavigation(m appModel, entry Entry) appModel {
 		id: m.reqSeq, target: entry.Target, intent: requestNavigate,
 		started: time.Now(), cancel: func() {},
 	}
-	next, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: entry})
+	next, cmd := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: entry})
+	runLandingCmd(cmd)
 	return next.(appModel)
+}
+
+// runLandingCmd executes the command a landing returns. The visit stamp is a
+// tea.Cmd so the file write stays off the update loop, which means a test
+// asserting on the bookmarks file has to run it — the real program does the
+// same thing, just on Bubble Tea's goroutine.
+func runLandingCmd(cmd tea.Cmd) {
+	if cmd != nil {
+		cmd()
+	}
 }
 
 func deliverNavigationResult(m appModel, msg fetchResultMsg) (tea.Model, tea.Cmd) {
@@ -90,7 +101,8 @@ func deliverRefresh(m appModel, entry Entry, retry bool) appModel {
 	view := m.captureRefreshView()
 	m.reqSeq++
 	m.pending = &pendingRequest{id: m.reqSeq, target: entry.Target, intent: requestRefresh, retry: retry, cancel: func() {}, view: &view}
-	next, _ := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: entry})
+	next, cmd := m.Update(fetchResultMsg{reqID: m.reqSeq, entry: entry})
+	runLandingCmd(cmd)
 	return next.(appModel)
 }
 

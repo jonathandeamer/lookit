@@ -4100,3 +4100,176 @@ func TestStatusBarFlashSurvivesHelp(t *testing.T) {
 		t.Errorf("hints = %q, want the flash to survive with help open", got)
 	}
 }
+
+func TestLandingStampsABookmarkedTarget(t *testing.T) {
+	path := useTempBookmarks(t)
+	now := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	useNow(t, now)
+	if err := os.WriteFile(path, []byte("alice@plan.cat\n@tilde.team\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "alice@plan.cat 2026-08-14T15:04:05Z\n@tilde.team\n"
+	if string(data) != want {
+		t.Fatalf("bookmarks =\n%q\nwant\n%q", data, want)
+	}
+}
+
+func TestLandingDoesNotStampAnUnbookmarkedTarget(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	if err := os.WriteFile(path, []byte("@tilde.team\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "@tilde.team\n" {
+		t.Fatalf("bookmarks = %q, want untouched for an unpinned target", data)
+	}
+}
+
+func TestLandingStampsATruncatedSuccess(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	if err := os.WriteFile(path, []byte("alice@plan.cat\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	deliverNavigation(m, Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan: hi\n"),
+		Meta:   finger.Meta{Truncated: true},
+	})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "2026-08-14T15:04:05Z") {
+		t.Fatalf("bookmarks = %q, want a stamp: post-body reset is Err == nil", data)
+	}
+}
+
+func TestLandingDoesNotStampAnErroredFetch(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	if err := os.WriteFile(path, []byte("alice@plan.cat\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Err: errors.New("dial: connection refused")})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "alice@plan.cat\n" {
+		t.Fatalf("bookmarks = %q, want untouched after a failed fetch", data)
+	}
+}
+
+func TestLandingStampsOnlyAnExactMatch(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	if err := os.WriteFile(path, []byte("@tilde.team\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	// "@tilde.team:79" names the same machine but is a different record string.
+	deliverNavigation(m, Entry{Target: hostTarget(t, "@tilde.team:79"), Body: []byte("users\n")})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "@tilde.team\n" {
+		t.Fatalf("bookmarks = %q, want untouched: matching is exact string equality", data)
+	}
+}
+
+func TestRefreshStampsTheVisit(t *testing.T) {
+	path := useTempBookmarks(t)
+	now := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	useNow(t, now)
+	if err := os.WriteFile(path, []byte("alice@plan.cat\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m = deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
+	nowFn = func() time.Time { return time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC) }
+	fresh := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi again\n")}
+	deliverRefresh(m, fresh, false)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "2026-08-14T16:00:00Z") {
+		t.Fatalf("bookmarks = %q, want the refresh to have stamped T2", data)
+	}
+	if strings.Contains(got, "2026-08-14T15:04:05Z") {
+		t.Fatalf("bookmarks = %q, want T1 replaced by the refresh stamp", data)
+	}
+}
+
+func TestRefreshDoesNotStampAPartialBody(t *testing.T) {
+	path := useTempBookmarks(t)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	if err := os.WriteFile(path, []byte("alice@plan.cat\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m = deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
+	nowFn = func() time.Time { return time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC) }
+	partial := Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("Plan: cut off"),
+		Err:    errors.New("read: connection reset"),
+	}
+	deliverRefresh(m, partial, false)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "2026-08-14T15:04:05Z") {
+		t.Fatalf("bookmarks = %q, want the successful landing stamp kept", data)
+	}
+	if strings.Contains(got, "2026-08-14T16:00:00Z") {
+		t.Fatalf("bookmarks = %q, want no refresh stamp when Err != nil", data)
+	}
+}
+
+func TestStampFailureDoesNotBreakTheLanding(t *testing.T) {
+	// A read-only config directory: the atomic write must fail, the failure is
+	// swallowed, and the landing completes with the file left stale.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bookmarks")
+	if err := os.WriteFile(path, []byte("alice@plan.cat\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) }) //nolint:errcheck // so TempDir can clean up
+	useBookmarksPath(t, path)
+	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	landed := deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
+	if landed.state != stateReader || landed.pos != 0 {
+		t.Fatalf("state=%v pos=%d, want a normal reader landing despite the unwritable file", landed.state, landed.pos)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "alice@plan.cat\n" {
+		t.Fatalf("bookmarks = %q, want the stale file left byte-identical", data)
+	}
+}

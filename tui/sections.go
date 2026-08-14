@@ -27,7 +27,11 @@ type startSection struct {
 // Two behaviours make bookmarking read as "pin to the top":
 //   - a bookmarked target is suppressed from its catalog section rather than
 //     appearing twice, and
-//   - it keeps the catalog's note, so pinning never costs the description.
+//   - it carries the catalog's note with it, so unpinning restores the
+//     description and "/" still matches on it. The note is data the row keeps,
+//     not text the row shows: on the user's own shelf the note column is left
+//     to the row itself, and startRowNote (start.go) is the one place that
+//     decides so.
 //
 // The bookmark file stores targets only. A catalog match supplies its authored
 // metadata; an unmatched target stays unclassified with a blank description.

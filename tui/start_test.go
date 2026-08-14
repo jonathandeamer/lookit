@@ -216,6 +216,37 @@ func TestStartSectionGapRendersExactlyOneBlankRow(t *testing.T) {
 	}
 }
 
+// TestStartSectionGapAfterASilentPinnedRow: in the stacked layout a row's note
+// occupies a second terminal row, and a header only spends its own first row on
+// a blank when the row above did not already end in one (headerNeedsBlank). A
+// pinned row now always ends blank, which makes it the last row of BOOKMARKS
+// that would double the gap if that rule were bypassed.
+func TestStartSectionGapAfterASilentPinnedRow(t *testing.T) {
+	common := testCommon()
+	common.width = 40
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: "Collaborative science fiction", source: sourceBookmark, bookmarked: true},
+		}},
+		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+			{target: "@graph.no", kind: kindCommunity, note: "Weather worldwide by place name", source: sourceCatalog},
+		}},
+	}, "", "")
+
+	plain := stripANSIForLandingTest(m.View())
+	lines := strings.Split(plain, "\n")
+	header := lineIndexContaining(t, plain, "COMMUNITIES")
+	if header < 2 {
+		t.Fatalf("COMMUNITIES line = %d, want room for content and a gap:\n%s", header, plain)
+	}
+	if got := strings.TrimSpace(lines[header-1]); got != "" {
+		t.Fatalf("line before COMMUNITIES = %q, want blank:\n%s", got, plain)
+	}
+	if got := strings.TrimSpace(lines[header-2]); got == "" {
+		t.Fatalf("two blank lines before COMMUNITIES, want exactly one:\n%s", plain)
+	}
+}
+
 func TestStartSpacerItemCounts(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1065,8 +1096,10 @@ func TestStartDelegateWidthVariants(t *testing.T) {
 				}
 			}
 
-			targetLine := lineIndexContaining(t, plain, "@tilde.team")
-			noteLine := lineIndexContaining(t, plain, "Small public")
+			// A catalog row, not the pinned one: a pinned row shows no note,
+			// so it cannot demonstrate where the note sits.
+			targetLine := lineIndexContaining(t, plain, "@plan.cat")
+			noteLine := lineIndexContaining(t, plain, "Classic finger")
 			if tt.wide && targetLine != noteLine {
 				t.Fatalf("wide target line = %d, note line = %d; want one physical row:\n%s", targetLine, noteLine, plain)
 			}
@@ -1723,6 +1756,7 @@ func TestStartRowNotePerState(t *testing.T) {
 	const note = "Saturday Morning Gemzine — back issues"
 	child := startEntry{target: "smog@typed-hole.org", note: note, child: true}
 	root := startEntry{target: "@typed-hole.org", note: "A small menu of fingers, from lobste.rs to smog"}
+	pinned := startEntry{target: "@typed-hole.org", note: root.note, source: sourceBookmark, bookmarked: true}
 
 	tests := []struct {
 		name      string
@@ -1736,6 +1770,9 @@ func TestStartRowNotePerState(t *testing.T) {
 		{name: "flattened child shows its note", entry: child, flattened: true, want: note},
 		{name: "root always shows its note", entry: root, want: root.note},
 		{name: "selected root is unchanged", entry: root, selected: true, want: root.note},
+		{name: "pinned row shows nothing", entry: pinned, want: ""},
+		{name: "selected pinned row still shows nothing", entry: pinned, selected: true, want: ""},
+		{name: "flattened pinned row shows its note", entry: pinned, flattened: true, want: root.note},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1952,24 +1989,168 @@ func TestStartOwnershipMarkerSurvivesTheNarrowLayout(t *testing.T) {
 // the longest row as drawn (#92), so the marker has to be part of what is
 // measured. The row that proves it is a pinned row that is also the longest on
 // the page — padding hides an unmeasured marker everywhere else, but here the
-// target fills the column and the note loses its gap entirely.
+// target fills the column and the note loses its gap entirely. A pinned row
+// shows no note of its own, so the column it sets is read off the catalog row
+// below it.
 func TestStartOwnershipMarkerIsMeasuredWithItsTarget(t *testing.T) {
 	common := testCommon()
 	common.width = 100
-	longest, note := "@zaibatsu.circumlunar.space", "Sundogs seeking asylum"
+	longest, note := "@zaibatsu.circumlunar.space", "Weather worldwide by place name"
 	m := newStart(common, []startSection{
 		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
-			{target: longest, kind: kindCommunity, note: note, source: sourceBookmark, bookmarked: true},
+			{target: longest, kind: kindCommunity, note: "Sundogs seeking asylum", source: sourceBookmark, bookmarked: true},
 		}},
 		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
-			{target: "@graph.no", kind: kindCommunity, note: "Weather worldwide by place name"},
+			{target: "@graph.no", kind: kindCommunity, note: note},
 		}},
 	}, "", "")
 
-	line := startRowLine(t, stripANSIForLandingTest(m.View()), note)
-	gap := startNoteCell(t, line, note) - startNoteCell(t, line, longest) - lipgloss.Width(longest)
+	view := stripANSIForLandingTest(m.View())
+	pinned := startRowLine(t, view, longest)
+	marked := startBookmarkMarker + " " + longest
+	gap := startNoteCell(t, startRowLine(t, view, note), note) -
+		startNoteCell(t, pinned, marked) - lipgloss.Width(marked)
 	if gap != startTargetColumnGap {
-		t.Fatalf("pinned note leaves %d cells after the longest target, want %d; the marker must be measured with it", gap, startTargetColumnGap)
+		t.Fatalf("notes begin %d cells after the longest target, want %d; the marker must be measured with it", gap, startTargetColumnGap)
+	}
+}
+
+// TestStartPinnedRowLeavesTheNoteColumnEmpty: a pinned row describes itself by
+// the user's own relationship to it, not by what the catalog says about it, so
+// the note it inherited from the catalog is suppressed while it renders as a
+// member of BOOKMARKS. The same entry keeps its note everywhere else on the
+// page. See issue #97.
+func TestStartPinnedRowLeavesTheNoteColumnEmpty(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	const pinnedNote = "Collaborative science fiction"
+	const catalogNote = "Weather worldwide by place name"
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: pinnedNote, source: sourceBookmark, bookmarked: true},
+		}},
+		{id: sectionCommunities, title: "COMMUNITIES", entries: []startEntry{
+			{target: "@graph.no", kind: kindCommunity, note: catalogNote},
+		}},
+	}, "", "")
+
+	view := stripANSIForLandingTest(m.View())
+	if strings.Contains(view, pinnedNote) {
+		t.Fatalf("pinned row still shows its catalog note:\n%s", view)
+	}
+	if catalog := startRowLine(t, view, "@graph.no"); !strings.Contains(catalog, catalogNote) {
+		t.Fatalf("catalog row lost its note:\n%s", catalog)
+	}
+}
+
+// A pinned row's note stays suppressed under the cursor. Selection reveals a
+// service child's note, but that idiom exists because a child is silent as a
+// group member; a pinned row is silent as a matter of ownership, and the cursor
+// does not change whose row it is.
+func TestStartPinnedRowStaysBlankWhenSelected(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	const note = "Collaborative science fiction"
+	st := common.ensureStyles()
+	d := newStartDelegate(common, st)
+	items := []list.Item{
+		startItem{entry: startEntry{
+			target: "@cosmic.voyage", kind: kindCommunity, note: note,
+			source: sourceBookmark, bookmarked: true,
+		}, section: sectionBookmarks},
+	}
+	l := list.New(items, d, 100, 6)
+	l.Select(0)
+
+	var buf strings.Builder
+	d.Render(&buf, l, 0, items[0])
+	if got := ansi.Strip(buf.String()); strings.Contains(got, note) {
+		t.Fatalf("selected pinned row = %q, want an empty note column", got)
+	}
+}
+
+// The stacked layout spends a second terminal row on the note, so suppression
+// has to leave that row blank rather than fall back to the catalog text.
+func TestStartPinnedRowLeavesTheStackedNoteRowEmpty(t *testing.T) {
+	common := testCommon()
+	common.width = 60
+	const note = "Collaborative science fiction"
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: note, source: sourceBookmark, bookmarked: true},
+		}},
+	}, "", "")
+
+	if view := stripANSIForLandingTest(m.View()); strings.Contains(view, note) {
+		t.Fatalf("pinned row shows its note in the stacked layout:\n%s", view)
+	}
+}
+
+// A filter flattens the page: headers and the ownership marker go, and every
+// surviving row renders as a plain listing. The note returns with them — the
+// same rule a service child follows — so a pinned row can still be found by
+// what the catalog says about it, and the match it scored stays visible.
+func TestStartPinnedRowShowsItsNoteWhenTheFilterFlattens(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	const note = "Collaborative science fiction"
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@cosmic.voyage", kind: kindCommunity, note: note, source: sourceBookmark, bookmarked: true},
+		}},
+	}, "", "")
+	m.list.SetFilterText("fiction")
+	m.list.SetFilterState(list.Filtering)
+
+	view := m.View()
+	plain := stripANSIForLandingTest(view)
+	if !strings.Contains(plain, note) {
+		t.Fatalf("flattened pinned row hides its note:\n%s", plain)
+	}
+	lineIndex := lineIndexContaining(t, plain, "@cosmic.voyage")
+	if got := underlinedText(strings.Split(view, "\n")[lineIndex]); got != "fiction" {
+		t.Fatalf("underlined text = %q, want %q", got, "fiction")
+	}
+}
+
+// TestStartRetainedCatalogParentKeepsItsNote: pinning a host that also heads a
+// SERVICES group leaves a structural copy behind to head that group. The copy
+// is stamped bookmarked but was built from the catalog, so — like the ownership
+// marker — suppression keys on source. Otherwise pinning a host would silently
+// blank the description of a group header the user never pinned.
+func TestStartRetainedCatalogParentKeepsItsNote(t *testing.T) {
+	common := testCommon()
+	common.width = 100
+	const note = "Not just .plan files"
+	m := newStart(common, []startSection{
+		{id: sectionBookmarks, title: "BOOKMARKS", entries: []startEntry{
+			{target: "@happynetbox.com", kind: kindCommunity, note: note, source: sourceBookmark, bookmarked: true},
+		}},
+		{id: sectionServices, title: "SERVICES", entries: []startEntry{
+			{target: "@happynetbox.com", kind: kindService, note: note, structural: true, bookmarked: true},
+			{target: "bot@happynetbox.com", kind: kindService, note: "A bot", child: true, lastChild: true},
+		}},
+	}, "", "")
+
+	if view := stripANSIForLandingTest(m.View()); !strings.Contains(view, note) {
+		t.Fatalf("retained catalog parent lost its note:\n%s", view)
+	}
+}
+
+// Unpinning restores the note because assembly hands the row back to its
+// catalog section as an ordinary catalog row: suppression is a property of
+// where the row is rendered, never an edit to the entry.
+func TestStartUnpinnedRowShowsItsNoteAgain(t *testing.T) {
+	catalog := []startEntry{
+		{target: "@cosmic.voyage", kind: kindCommunity, note: "Collaborative science fiction", source: sourceCatalog},
+	}
+	pinned := buildSections(catalog, bookmarkFile{targets: []string{"@cosmic.voyage"}})
+	if got := startRowNote(pinned[0].entries[0], false, false); got != "" {
+		t.Fatalf("pinned note = %q, want empty", got)
+	}
+	unpinned := buildSections(catalog, bookmarkFile{})
+	if got, want := startRowNote(unpinned[0].entries[0], false, false), catalog[0].note; got != want {
+		t.Fatalf("unpinned note = %q, want %q", got, want)
 	}
 }
 

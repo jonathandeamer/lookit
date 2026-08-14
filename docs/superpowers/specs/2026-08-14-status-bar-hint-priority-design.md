@@ -148,6 +148,25 @@ and the overlay never shows it.
 `renderPriority` already blanks hints when it recurses to render the ordinary
 bar beside a priority status. That behaviour is unchanged and independent.
 
+## Outcome
+
+Implemented 2026-08-14. Measured in recorded stills at 45 columns:
+
+| State | Before | After |
+|---|---|---|
+| startpage, help closed | `28 entries · ↵ go · b bookmark · / filter · …` | `29 entries · ↵ go · b remove · ? help` |
+| startpage, help open | identical to help closed | `29 entries` |
+| failed request | `… 0 B · ↑↓ scrol…` (pre-#83) | `@127.0… ◂ esc: trunc@127.0.0.1:2479 · r retry` |
+
+No hint is cut mid-word at any width, `? help` survives wherever an action does
+not need its space, and `r retry` outranks it on a failed request. The
+breadcrumb is still clipped at 45 columns, which the state ladder covers.
+
+Recording the stills also surfaced an unrelated breakage: the error scene's
+`Wait` guard still matched `/connect:/`, a fragment of the raw dialer error that
+#82 replaced. Every `responses-*.tape` had failed there since that merge. Fixed
+in the same branch.
+
 ## Scope
 
 `tui/app.go` (rule 1, a few lines in `statusBarModel`), `tui/statusbar.go`

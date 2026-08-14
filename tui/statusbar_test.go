@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -324,5 +326,88 @@ func TestStatusBarDirectoryLeafHasNoGradient(t *testing.T) {
 	}
 	if got := len(foregroundSequences(crumb)); got != 1 {
 		t.Fatalf("directory crumb should be a single dim colour, got %d: %q", got, crumb)
+	}
+}
+
+func TestStatusBarFailedRequestDropsBytesAndScroll(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "nobody@127.0.0.1:1"),
+		Err:    errors.New("connection refused by 127.0.0.1:1"),
+	})
+	bar := m.buildStatusBar()
+
+	if bar.meta != "" {
+		t.Errorf("meta = %q, want empty: no response landed, so there are no bytes to report", bar.meta)
+	}
+	if bar.scroll != "" {
+		t.Errorf("scroll = %q, want empty: there is nothing to scroll", bar.scroll)
+	}
+	if !strings.Contains(bar.hints, "r retry") {
+		t.Errorf("hints = %q, want them to include \"r retry\"", bar.hints)
+	}
+	if strings.Contains(bar.hints, "scroll") {
+		t.Errorf("hints = %q, want no scroll hint", bar.hints)
+	}
+}
+
+func TestStatusBarFailedRequestKeepsRetryAt45Columns(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "nobody@127.0.0.1:1"),
+		Err:    errors.New("connection refused by 127.0.0.1:1"),
+	})
+	m.common.width = 45
+	bar := m.buildStatusBar()
+
+	line := ansi.Strip(bar.render())
+	if !strings.Contains(line, "r retry") {
+		t.Errorf("45-column bar dropped the only useful action:\n%s", line)
+	}
+	if strings.Contains(line, "0 B") {
+		t.Errorf("45-column bar still reports a byte count:\n%s", line)
+	}
+}
+
+func TestStatusBarErroredResponseWithBodyKeepsBytes(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "alice@plan.cat"),
+		Body:   []byte("half a plan\n"),
+		Meta:   finger.Meta{Bytes: 12, Truncated: true},
+		Err:    errors.New("plan.cat:79 stopped responding after 30s"),
+	})
+	bar := m.buildStatusBar()
+
+	if bar.meta == "" {
+		t.Error("a response with bytes must still report its byte count")
+	}
+	if !slices.Contains(bar.flags, "partial (truncated)") {
+		t.Errorf("flags = %v, want the partial (truncated) flag", bar.flags)
+	}
+}
+
+// A read deadline can set Meta.Truncated even when nothing was ever read
+// (see finger.queryWith / TestQuery_ReadDeadline): the server accepted the
+// connection, then sent nothing before the timeout fired. That still counts
+// as a failed entry (no bytes), so it gets the plain-failure treatment, not
+// the "partial (truncated)" flag — "partial" claims part of a response
+// arrived, and here none did.
+func TestStatusBarTruncatedWithNoBodyIsAPlainFailure(t *testing.T) {
+	m := settledReader(t, Entry{
+		Target: hostTarget(t, "nobody@127.0.0.1:1"),
+		Meta:   finger.Meta{Truncated: true},
+		Err:    errors.New("127.0.0.1:1 stopped responding after 30s"),
+	})
+	bar := m.buildStatusBar()
+
+	if bar.meta != "" {
+		t.Errorf("meta = %q, want empty: no bytes landed", bar.meta)
+	}
+	if bar.scroll != "" {
+		t.Errorf("scroll = %q, want empty: there is nothing to scroll", bar.scroll)
+	}
+	if slices.Contains(bar.flags, "partial (truncated)") {
+		t.Errorf("flags = %v, want no partial (truncated) flag: nothing partial arrived", bar.flags)
+	}
+	if !strings.Contains(bar.hints, "r retry") {
+		t.Errorf("hints = %q, want them to include \"r retry\"", bar.hints)
 	}
 }

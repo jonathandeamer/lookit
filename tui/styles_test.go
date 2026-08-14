@@ -51,6 +51,28 @@ func TestNewStylesUsesFunctionalBrightRoles(t *testing.T) {
 	assertSameColor(t, "selected title foreground", st.listItem.SelectedTitle.GetForeground(), p.SelectionLogin)
 }
 
+func TestPaginationDotsUseReadableHouseColours(t *testing.T) {
+	for _, dark := range []bool{true, false} {
+		name := "light"
+		if dark {
+			name = "dark"
+		}
+		t.Run(name, func(t *testing.T) {
+			st := newStyles(dark)
+			p := paletteFor(dark)
+
+			assertSameColor(t, "active pagination dot", st.list.ActivePaginationDot.GetForeground(), p.AccentViolet)
+			assertSameColor(t, "inactive pagination dot", st.list.InactivePaginationDot.GetForeground(), p.Dim)
+			if got := st.list.ActivePaginationDot.Value(); got != "•" {
+				t.Fatalf("active pagination glyph = %q, want •", got)
+			}
+			if got := st.list.InactivePaginationDot.Value(); got != "•" {
+				t.Fatalf("inactive pagination glyph = %q, want •", got)
+			}
+		})
+	}
+}
+
 func TestHexColorAcceptsFunctionalBrightValues(t *testing.T) {
 	assertSameColor(t, "functional bright violet", hexColor("#9878ff"), lipgloss.Color("#9878ff"))
 }

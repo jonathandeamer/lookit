@@ -398,3 +398,156 @@ func TestRemovedWeatherServiceBookmarkStaysTargetOnly(t *testing.T) {
 		t.Fatalf("bookmark = %+v, want blank note and kindUnknown after catalog removal", entry)
 	}
 }
+
+// dualRoleCatalog is a host listed as a community that also heads a group of
+// services, plus the "group" line describing that group.
+func dualRoleCatalog() []startEntry {
+	return []startEntry{
+		{target: "@dual.example", kind: kindCommunity, note: "Community note", source: sourceCatalog},
+		{target: "@dual.example", kind: kindGroup, note: "Group note", source: sourceCatalog},
+		{target: "bot@dual.example", kind: kindService, note: "Child note", source: sourceCatalog},
+	}
+}
+
+// A structural parent stands in for a listing that lives in another section, so
+// repeating that listing's note describes the wrong thing. A "group" line gives
+// the header its own words without touching the listing.
+func TestGroupNoteDescribesTheStructuralParent(t *testing.T) {
+	for _, s := range buildSections(dualRoleCatalog(), bookmarkFile{}) {
+		switch s.id {
+		case sectionCommunities:
+			if len(s.entries) != 1 || s.entries[0].note != "Community note" {
+				t.Fatalf("communities = %+v, want the listing to keep its own note", s.entries)
+			}
+		case sectionServices:
+			if len(s.entries) != 2 {
+				t.Fatalf("services = %+v, want a structural parent and one child", s.entries)
+			}
+			parent := s.entries[0]
+			if !parent.structural || parent.target != "@dual.example" {
+				t.Fatalf("services[0] = %+v, want a structural @dual.example parent", parent)
+			}
+			if parent.note != "Group note" {
+				t.Fatalf("parent note = %q, want the group note", parent.note)
+			}
+			if !s.entries[1].child || s.entries[1].target != "bot@dual.example" {
+				t.Fatalf("services[1] = %+v, want the child row", s.entries[1])
+			}
+		}
+	}
+}
+
+// A group line is metadata, not a listing: it must never become a row of its
+// own, in any section, pinned or not.
+func TestGroupLineIsNeverARowOfItsOwn(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		bm   bookmarkFile
+	}{
+		// Unpinned: the community listing, the structural parent, the child.
+		// Pinned: the listing moves to BOOKMARKS, parent and child stay.
+		{name: "unpinned", bm: bookmarkFile{}},
+		{name: "pinned", bm: bookmarkFile{targets: []string{"@dual.example"}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rows := 0
+			for _, s := range buildSections(dualRoleCatalog(), tt.bm) {
+				for _, e := range s.entries {
+					if e.kind == kindGroup {
+						t.Errorf("section %v renders a group line: %+v", s.id, e)
+					}
+					rows++
+				}
+			}
+			if rows != 3 {
+				t.Errorf("rows = %d, want 3", rows)
+			}
+		})
+	}
+}
+
+// Pinning a dual-role host moves its listing to BOOKMARKS. The listing's note
+// travels with it; the group note belongs to the header it was written for.
+func TestPinnedDualRoleHostKeepsItsListingNote(t *testing.T) {
+	sections := buildSections(dualRoleCatalog(), bookmarkFile{targets: []string{"@dual.example"}})
+	if sections[0].id != sectionBookmarks || len(sections[0].entries) != 1 {
+		t.Fatalf("sections[0] = %+v, want one BOOKMARKS entry", sections[0])
+	}
+	if got := sections[0].entries[0].note; got != "Community note" {
+		t.Fatalf("bookmark note = %q, want the listing's note", got)
+	}
+	for _, s := range sections {
+		if s.id != sectionServices {
+			continue
+		}
+		if got := s.entries[0].note; got != "Group note" {
+			t.Fatalf("parent note = %q, want the group note even while pinned", got)
+		}
+	}
+}
+
+// A pinned service root is structural for the same reason, so a group note
+// applies there too.
+func TestGroupNoteAppliesToAPinnedServiceRoot(t *testing.T) {
+	catalog := []startEntry{
+		{target: "@svc.example", kind: kindService, note: "Root note", source: sourceCatalog},
+		{target: "@svc.example", kind: kindGroup, note: "Group note", source: sourceCatalog},
+		{target: "a@svc.example", kind: kindService, note: "Child note", source: sourceCatalog},
+	}
+	for _, s := range buildSections(catalog, bookmarkFile{targets: []string{"@svc.example"}}) {
+		if s.id != sectionServices {
+			continue
+		}
+		if !s.entries[0].structural || s.entries[0].note != "Group note" {
+			t.Fatalf("parent = %+v, want a structural row carrying the group note", s.entries[0])
+		}
+		return
+	}
+	t.Fatal("SERVICES section not found")
+}
+
+// Without a group line, a structural parent still inherits the root's note —
+// the behaviour every other grouped host relies on.
+func TestStructuralParentWithoutAGroupNoteKeepsTheRootNote(t *testing.T) {
+	catalog := []startEntry{
+		{target: "@dual.example", kind: kindCommunity, note: "Community note", source: sourceCatalog},
+		{target: "bot@dual.example", kind: kindService, note: "Child note", source: sourceCatalog},
+	}
+	for _, s := range buildSections(catalog, bookmarkFile{}) {
+		if s.id != sectionServices {
+			continue
+		}
+		if got := s.entries[0].note; got != "Community note" {
+			t.Fatalf("parent note = %q, want the root's note", got)
+		}
+		return
+	}
+	t.Fatal("SERVICES section not found")
+}
+
+// The one dual-role host the shipped catalog actually has.
+func TestHappynetboxHeadsItsServicesInItsOwnWords(t *testing.T) {
+	const (
+		listing = ".plan files updated via the web"
+		header  = "Not just .plan files"
+	)
+	seen := 0
+	for _, s := range buildSections(loadCatalog(), bookmarkFile{}) {
+		for _, e := range s.entries {
+			if e.target != "@happynetbox.com" {
+				continue
+			}
+			seen++
+			want := listing
+			if s.id == sectionServices {
+				want = header
+			}
+			if e.note != want {
+				t.Errorf("section %v note = %q, want %q", s.id, e.note, want)
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("@happynetbox.com rendered %d times, want a listing and a group header", seen)
+	}
+}

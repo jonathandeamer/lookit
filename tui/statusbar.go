@@ -63,6 +63,41 @@ func (s priorityStatus) render(width int) string {
 	return ansi.Truncate(s.prefix, width-suffixWidth, "…") + s.suffix
 }
 
+// hintSeparator joins every hint list in the app. It is the only delimiter, so
+// splitting on it recovers the individual hints losslessly.
+const hintSeparator = " · "
+
+// helpHint is pinned: it is the pointer to the overlay that carries every hint
+// hintsWithin is about to drop, so it is the last one to go.
+const helpHint = "? help"
+
+// hintsWithin reduces the hint list to the whole hints that fit budget cells.
+// It drops from the end, because hint lists are built most-useful-first, and it
+// never drops helpHint while anything else remains.
+//
+// Returning "" means not even one hint fits; render falls back to its ordinary
+// ellipsis truncation, so a very narrow bar is no worse than before.
+func (b statusBar) hintsWithin(budget int) string {
+	if b.hints == "" || budget <= 0 || lipgloss.Width(b.hints) <= budget {
+		return b.hints
+	}
+	parts := strings.Split(b.hints, hintSeparator)
+	for len(parts) > 1 {
+		drop := len(parts) - 1
+		if parts[drop] == helpHint {
+			drop--
+		}
+		parts = append(parts[:drop], parts[drop+1:]...)
+		if joined := strings.Join(parts, hintSeparator); lipgloss.Width(joined) <= budget {
+			return joined
+		}
+	}
+	if lipgloss.Width(parts[0]) <= budget {
+		return parts[0]
+	}
+	return ""
+}
+
 func (b statusBar) render() string {
 	if b.width <= 0 {
 		return ""
@@ -91,6 +126,22 @@ func (b statusBar) render() string {
 		rightBudget = 0
 	}
 	rightJoined := strings.Join(right, " · ")
+	// Shed whole hints before falling back to cutting a word. rightParts
+	// appends hints last when they exist, so the state is everything ahead of
+	// them and their budget is whatever it leaves.
+	if b.hints != "" && lipgloss.Width(rightJoined) > rightBudget {
+		state := right[:len(right)-1]
+		hintBudget := rightBudget - lipgloss.Width(strings.Join(state, " · "))
+		if len(state) > 0 {
+			hintBudget -= lipgloss.Width(" · ")
+		}
+		// An empty result means not one hint fits beside the state. Leave the
+		// group alone rather than dropping the hints: below, a breadcrumb that
+		// cannot coexist collapses and hands its width back to them.
+		if kept := b.hintsWithin(hintBudget); kept != "" && kept != b.hints {
+			rightJoined = strings.Join(append(append([]string{}, state...), kept), " · ")
+		}
+	}
 	rightText := ""
 	if rightBudget > 0 {
 		rightText = ansi.Truncate(rightJoined, rightBudget, "…")

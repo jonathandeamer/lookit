@@ -423,3 +423,46 @@ func TestStatusBarTruncatedWithNoBodyIsAPlainFailure(t *testing.T) {
 		t.Errorf("hints = %q, want them to include \"r retry\"", bar.hints)
 	}
 }
+
+const startHints = "↵ go · b bookmark · / filter · i target · ? help"
+
+// TestStatusBarShedsWholeHints: the joined right group used to be truncated
+// positionally, so a narrow bar cut a hint mid-word and lost "? help" first —
+// the one hint that stands in for all the others.
+func TestStatusBarShedsWholeHints(t *testing.T) {
+	for _, width := range []int{45, 50, 60} {
+		b := statusBar{meta: "28 entries", hints: startHints, width: width, styles: newStyles(true)}
+		out := stripANSIForLandingTest(b.render())
+
+		if !strings.Contains(out, "? help") {
+			t.Errorf("width %d: %q dropped %q", width, out, "? help")
+		}
+		if strings.Contains(out, "…") {
+			t.Errorf("width %d: %q cut a hint mid-word, want whole hints dropped", width, out)
+		}
+	}
+}
+
+// TestStatusBarKeepsEveryHintWhenItFits guards against over-eager shedding.
+func TestStatusBarKeepsEveryHintWhenItFits(t *testing.T) {
+	b := statusBar{meta: "28 entries", hints: startHints, width: 100, styles: newStyles(true)}
+	out := stripANSIForLandingTest(b.render())
+	for _, hint := range strings.Split(startHints, " · ") {
+		if !strings.Contains(out, hint) {
+			t.Errorf("width 100: %q dropped %q, want the full list", out, hint)
+		}
+	}
+}
+
+// TestStatusBarNarrowerThanHelpStillRenders: below the width of "? help"
+// itself there is nothing to keep, and the existing ellipsis path takes over.
+// The bar must not exceed its width or panic.
+func TestStatusBarNarrowerThanHelpStillRenders(t *testing.T) {
+	for _, width := range []int{1, 4, 8} {
+		b := statusBar{host: "@tilde.team", hints: startHints, width: width, styles: newStyles(true)}
+		out := b.render()
+		if got := lipgloss.Width(out); got > width {
+			t.Errorf("width %d: rendered %d cells, want at most %d", width, got, width)
+		}
+	}
+}

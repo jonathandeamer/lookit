@@ -190,7 +190,13 @@ func TestStatusBarDropsLatencyBeforeExistingInformation(t *testing.T) {
 		Body:   []byte("Plan: hi\n"),
 		Meta:   finger.Meta{Elapsed: 123 * time.Millisecond},
 	})
-	m.common.width = lipgloss.Width("@x.example / alice") + 1 + lipgloss.Width("9 B · ↑↓ scroll · r refresh · ? help")
+	// The hint list must match what joinHints actually builds: with no esc
+	// target it appends "esc back" as well as "? help". Omitting it made this
+	// width 11 cells short, which only ever passed because the bar used to
+	// clip the address instead of shedding state. It now keeps the address and
+	// drops "9 B", so an honest width is what keeps this test about latency.
+	m.common.width = lipgloss.Width("@x.example / alice") + 1 +
+		lipgloss.Width("9 B · ↑↓ scroll · r refresh · esc back · ? help")
 	got := ansi.Strip(m.buildStatusBar().render())
 	if strings.Contains(got, "123ms") || !strings.Contains(got, "9 B") || !strings.Contains(got, "? help") {
 		t.Fatalf("latency displaced existing information: %q", got)
@@ -421,5 +427,201 @@ func TestStatusBarTruncatedWithNoBodyIsAPlainFailure(t *testing.T) {
 	}
 	if !strings.Contains(bar.hints, "r retry") {
 		t.Errorf("hints = %q, want them to include \"r retry\"", bar.hints)
+	}
+}
+
+const startHints = "↵ go · b bookmark · / filter · i target · ? help"
+
+// TestStatusBarShedsWholeHints: the joined right group used to be truncated
+// positionally, so a narrow bar cut a hint mid-word and lost "? help" first —
+// the one hint that stands in for all the others.
+func TestStatusBarShedsWholeHints(t *testing.T) {
+	for _, width := range []int{45, 50, 60} {
+		b := statusBar{meta: "28 entries", hints: startHints, width: width, styles: newStyles(true)}
+		out := stripANSIForLandingTest(b.render())
+
+		if !strings.Contains(out, "? help") {
+			t.Errorf("width %d: %q dropped %q", width, out, "? help")
+		}
+		if strings.Contains(out, "…") {
+			t.Errorf("width %d: %q cut a hint mid-word, want whole hints dropped", width, out)
+		}
+	}
+}
+
+// TestStatusBarKeepsRetryOnAFailedRequest: a failed request's hints are
+// "r retry · ? help". Retry is the only useful action on that screen, and #83
+// (issue #76) exists because the bar kept spending its width on less useful
+// facts. Shedding must not undo that by pinning "? help" over it.
+func TestStatusBarKeepsRetryOnAFailedRequest(t *testing.T) {
+	for _, width := range []int{45, 60, 80} {
+		b := statusBar{
+			host: "@127.0.0.1", user: "nobody",
+			escTarget: "trunc@127.0.0.1:2479", latency: "1ms",
+			hints: "r retry · ? help", width: width, styles: newStyles(true),
+		}
+		out := stripANSIForLandingTest(b.render())
+		if !strings.Contains(out, "r retry") {
+			t.Errorf("width %d: %q dropped %q", width, out, "r retry")
+		}
+	}
+}
+
+// TestStatusBarKeepsEveryHintWhenItFits guards against over-eager shedding.
+func TestStatusBarKeepsEveryHintWhenItFits(t *testing.T) {
+	b := statusBar{meta: "28 entries", hints: startHints, width: 100, styles: newStyles(true)}
+	out := stripANSIForLandingTest(b.render())
+	for _, hint := range strings.Split(startHints, " · ") {
+		if !strings.Contains(out, hint) {
+			t.Errorf("width 100: %q dropped %q, want the full list", out, hint)
+		}
+	}
+}
+
+// TestStatusBarNarrowerThanHelpStillRenders: below the width of "? help"
+// itself there is nothing to keep, and the existing ellipsis path takes over.
+// The bar must not exceed its width or panic.
+func TestStatusBarNarrowerThanHelpStillRenders(t *testing.T) {
+	for _, width := range []int{1, 4, 8} {
+		b := statusBar{host: "@tilde.team", hints: startHints, width: width, styles: newStyles(true)}
+		out := b.render()
+		if got := lipgloss.Width(out); got > width {
+			t.Errorf("width %d: rendered %d cells, want at most %d", width, got, width)
+		}
+	}
+}
+
+// readerBar mirrors what buildStatusBar produces for a landed reader.
+func readerBar(width int) statusBar {
+	return statusBar{
+		host: "@127.0.0.1", user: "alice", escTarget: "@127.0.0.1",
+		latency: "2ms", meta: "1.2 KB", scroll: "42%",
+		hints: "↑↓ scroll · r refresh · ? help",
+		width: width, styles: newStyles(true),
+	}
+}
+
+// crumbSurvives anchors on the left of the line. Do not use strings.Contains:
+// the address also appears inside "◂ esc: <target>", which false-positives.
+func crumbSurvives(out, crumb string) bool {
+	return strings.HasPrefix(strings.TrimLeft(out, " "), crumb)
+}
+
+func TestStatusBarKeepsTheAddressDownTo45(t *testing.T) {
+	for _, width := range []int{45, 60, 80, 100} {
+		out := stripANSIForLandingTest(readerBar(width).render())
+		if !crumbSurvives(out, "@127.0.0.1 / alice") {
+			t.Errorf("width %d: %q clipped the address", width, out)
+		}
+		if got := lipgloss.Width(out); got > width {
+			t.Errorf("width %d: rendered %d cells", width, got)
+		}
+	}
+}
+
+// TestStatusBarShedsStateInLadderOrder: a bar still showing a cheaper segment
+// must still show every dearer one.
+func TestStatusBarShedsStateInLadderOrder(t *testing.T) {
+	for width := 30; width <= 110; width++ {
+		out := stripANSIForLandingTest(readerBar(width).render())
+		if strings.Contains(out, "2ms") && !strings.Contains(out, "1.2 KB") {
+			t.Errorf("width %d: %q kept latency but dropped meta", width, out)
+		}
+		if strings.Contains(out, "1.2 KB") && !strings.Contains(out, "42%") {
+			t.Errorf("width %d: %q kept meta but dropped scroll", width, out)
+		}
+		// scroll is rung 3 and the esc destination is rung 4, so the
+		// destination is the dearer of the two: scroll surviving implies it
+		// survives, not the other way round.
+		if strings.Contains(out, "42%") && !strings.Contains(out, "◂ esc: @127.0.0.1") {
+			t.Errorf("width %d: %q kept scroll but dropped the esc destination", width, out)
+		}
+	}
+}
+
+// listBar mirrors what buildStatusBar produces for a paged user list. It is
+// the only state carrying `page`, which rung 3 sheds alongside `scroll`.
+func listBar(width int) statusBar {
+	return statusBar{
+		host: "@tilde.team", escTarget: "@tilde.team",
+		page: "page 2/4", latency: "2ms", meta: "12 users",
+		hints: "↵ go · / filter · r refresh · ? help",
+		width: width, styles: newStyles(true),
+	}
+}
+
+// linkedReaderBar mirrors a reader with a focused link: the longest hint list
+// the app produces, against a full complement of state.
+func linkedReaderBar(width int) statusBar {
+	return statusBar{
+		host: "@127.0.0.1", user: "alice", escTarget: "@127.0.0.1",
+		latency: "2ms", meta: "1.2 KB", scroll: "42%",
+		hints: "link 1/2 · URL · ↵ go · y copy · tab next · r refresh",
+		width: width, styles: newStyles(true),
+	}
+}
+
+// TestStatusBarLadderAcrossStates covers the two states the spec names that
+// readerBar does not reach. The list state matters most: it is the only one
+// with `page`, so without it half of rung 3 goes unexercised.
+func TestStatusBarLadderAcrossStates(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		bar   func(int) statusBar
+		crumb string
+	}{
+		{"list", listBar, "@tilde.team"},
+		{"reader with focused link", linkedReaderBar, "@127.0.0.1 / alice"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, width := range []int{45, 60, 80, 100} {
+				out := stripANSIForLandingTest(tt.bar(width).render())
+				if !crumbSurvives(out, tt.crumb) {
+					t.Errorf("width %d: %q clipped the address", width, out)
+				}
+				if got := lipgloss.Width(out); got > width {
+					t.Errorf("width %d: rendered %d cells", width, got)
+				}
+			}
+			// Ladder order, swept: a bar showing a cheaper segment must still
+			// show every dearer one.
+			for width := 30; width <= 110; width++ {
+				out := stripANSIForLandingTest(tt.bar(width).render())
+				if strings.Contains(out, "2ms") && !strings.Contains(out, "users") &&
+					!strings.Contains(out, "1.2 KB") {
+					t.Errorf("width %d: %q kept latency but dropped meta", width, out)
+				}
+			}
+		})
+	}
+}
+
+// TestStatusBarListShedsPageWithScroll pins the half of rung 3 that readerBar
+// cannot reach. `meta` is rung 2 and `page` is rung 3, so meta is the cheaper
+// of the two and goes first: meta surviving implies page survives, never the
+// reverse.
+func TestStatusBarListShedsPageWithScroll(t *testing.T) {
+	for width := 30; width <= 110; width++ {
+		out := stripANSIForLandingTest(listBar(width).render())
+		if strings.Contains(out, "12 users") && !strings.Contains(out, "page 2/4") {
+			t.Errorf("width %d: %q kept meta but dropped page, which is dearer", width, out)
+		}
+	}
+}
+
+func TestStatusBarEscDegradesToBareAffordance(t *testing.T) {
+	full := statusBar{escTarget: "trunc@127.0.0.1:2479", width: 80, styles: newStyles(true)}
+	if got := stripANSIForLandingTest(full.render()); !strings.Contains(got, "◂ esc: trunc@127.0.0.1:2479") {
+		t.Fatalf("precondition: %q, want the full destination", got)
+	}
+
+	short := full
+	short.escShort = true
+	got := stripANSIForLandingTest(short.render())
+	if !strings.Contains(got, "◂ esc") {
+		t.Errorf("%q dropped the esc affordance entirely", got)
+	}
+	if strings.Contains(got, "trunc@127.0.0.1:2479") {
+		t.Errorf("%q kept the destination, want it dropped", got)
 	}
 }

@@ -1363,6 +1363,12 @@ func (m appModel) statusBarModel() statusBar {
 		bar.hints = m.flash // a transient flash message overrides the resting hints
 		return bar
 	}
+	if m.help {
+		// The overlay is showing these same commands two lines up, laid out in
+		// columns that fit. State stays: the address, byte count, page, scroll
+		// percentage, latency and flags appear nowhere else.
+		bar.hints = ""
+	}
 	if m.requestFailure != nil && (m.state != stateList || !m.list.filtering()) {
 		priority := m.requestFailure.priorityStatus()
 		bar.hints = ""

@@ -140,8 +140,12 @@ Sleep 200ms
 Ctrl+U
 Type "nobody@127.0.0.1:1"
 Enter
-# "connection refused" wraps on 60 columns; the dial verb does not.
-Wait+Screen /connect:/
+# Matches lookit's own wording, not Go's. This guard used to wait for
+# /connect:/, a fragment of the raw dialer error; #82 replaced that text with
+# "connection refused by <addr>" and the tape kept waiting for a string the
+# app no longer prints, so every responses-*.tape failed here. The new message
+# is short enough to fit one line at 45 columns, so no wrap to work around.
+Wait+Screen /connection refused/
 Sleep 1500ms
 Screenshot out/tui-review/error.png
 Sleep 250ms

@@ -19,6 +19,7 @@ type statusBar struct {
 	host      string   // "@tilde.team" ("" only on the landing screen)
 	user      string   // "jonathan" ("" for a host directory)
 	escTarget string   // previous history node's target.Raw ("" at the root)
+	escShort  bool     // render "◂ esc" without its destination (state ladder rung 4)
 	flags     []string // honesty flags, e.g. {"auto-detected"}, {"partial (truncated)"}
 	page      string   // "page 2/4" when list has multiple pages; "" otherwise
 	scroll    string   // "42%" when reader is scrollable; "" otherwise
@@ -63,6 +64,94 @@ func (s priorityStatus) render(width int) string {
 	return ansi.Truncate(s.prefix, width-suffixWidth, "…") + s.suffix
 }
 
+// hintSeparator joins every hint list in the app. It is the only delimiter, so
+// splitting on it recovers the individual hints losslessly.
+const hintSeparator = " · "
+
+// helpHint is the pointer to the overlay. hintsWithin keeps it after the
+// first hint, then drops it if the two cannot both fit.
+const helpHint = "? help"
+
+// hintsFloor is the least hintsWithin will ever return without giving up: the
+// first hint, which is the one that matters. On a failed request that is
+// "r retry"; the state ladder may not shed below the width this needs.
+func (b statusBar) hintsFloor() string {
+	if b.hints == "" {
+		return ""
+	}
+	return strings.Split(b.hints, hintSeparator)[0]
+}
+
+// hintsWithin reduces the hint list to the whole hints that fit budget cells,
+// in three descending stages:
+//
+//  1. Drop hints from the end, keeping the first and helpHint. Lists are built
+//     most-useful-first, so the tail loses least.
+//  2. If the first and helpHint still do not fit together, keep the first.
+//     helpHint is the pointer to the overlay, but it is not an action; on a
+//     failed request the first hint is "r retry", which is the only thing worth
+//     doing on that screen. Issue #76 exists because the bar spent its width on
+//     less useful facts than the retry, and stage 2 is what stops this
+//     function from reintroducing that.
+//  3. Give up and return "". render falls back to its ordinary ellipsis
+//     truncation, so a very narrow bar is no worse than before.
+func (b statusBar) hintsWithin(budget int) string {
+	if b.hints == "" || lipgloss.Width(b.hints) <= budget {
+		return b.hints
+	}
+	if budget <= 0 {
+		return ""
+	}
+	parts := strings.Split(b.hints, hintSeparator)
+	for {
+		drop := -1
+		for i := len(parts) - 1; i > 0; i-- {
+			if parts[i] == helpHint {
+				continue
+			}
+			drop = i
+			break
+		}
+		if drop < 0 {
+			break
+		}
+		parts = append(parts[:drop], parts[drop+1:]...)
+		if joined := strings.Join(parts, hintSeparator); lipgloss.Width(joined) <= budget {
+			return joined
+		}
+	}
+	if lipgloss.Width(parts[0]) <= budget {
+		return parts[0]
+	}
+	return ""
+}
+
+// stateLadder returns the bar at each rung of the state-shedding order,
+// richest first. render walks the rungs twice: first for a line that fits
+// with its hints intact, then for one that still fits the address plus the
+// hints' irreducible floor.
+//
+// The order is value, cheapest concession first: how long the request took,
+// then how big it was, then where in it you are, then where esc goes, then
+// that esc goes anywhere at all. render already applied exactly this test to
+// latency alone; this generalises that line rather than adding a mechanism
+// beside it.
+func (b statusBar) stateLadder() []statusBar {
+	rungs := []statusBar{b}
+	next := b
+	for _, reduce := range []func(*statusBar){
+		func(s *statusBar) { s.latency = "" },
+		func(s *statusBar) { s.meta = "" },
+		func(s *statusBar) { s.page, s.scroll = "", "" },
+		func(s *statusBar) { s.escShort = true },
+		func(s *statusBar) { s.escTarget, s.escShort = "", false },
+	} {
+		reduce(&next)
+		rungs = append(rungs, next)
+	}
+	return rungs
+}
+
 func (b statusBar) render() string {
 	if b.width <= 0 {
 		return ""
@@ -74,11 +163,43 @@ func (b statusBar) render() string {
 
 	// Right group: "◂ esc: X · page N/M · 42% · latency · meta · hints", dim, truncated whole if needed.
 	allFlags, _ := b.flagsWithin(b.width)
-	right := b.rightParts(false)
-	candidate := b.rightParts(true)
-	if b.latency != "" && b.fullWidth(candidate, allFlags) <= b.width {
-		right = candidate
+	// Walk the state ladder. Default to rung 1 (latency dropped) when neither
+	// pass finds a fit — the all-or-nothing test this generalises. Descending
+	// further without buying a whole address would surrender state for nothing.
+	rungs := b.stateLadder()
+	// Default to the latency-dropped rung when neither pass finds a fit — the
+	// all-or-nothing test this generalises. Descending further without buying
+	// a whole address would surrender state for nothing. stateLadder always
+	// returns one rung per reducer plus the untouched bar, so index 1 exists;
+	// the max guards a future reducer list being emptied.
+	chosen, crumbFits := rungs[min(1, len(rungs)-1)], false
+	// Pass one: the richest rung at which the whole line fits with its hints
+	// intact. This is the original all-or-nothing latency test, widened to
+	// every state segment, and it keeps state from ever being bought with
+	// hints — the wrong currency, since latency is the cheapest thing here.
+	for _, rung := range rungs {
+		if b.fullWidth(rung.rightParts(), allFlags) <= b.width {
+			chosen, crumbFits = rung, true
+			break
+		}
 	}
+	// Pass two: nothing fits whole, so find the richest rung whose state
+	// coexists with the address and at least the hints' irreducible floor.
+	// Below, the hints shed down to that floor to pay for it.
+	if !crumbFits {
+		for _, rung := range rungs {
+			probe := rung
+			probe.hints = b.hintsFloor()
+			if b.fullWidth(probe.rightParts(), allFlags) <= b.width {
+				chosen, crumbFits = rung, true
+				break
+			}
+		}
+	}
+	// b is a value receiver, so this shapes only the line being rendered.
+	b.latency, b.meta, b.page = chosen.latency, chosen.meta, chosen.page
+	b.scroll, b.escTarget, b.escShort = chosen.scroll, chosen.escTarget, chosen.escShort
+	right := b.rightParts()
 	// Honesty flags take precedence over contextual hints. Reserve their room
 	// before truncating the right group so a new hint cannot hide a partial or
 	// auto-detected marker on a narrow terminal.
@@ -91,6 +212,27 @@ func (b statusBar) render() string {
 		rightBudget = 0
 	}
 	rightJoined := strings.Join(right, " · ")
+	// Shed whole hints before falling back to cutting a word. Their budget is
+	// whatever the chosen rung and the *whole* breadcrumb leave, so the hints
+	// give way to the address rather than the address to the hints — the
+	// defect review item 20 describes. rightParts appends hints last, so the
+	// state is everything ahead of them.
+	//
+	// crumbFits gates it, because hints should only give way when that actually
+	// buys a whole address. On a bar narrower than the breadcrumb itself no rung
+	// can deliver one, so the group is left alone and the breadcrumb collapses
+	// instead — what TestStatusBarDoesNotReserveSpaceForHiddenBreadcrumb has
+	// always asserted.
+	if over := b.fullWidth(right, allFlags) - b.width; crumbFits && b.hints != "" && over > 0 {
+		state := right[:len(right)-1]
+		if kept := b.hintsWithin(lipgloss.Width(b.hints) - over); kept != b.hints {
+			trimmed := append([]string{}, state...)
+			if kept != "" {
+				trimmed = append(trimmed, kept)
+			}
+			rightJoined = strings.Join(trimmed, " · ")
+		}
+	}
 	rightText := ""
 	if rightBudget > 0 {
 		rightText = ansi.Truncate(rightJoined, rightBudget, "…")
@@ -127,10 +269,20 @@ func (b statusBar) render() string {
 	return st.barFill.Width(b.width).MaxWidth(b.width).Render(line)
 }
 
-func (b statusBar) rightParts(includeLatency bool) []string {
+// rightParts lists the right group in render order. It reports what the bar's
+// fields say, and decides nothing: whether latency appears is settled upstream
+// by stateLadder blanking the field, not by a flag here.
+func (b statusBar) rightParts() []string {
 	var right []string
 	if b.escTarget != "" {
-		right = append(right, "◂ esc: "+b.escTarget)
+		// The affordance is what the user needs; the destination is a
+		// courtesy. Rung 4 of the state ladder keeps the first and drops the
+		// second, which buys 12-22 cells on a narrow bar.
+		if b.escShort {
+			right = append(right, "◂ esc")
+		} else {
+			right = append(right, "◂ esc: "+b.escTarget)
+		}
 	}
 	if b.page != "" {
 		right = append(right, b.page)
@@ -138,7 +290,7 @@ func (b statusBar) rightParts(includeLatency bool) []string {
 	if b.scroll != "" {
 		right = append(right, b.scroll)
 	}
-	if includeLatency && b.latency != "" {
+	if b.latency != "" {
 		right = append(right, b.latency)
 	}
 	if b.meta != "" {

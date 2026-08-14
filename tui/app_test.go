@@ -1161,6 +1161,22 @@ func TestQFromHelpReplaysAndQuits(t *testing.T) {
 	}
 }
 
+func TestQFromLinksPanelHelpReplaysAndQuits(t *testing.T) {
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}
+	m := linksPanelModel(t, stubFetch(t), []Link{link})
+	m.common.width, m.common.height = 120, 24
+	m.help = true
+	next, replay := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	m = next.(appModel)
+	if m.help || replay == nil {
+		t.Fatal("q should close Help over the links panel and return replay")
+	}
+	_, quit := m.Update(replay().(tea.KeyPressMsg))
+	if !isQuit(quit) {
+		t.Fatal("replayed q should quit from the links panel")
+	}
+}
+
 func TestQuestionMarkFromFocusedInputHelpDoesNotType(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.input.SetValue("alice@")
@@ -1346,12 +1362,12 @@ func TestLinksPanelHelpContext(t *testing.T) {
 		{
 			name:   "ambiguous",
 			link:   Link{Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true},
-			wantGo: "f go",
+			wantGo: "f",
 		},
 		{
 			name:   "definite",
 			link:   Link{Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target},
-			wantGo: "↵ go",
+			wantGo: "↵",
 		},
 	}
 	for _, tt := range tests {
@@ -1361,18 +1377,24 @@ func TestLinksPanelHelpContext(t *testing.T) {
 			(&m).updateKeymap()
 
 			view := ansi.Strip(m.helpView())
-			for _, want := range []string{"move", "filter", "back", "copy", "about lookit"} {
+			keys := strings.Join(helpKeys(m.helpLayout().bindings), ",")
+			for _, want := range []string{"move", "filter", "back", "copy", "about lookit", "quit"} {
 				if !strings.Contains(view, want) {
 					t.Fatalf("panel help missing %q:\n%s", want, view)
 				}
 			}
-			for _, unwanted := range []string{"target", "view source", "page", "top/bottom", "quit"} {
+			for _, unwanted := range []string{"target", "view source", "page", "top/bottom"} {
 				if strings.Contains(view, unwanted) {
 					t.Fatalf("panel help contains non-panel action %q:\n%s", unwanted, view)
 				}
 			}
-			if tt.wantGo != "" && !strings.Contains(view, tt.wantGo) {
-				t.Fatalf("panel help missing %q:\n%s", tt.wantGo, view)
+			if tt.wantGo != "" {
+				if !strings.Contains(view, "go") {
+					t.Fatalf("panel help missing go:\n%s", view)
+				}
+				if !strings.Contains(keys, tt.wantGo) {
+					t.Fatalf("panel help missing go key %q in %q:\n%s", tt.wantGo, keys, view)
+				}
 			}
 			if tt.noGo && strings.Contains(view, "go") {
 				t.Fatalf("copy-only panel help advertises go:\n%s", view)
@@ -2227,8 +2249,8 @@ func TestLinksPanelFilteringConsumesActionKeys(t *testing.T) {
 	setClipboard = func(s string) tea.Cmd { copied = s; return nil }
 	defer func() { setClipboard = tea.SetClipboard }()
 
-	target := hostTarget(t, "yfL@tilde.team")
-	for _, code := range []rune{'y', 'f', 'L'} {
+	target := hostTarget(t, "yfLq@tilde.team")
+	for _, code := range []rune{'y', 'f', 'L', 'q'} {
 		t.Run(string(code), func(t *testing.T) {
 			fetch, seen := fetchRecorder("Plan: hi\n")
 			m := linksPanelModel(t, fetch, []Link{{
@@ -2336,6 +2358,16 @@ func TestLinksPanelCtrlCQuits(t *testing.T) {
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if !isQuit(cmd) {
 		t.Fatal("Ctrl+C should quit while the links panel is open")
+	}
+}
+
+func TestLinksPanelQQuits(t *testing.T) {
+	link := Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}
+	m := linksPanelModel(t, stubFetch(t), []Link{link})
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	if !isQuit(cmd) {
+		t.Fatal("'q' should quit while the links panel is open")
 	}
 }
 

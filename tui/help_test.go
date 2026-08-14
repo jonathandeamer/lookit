@@ -143,9 +143,9 @@ func TestHelpLayoutsByContext(t *testing.T) {
 		"reader no links":  "↑/↓,esc,i,h,←/→,v,r,y,b,a,q",
 		"reader with link": "↑/↓,↵,esc,i,h,←/→,tab,shift+tab,v,r,y,b,L,a,q",
 		"raw view":         "↑/↓,esc,i,h,←/→,v,y,b,a,q",
-		"links URL":        "↑/↓,esc,y,/,a",
-		"links ambiguous":  "↑/↓,esc,f,y,/,a",
-		"links definite":   "↑/↓,esc,↵,y,/,a",
+		"links URL":        "↑/↓,esc,y,/,a,q",
+		"links ambiguous":  "↑/↓,esc,f,y,/,a,q",
+		"links definite":   "↑/↓,esc,↵,y,/,a,q",
 	}
 	for name, m := range helpContextModels(t) {
 		t.Run(name, func(t *testing.T) {
@@ -266,9 +266,9 @@ func TestLinksPanelHelpCandidatesStaySelectionAwareAndIncludeAbout(t *testing.T)
 		link Link
 		want string
 	}{
-		{"URL", Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}, "↑/↓,esc,y,/,a"},
-		{"ambiguous", Link{Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true}, "↑/↓,esc,f,y,/,a"},
-		{"definite", Link{Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target}, "↑/↓,esc,↵,y,/,a"},
+		{"URL", Link{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com"}, "↑/↓,esc,y,/,a,q"},
+		{"ambiguous", Link{Kind: LinkFinger, Action: ActionCopy, Raw: target.Raw, Target: target, Ambiguous: true}, "↑/↓,esc,f,y,/,a,q"},
+		{"definite", Link{Kind: LinkFinger, Action: ActionDrill, Raw: target.Raw, Target: target}, "↑/↓,esc,↵,y,/,a,q"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -870,6 +870,8 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 				return true, m, tea.Batch(setClipboard(sel.Raw), flash)
 			}
 			return true, m, nil
+		case key.Matches(msg, m.keys.Quit):
+			return true, m, tea.Quit
 		}
 		// Delegate remaining keys to the panel list.
 		var cmd tea.Cmd

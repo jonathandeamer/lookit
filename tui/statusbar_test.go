@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
@@ -45,6 +46,169 @@ func TestStatusBarStartShowsFocusedInputHint(t *testing.T) {
 	out := m.startBar(80, newStyles(true)).render()
 	if !strings.Contains(out, "type a target") {
 		t.Fatalf("start bar %q missing focused-input hint", out)
+	}
+}
+
+// startFilterModel drives a real startpage filter through appModel, pumping the
+// list.FilterMatchesMsg bubbles computes asynchronously so the model has settled
+// on the query before the bar is read.
+func startFilterModel(t *testing.T, filter string, apply bool) appModel {
+	t.Helper()
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	m.blurInput()
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = step.(appModel)
+	for _, r := range filter {
+		var cmd tea.Cmd
+		step, cmd = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = step.(appModel)
+		if msg, ok := findFilterMatches(cmd); ok {
+			step, _ = m.Update(msg)
+			m = step.(appModel)
+		}
+	}
+	if apply {
+		step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		m = step.(appModel)
+	}
+	return m
+}
+
+// TestStartBarNoMatchOffersOnlyTheKeyThatWorks is issue #116. On a zero-match
+// filter there is no row to go to and none to bookmark, so "↵ go" and
+// "b bookmark" are no-ops. Enter is a no-op too in the useful sense: bubbles
+// refuses to apply a filter that matched nothing and drops back to the
+// unfiltered list, which is what Esc does, so "enter apply" would be a second
+// wrong promise. Esc is the only key on that screen worth naming.
+//
+// The applied-filter variant of this state is unreachable: pressing Enter on a
+// zero-match filter leaves FilterState unfiltered, never FilterApplied.
+func TestStartBarNoMatchOffersOnlyTheKeyThatWorks(t *testing.T) {
+	m := startFilterModel(t, "zzzzzz", false)
+	if _, ok := m.start.selected(); ok {
+		t.Fatal("this test needs a filter that selects nothing")
+	}
+	if got := len(m.start.list.VisibleItems()); got != 0 {
+		t.Fatalf("filter matched %d rows, want zero for this test", got)
+	}
+	if got, want := m.startBar(80, newStyles(true)).hints, "esc cancel"; got != want {
+		t.Errorf("no-match start bar hints = %q, want %q", got, want)
+	}
+}
+
+// TestStartBarNamesTheFilterStates: while a filter is open, "/ filter" is the
+// mode you are already in. Use the words the links panel already established.
+func TestStartBarNamesTheFilterStates(t *testing.T) {
+	t.Run("empty filter", func(t *testing.T) {
+		m := startFilterModel(t, "", false)
+		if got, want := m.startBar(80, newStyles(true)).hints, "type to filter · esc cancel"; got != want {
+			t.Errorf("start bar hints = %q, want %q", got, want)
+		}
+	})
+	t.Run("filter being typed", func(t *testing.T) {
+		m := startFilterModel(t, "plan", false)
+		if got, want := m.startBar(80, newStyles(true)).hints, "enter apply · esc cancel"; got != want {
+			t.Errorf("start bar hints = %q, want %q", got, want)
+		}
+	})
+	t.Run("filter applied offers to clear it", func(t *testing.T) {
+		m := startFilterModel(t, "plan", true)
+		if _, ok := m.start.selected(); !ok {
+			t.Fatal("this test needs a filter that selects a row")
+		}
+		hints := m.startBar(80, newStyles(true)).hints
+		if !strings.Contains(hints, "esc clear filter") {
+			t.Errorf("applied-filter start bar hints = %q, want an esc clear filter hint", hints)
+		}
+		if strings.Contains(hints, "/ filter") {
+			t.Errorf("applied-filter start bar hints = %q, must not offer / filter again", hints)
+		}
+	})
+}
+
+// listFilterModel lands a user list and opens its filter, pumping the
+// asynchronous list.FilterMatchesMsg so the model has settled on the query.
+func listFilterModel(t *testing.T, filter string) appModel {
+	t.Helper()
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	users, _ := ParseUsers([]byte(hostListBody()), "")
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(hostListBody())}, state: stateList}}
+	m.pos, m.state, m.listReady, m.inputFocused = 0, stateList, true, false
+	m.list = newList(m.common, host, users)
+	m.list.setSize(m.common.width, m.common.bodyHeight())
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = step.(appModel)
+	for _, r := range filter {
+		var cmd tea.Cmd
+		step, cmd = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = step.(appModel)
+		if msg, ok := findFilterMatches(cmd); ok {
+			step, _ = m.Update(msg)
+			m = step.(appModel)
+		}
+	}
+	if !m.list.filtering() {
+		t.Fatal("expected the user list to be filtering")
+	}
+	return m
+}
+
+// TestListBarNamesTheFilterStates: the user list showed its resting hints while
+// `/` was open, offering "/ filter" as a way into the mode it was already in.
+func TestListBarNamesTheFilterStates(t *testing.T) {
+	t.Run("empty filter", func(t *testing.T) {
+		m := listFilterModel(t, "")
+		if got, want := m.buildStatusBar().hints, "type to filter · esc cancel"; got != want {
+			t.Errorf("list bar hints = %q, want %q", got, want)
+		}
+	})
+	t.Run("filter being typed", func(t *testing.T) {
+		m := listFilterModel(t, "a")
+		if got := len(m.list.list.VisibleItems()); got == 0 {
+			t.Fatal("this test needs a filter that matches at least one user")
+		}
+		if got, want := m.buildStatusBar().hints, "enter apply · esc cancel"; got != want {
+			t.Errorf("list bar hints = %q, want %q", got, want)
+		}
+	})
+	t.Run("no match", func(t *testing.T) {
+		m := listFilterModel(t, "zzzzzz")
+		if got := len(m.list.list.VisibleItems()); got != 0 {
+			t.Fatalf("filter matched %d users, want zero for this test", got)
+		}
+		if got, want := m.buildStatusBar().hints, "esc cancel"; got != want {
+			t.Errorf("list bar hints = %q, want %q", got, want)
+		}
+	})
+	t.Run("drilled in: no back breadcrumb", func(t *testing.T) {
+		m := listFilterModel(t, "a")
+		prev := histNode{entry: Entry{Target: hostTarget(t, "@origin.example")}, state: stateReader}
+		m.history = append([]histNode{prev}, m.history...)
+		m.pos = 1
+		if got := m.buildStatusBar().escTarget; got != "" {
+			t.Errorf("filtering list escTarget = %q, want empty: Esc cancels the filter, it does not walk history", got)
+		}
+	})
+}
+
+// TestStartBarRestingHintsAreUnchanged pins the unfiltered bar: this fix must
+// not disturb the screen users see at launch.
+func TestStartBarRestingHintsAreUnchanged(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	m.blurInput()
+	if _, ok := m.start.selected(); !ok {
+		t.Fatal("the unfiltered startpage must select a row")
+	}
+	want := "↵ go · b bookmark · / filter · i target · ? help"
+	if got := m.startBar(80, newStyles(true)).hints; got != want {
+		t.Errorf("resting start bar hints = %q, want %q", got, want)
 	}
 }
 

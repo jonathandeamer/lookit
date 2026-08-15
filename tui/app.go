@@ -1373,6 +1373,26 @@ func (m *appModel) updateKeymap() {
 	}
 }
 
+// filterModeHints names what the keys do while a bubbles filter is open, for
+// any of the three lists that have one. The links panel established this
+// vocabulary; the startpage and user list use the same words rather than
+// showing resting hints ("/ filter" while already filtering, "↵ go" with
+// nothing to go to) that are not true mid-filter.
+//
+// matches gates the "enter apply" promise. Bubbles refuses to apply a filter
+// that matched nothing — Enter drops back to the unfiltered list, exactly what
+// Esc does — so on a zero-match query Esc is the only key worth naming.
+func filterModeHints(value string, matches int) string {
+	switch {
+	case value == "":
+		return "type to filter · esc cancel"
+	case matches == 0:
+		return "esc cancel"
+	default:
+		return "enter apply · esc cancel"
+	}
+}
+
 // joinHints assembles the bar's hint string. "esc back" is included only when
 // there is no "◂ esc: <target>" breadcrumb segment (escTarget == ""): when that
 // segment is present it already shows esc-goes-back (and where to), so repeating
@@ -1460,6 +1480,13 @@ func (m appModel) buildStatusBar() statusBar {
 	}
 
 	if m.showingLinks {
+		// Esc in this overlay acts on the panel — closing it, or clearing its
+		// filter — and returns to the same reader at the same history position.
+		// It does not pop history, so don't promise a back-to-previous-target
+		// breadcrumb (the same rule view-source follows above). Clearing it here
+		// rather than per-case also keeps joinHints' invariant by hand: every
+		// branch below names esc exactly once.
+		bar.escTarget = ""
 		var parts []string
 		switch {
 		case m.linksPanel.filtering() && m.linksPanel.filterValue() == "":
@@ -1483,10 +1510,14 @@ func (m appModel) buildStatusBar() statusBar {
 	switch node.state {
 	case stateList:
 		bar.meta = countLabel(node.listUsers, "user", "users")
-		parts := []string{"↵ go", "/ filter"}
-		if !m.list.filtering() {
-			parts = append(parts, m.refreshHint())
+		if m.list.filtering() {
+			// Esc cancels the filter here; it does not walk history, so the
+			// breadcrumb would name a step this key won't take.
+			bar.escTarget = ""
+			bar.hints = filterModeHints(m.list.list.FilterValue(), len(m.list.list.VisibleItems()))
+			return bar
 		}
+		parts := []string{"↵ go", "/ filter", m.refreshHint()}
 		if node.entry.Err != nil {
 			bar.flags = append(bar.flags, "partial (error)")
 		} else if node.entry.Meta.Truncated {
@@ -1589,7 +1620,23 @@ func (m appModel) startBar(width int, st styles) statusBar {
 	if n > 0 {
 		bar.meta = countLabel(n, "entry", "entries")
 	}
-	bar.hints = fmt.Sprintf("↵ go · b %s · / filter · i target · ? help", m.startBookmarkAction())
+	if m.start.filtering() {
+		bar.hints = filterModeHints(m.start.list.FilterValue(), len(m.start.list.VisibleItems()))
+		return bar
+	}
+	// "↵ go" and "b …" act on the selected row, so they are offered only when
+	// there is one. A filter that matches nothing leaves none.
+	var parts []string
+	if _, ok := m.start.selected(); ok {
+		parts = append(parts, "↵ go", "b "+m.startBookmarkAction())
+	}
+	if m.start.filterApplied() {
+		parts = append(parts, "esc clear filter")
+	} else {
+		parts = append(parts, "/ filter")
+	}
+	parts = append(parts, "i target", "? help")
+	bar.hints = strings.Join(parts, " · ")
 	return bar
 }
 

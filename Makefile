@@ -27,7 +27,7 @@ REVIEW_RESPONSES_TAPES := \
 
 REVIEW_FINGERD := out/fingerd
 
-.PHONY: build test race vet fmt fmt-check lint vuln check hooks tidy clean \
+.PHONY: build test race vet fmt fmt-check lint vuln check hooks hooks-check tidy clean \
 	notices release-check release-snapshot release review-tui review-fingerd \
 	review-sheet
 
@@ -61,6 +61,22 @@ vuln: ## scan dependencies for known vulnerabilities
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 check: vet fmt-check lint race ## run the full CI gate set
+	@$(MAKE) --no-print-directory hooks-check
+
+# Runs last in `check` so the notice is the final thing on screen rather than
+# scrolling away behind the race tests. Never fails: CI has no hooks installed
+# and shouldn't, and a first-time contributor shouldn't be blocked by config.
+# The real backstop is the pr-title check in CI, which catches a bad subject
+# even when nobody ever ran `make hooks`.
+hooks-check: ## warn (never fail) if the commit-msg hook isn't installed
+	@[ -n "$$CI" ] && exit 0; \
+	if [ "$$(git config core.hooksPath)" != ".githooks" ]; then \
+		echo; \
+		echo "  ! The Conventional Commits hook is not installed in this clone."; \
+		echo "    Commit subjects won't be checked until you run:  make hooks"; \
+		echo; \
+	fi; \
+	exit 0
 
 review-fingerd: ## build the loopback finger server used by responses tapes
 	@mkdir -p $(dir $(REVIEW_FINGERD))

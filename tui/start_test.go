@@ -1696,17 +1696,17 @@ func TestStructuralRowsDoNotMatchFilters(t *testing.T) {
 	}
 }
 
-// Counts describe displayed listings after bookmark/catalog suppression. A
-// structural parent is navigation structure, not another listing, so it must
-// not raise either total.
-func TestCountsIgnoreStructuralRows(t *testing.T) {
+// Counts describe what each section is showing. A structural parent is still a
+// row on screen — selectable, and the only thing standing where its group's
+// listing would be — so it counts where it is drawn. Headers do not.
+func TestCountsIncludeStructuralRows(t *testing.T) {
 	items := []list.Item{
 		startItem{header: "SERVICES", section: sectionServices},
 		startItem{entry: startEntry{target: "@happynetbox.com", structural: true}, section: sectionServices},
 		startItem{entry: startEntry{target: "bot@happynetbox.com", child: true}, section: sectionServices},
 	}
-	if got := startCounts(items); got.services != 1 {
-		t.Fatalf("services = %d, want 1 — the structural copy is not a listing", got.services)
+	if got := startCounts(items); got.services != 2 {
+		t.Fatalf("services = %d, want 2 — the structural parent is on screen in SERVICES", got.services)
 	}
 }
 

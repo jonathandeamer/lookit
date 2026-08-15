@@ -40,12 +40,22 @@ func (i startItem) selectable() bool {
 }
 
 // countsAsListing reports whether this row should count toward the overview
-// and status-bar totals: a selectable row that is not a structural parent
-// copy. startCounts and appModel.startBar each tally rows independently, and
+// and status-bar totals. The rule is what each section is showing: every
+// selectable row counts in the section that drew it, headers and spacers count
+// nowhere. startCounts and appModel.startBar each tally rows independently, and
 // both must call this rather than re-encode the rule, or the overview and the
 // status bar can silently disagree on screen.
+//
+// A structural parent counts, though it is a second copy of a target listed
+// elsewhere. Excluding it made the count contradict the section it described:
+// pinning a service host that keeps its children leaves the host heading
+// SERVICES and dropped the services count anyway (#123). The price is that a
+// host on screen twice is counted twice — YOURS and CATALOG can overlap by a
+// pinned group parent, and @happynetbox.com is both a community and the header
+// of its services group. A filter is exempt for free: structural rows return ""
+// from FilterValue, so a flattened view has already dropped them.
 func (i startItem) countsAsListing() bool {
-	return i.selectable() && !i.entry.structural
+	return i.selectable()
 }
 
 // FilterValue drives "/". Non-entry rows return "" so they drop out while

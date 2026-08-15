@@ -666,6 +666,14 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case list.FilterMatchesMsg:
+		// Bubbles does not identify which query produced a filter result. Once
+		// the active list has accepted or reset its filter, any queued result is
+		// stale and must not replace the synchronously settled selection.
+		if !m.helpFilterActive() {
+			return m, nil
+		}
+
 	case sessionCanceledMsg:
 		_ = m.cancelRequest()
 		return m, tea.Quit

@@ -52,6 +52,10 @@ account, `b` wrote a target the user never highlighted into the bookmarks file).
 the synchronous path — reproducing the two cases `bubbles` special-cases (an
 empty query and a zero-match query both clear the filter). The startpage wraps
 it as `startModel.acceptFilter` so the header-skipping cursor rule runs too.
+The filter commands already queued by earlier keystrokes still run, and their
+`list.FilterMatchesMsg` carries no query or generation identity, so `Update`
+delegates those messages only while the active list remains in `Filtering`;
+after accept or reset every remaining result is stale and is dropped.
 **Don't route the accept key back to the list**: the selection it settles on is
 what the next keystroke acts on, and a fetch or a bookmark write is not
 something to get from a stale set.

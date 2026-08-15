@@ -235,6 +235,57 @@ func TestEnterAfterFilterDrillsTheVisibleSelection(t *testing.T) {
 	}
 }
 
+// TestLateFilterResultCannotReplaceAcceptedSelection covers the other half of
+// the race: filter commands have no ordering guarantee, so an older prefix
+// result can arrive after acceptFilter has synchronously installed the final
+// query. Once accepted, that queued result must not replace the selection the
+// next Enter acts on.
+func TestLateFilterResultCannotReplaceAcceptedSelection(t *testing.T) {
+	fetch, seen := fetchTargetRecorder("Plan: hi\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	body := "Users currently online:\n\nax ab slow\n"
+	users, ok := ParseUsers([]byte(body), "")
+	if !ok || len(users) != 3 {
+		t.Fatalf("ParseUsers returned %d users (ok=%v), want 3", len(users), ok)
+	}
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(body)}, state: stateList, listUsers: len(users)}}
+	m.pos, m.state, m.listReady, m.inputFocused = 0, stateList, true, false
+	m.list = newList(m.common, host, users)
+	m.list.setSize(m.common.width, m.common.bodyHeight())
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = step.(appModel)
+	step, prefixCmd := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	m = step.(appModel)
+	prefixResult, ok := findFilterMatches(prefixCmd)
+	if !ok {
+		t.Fatal("typing the prefix produced no list.FilterMatchesMsg")
+	}
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+
+	// Bubble Tea commands run concurrently: deliver the older prefix result
+	// after acceptance, then the next key exactly as the runtime may.
+	step, _ = m.Update(prefixResult)
+	m = step.(appModel)
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("opening the accepted selection should return a fetch command")
+	}
+	runCmds(cmd)
+
+	if len(*seen) != 1 {
+		t.Fatalf("fetched %d targets, want 1", len(*seen))
+	}
+	if got := (*seen)[0].Raw; got != "ab@tilde.team" {
+		t.Fatalf("drilled %q, want ab@tilde.team: a late prefix result must not replace the accepted selection", got)
+	}
+}
+
 // TestBookmarkAfterFilterPinsTheVisibleSelection is the startpage half of
 // issue #129, and the more serious one: the same apply-then-act race reaches
 // `b`, so a stale selection is not merely fingered but written into the user's

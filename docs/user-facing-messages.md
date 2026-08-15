@@ -83,6 +83,7 @@ error. `main.go` never renders a response body.
 | --- | --- | --- |
 | `user@host or @host` | `tui/app.go` (`targetPlaceholder`) | Greyed-out hint in the empty target input. Teaches the two shapes and names no destination. |
 | `target: ` | `tui/app.go` (`newAppWithContext`) | Target input prompt. |
+| `filter: ` | `tui/list.go` (`filterPrompt`, `applyListStyles`) | Filter prompt after `/` on the startpage, user list, and links panel. |
 | `No response yet.` | `tui/reader.go` (`newReader`) | The reader's empty viewport. Not shown at launch (launch is the startpage). Reappears if the reader is shown with no current entry. |
 | `error: <parse error>` | `tui/app.go` (`submit`) | Persistent flash after an invalid input submit. Not cleared by the flash timer. |
 | `error: cannot bookmark: <reason>` | `tui/app.go` (`toggleBookmark`) | Flash when the current target cannot be written as a bookmark record. |
@@ -211,14 +212,11 @@ runtime aliases.
 
 ## Inherited Component Text
 
-The TUI uses `charm.land/bubbles/v2/list`. Most built-in list chrome is hidden,
-but the filter prompt is visible while filtering. These strings are not
-authored in this repo, so making them configurable would either require
-setting component fields after construction or wrapping the component.
+The TUI uses `charm.land/bubbles/v2/list`. Most built-in list chrome is hidden
+(title, status bar). These leftover strings are not authored in this repo.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `Filter: ` | `charm.land/bubbles/v2/list` (`FilterInput.Prompt`) | Filter input prompt shown after pressing `/` on the startpage, a user list, or the links panel. Lookit styles the prompt but does not yet replace this string (#118). |
 | `Nothing matched` | `charm.land/bubbles/v2/list` | Built-in filter status text. Status bar is hidden in lookit's lists today, so this is not normally visible unless that setting changes. |
 | `No items` / `No items.` | `charm.land/bubbles/v2/list` | Built-in empty states. The startpage overrides the noun to `entry`/`entries` (`No entries.`). User lists are only opened after parsing at least one user. |
 | `0 items`, `1 item`, `<n> items`, `<n> filtered` | `charm.land/bubbles/v2/list` | Built-in list status text. Status bar is hidden in lookit's lists today. |

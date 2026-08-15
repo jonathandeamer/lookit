@@ -135,6 +135,49 @@ func linksPanelModel(t *testing.T, fetch FetchFunc, links []Link) appModel {
 	return m
 }
 
+// drilledLinksPanelModel is linksPanelModel with a previous history node, so
+// buildStatusBar has a target it could name in a back breadcrumb. That is the
+// state issue #115 is about: Esc in the links panel closes the overlay and does
+// not pop history, so the breadcrumb must not appear.
+func drilledLinksPanelModel(t *testing.T, links []Link) appModel {
+	t.Helper()
+	m := linksPanelModel(t, stubFetch(t), links)
+	prev := histNode{entry: Entry{Target: hostTarget(t, "@origin.example")}, state: stateList}
+	m.history = append([]histNode{prev}, m.history...)
+	m.pos = 1
+	return m
+}
+
+func TestLinksPanelStatusHasNoBackBreadcrumb(t *testing.T) {
+	link := Link{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}}
+	// Every links-panel filter state: in all of them Esc acts on the overlay,
+	// never on history, so none may paint a back-to-previous-target breadcrumb.
+	for _, tt := range []struct {
+		name string
+		keys []tea.KeyPressMsg
+	}{
+		{"resting", nil},
+		{"empty filter", []tea.KeyPressMsg{{Code: '/'}}},
+		{"non-empty filter", []tea.KeyPressMsg{{Code: '/'}, {Code: 'a', Text: "a"}}},
+		{"applied filter", []tea.KeyPressMsg{{Code: '/'}, {Code: 'a', Text: "a"}, {Code: tea.KeyEnter}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := drilledLinksPanelModel(t, []Link{link})
+			for _, msg := range tt.keys {
+				next, _ := m.Update(msg)
+				m = next.(appModel)
+			}
+			bar := m.buildStatusBar()
+			if bar.escTarget != "" {
+				t.Errorf("links panel status escTarget = %q, want empty: Esc acts on the panel, it does not walk history", bar.escTarget)
+			}
+			if got := strings.Count(bar.hints, "esc"); got != 1 {
+				t.Errorf("links panel hints = %q, want exactly one esc mention, got %d", bar.hints, got)
+			}
+		})
+	}
+}
+
 func TestLinksPanelStatus(t *testing.T) {
 	link := Link{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}}
 	t.Run("unfiltered", func(t *testing.T) {
@@ -208,6 +251,25 @@ func racedFilterList(t *testing.T, fetch FetchFunc, filter string) appModel {
 	for _, r := range filter {
 		step, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		m = step.(appModel) // the FilterMatchesMsg cmd is deliberately discarded
+	}
+	return m
+}
+
+// pumpKeys delivers key presses and feeds the list.FilterMatchesMsg they
+// produce back through appModel.Update, which is what the Bubble Tea runtime
+// does — and Update is where the message is routed to a sub-model, so this is
+// the delivery a routing mistake shows up in. (Everything else those keys
+// produce is left alone: the filter input's cursor blink is an endless tick
+// chain with nothing to assert on.)
+func pumpKeys(t *testing.T, m appModel, keys ...tea.KeyPressMsg) appModel {
+	t.Helper()
+	for _, key := range keys {
+		step, cmd := m.Update(key)
+		m = step.(appModel)
+		if msg, ok := findFilterMatches(cmd); ok {
+			step, _ = m.Update(msg)
+			m = step.(appModel)
+		}
 	}
 	return m
 }
@@ -372,6 +434,36 @@ func TestLinksPanelAcceptFilterSelectsTheMatch(t *testing.T) {
 	}
 	if sel.Raw != "https://example.com/zebra" {
 		t.Errorf("selected %q, want the filtered match https://example.com/zebra", sel.Raw)
+	}
+}
+
+// TestLinksPanelFilterNarrowsWhileTyping: the panel accepted a filter query and
+// showed the filter prompt, but never narrowed — appModel.Update routes
+// messages by m.state, and with the panel open over a profile that state is
+// stateReader, so list.FilterMatchesMsg went to the reader and the panel's
+// match set was never populated.
+func TestLinksPanelFilterNarrowsWhileTyping(t *testing.T) {
+	links := []Link{
+		{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}},
+		{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com/zebra"},
+	}
+	m := linksPanelModel(t, stubFetch(t), links)
+	m = pumpKeys(t, m,
+		tea.KeyPressMsg{Code: '/'},
+		tea.KeyPressMsg{Code: 'z', Text: "z"},
+		tea.KeyPressMsg{Code: 'e', Text: "e"},
+		tea.KeyPressMsg{Code: 'b', Text: "b"},
+	)
+
+	if got := m.linksPanel.filterValue(); got != "zeb" {
+		t.Fatalf("filter value = %q, want %q", got, "zeb")
+	}
+	if got := len(m.linksPanel.list.VisibleItems()); got != 1 {
+		t.Errorf("panel shows %d links while filtering on %q, want 1", got, "zeb")
+	}
+	sel, ok := m.linksPanel.selected()
+	if !ok || sel.Raw != "https://example.com/zebra" {
+		t.Errorf("selected (%v, %q), want the matching link", ok, sel.Raw)
 	}
 }
 
@@ -4124,7 +4216,14 @@ func TestFilteringKeepsCanonicalServiceParents(t *testing.T) {
 	}
 }
 
-func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
+// The overview counts what each section is showing, not unique listings. A
+// structural parent is a row on screen in SERVICES, so it counts there — which
+// is why pinning a service host that keeps its children does not move the
+// services count, and why a host on screen twice (@happynetbox.com always, a
+// pinned group parent while pinned) is counted twice in the totals. Counting
+// unique listings instead made the SERVICES count contradict the section it
+// described: the header stayed on screen and the number fell (#123).
+func TestOverviewAndStatusCountsFollowRowsOnScreen(t *testing.T) {
 	tests := []struct {
 		name   string
 		seed   string
@@ -4132,10 +4231,14 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 		want   startOverviewCounts
 		total  int
 	}{
-		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 22}, total: 28},
-		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 21}, total: 28},
-		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 21}, total: 28},
-		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 22}, total: 29},
+		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 23}, total: 29},
+		// Pinning a child really does remove a row from SERVICES, so this
+		// count honestly falls; pinning the parent does not, so it holds.
+		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 22}, total: 29},
+		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 23}, total: 30},
+		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 23}, total: 30},
+		// A filter flattens the view and drops structural rows with it, so no
+		// host is counted twice under one.
 		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},
 		{name: "filtered pinned parent", seed: "@happynetbox.com\n", filter: "happynetbox.com", want: startOverviewCounts{bookmarks: 1, services: 5}, total: 6},
 	}

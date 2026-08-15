@@ -277,7 +277,7 @@ func loadBookmarks() (bookmarkFile, string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			data = appendBookmarkLine(nil, aboutFingerAuthor)
+			data = appendBookmarkLine(nil, aboutFingerAuthor, time.Time{})
 			return initializeBookmarkData(path, data), path
 		}
 		return bookmarkFile{problems: []parseProblem{{reason: "cannot read: " + err.Error()}}}, path
@@ -301,12 +301,20 @@ func initializeBookmarkData(path string, data []byte) bookmarkFile {
 }
 
 // appendBookmarkLine adds one record, leaving every existing byte untouched.
-func appendBookmarkLine(data []byte, target string) []byte {
+// A non-zero visited writes the date with the record, so bookmarking the page
+// you are reading does not produce a row that claims never to have been
+// visited. A zero visited writes the target alone: the caller could not
+// establish a visit, and a blank note is the honest reading of that.
+func appendBookmarkLine(data []byte, target string, visited time.Time) []byte {
 	out := string(data)
 	if out != "" && !strings.HasSuffix(out, "\n") {
 		out += "\n"
 	}
-	return []byte(out + target + "\n")
+	record := target
+	if !visited.IsZero() {
+		record += " " + visited.UTC().Truncate(time.Second).Format(time.RFC3339)
+	}
+	return []byte(out + record + "\n")
 }
 
 // deleteBookmarkLine drops every valid bookmark record for target, leaving

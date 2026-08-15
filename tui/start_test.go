@@ -2272,11 +2272,13 @@ func TestStartRowNoteShowsTheVisitDate(t *testing.T) {
 	visited := time.Date(2026, 8, 11, 16, 0, 0, 0, time.UTC)
 	pin := startEntry{target: "@plan.cat", source: sourceBookmark, bookmarked: true, visited: visited}
 
-	if got := startRowNote(pin, false, false); got != "3 days ago" {
-		t.Errorf("unselected pinned row = %q, want the date", got)
+	// The value is prefixed: this column holds prose for catalog rows, so a
+	// bare "3 days ago" would change register with nothing to announce it.
+	if got := startRowNote(pin, false, false); got != "visited 3 days ago" {
+		t.Errorf("unselected pinned row = %q, want the labelled date", got)
 	}
-	if got := startRowNote(pin, true, false); got != "3 days ago" {
-		t.Errorf("selected pinned row = %q, want the date (the cursor does not lift the row's text)", got)
+	if got := startRowNote(pin, true, false); got != "visited 3 days ago" {
+		t.Errorf("selected pinned row = %q, want the labelled date (the cursor does not lift the row's text)", got)
 	}
 
 	unknown := startEntry{target: "@new.example", source: sourceBookmark, bookmarked: true}

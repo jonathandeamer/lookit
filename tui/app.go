@@ -338,6 +338,22 @@ func (m appModel) bookmarkTarget() (string, bool) {
 	return m.history[m.pos].entry.Target.Raw, true
 }
 
+// bookmarkVisit reports the visit a new bookmark should record. Bookmarking
+// from a landed screen stamps now: that response is on screen, so the visit is
+// a fact, and the row would otherwise read as unvisited until the next fetch.
+// The startpage stamps nothing — there the target is a row the cursor happens
+// to rest on, never a place we went. An errored landing stamps nothing either,
+// matching stampVisit: a dial failure is not a visit.
+func (m appModel) bookmarkVisit() time.Time {
+	if m.state == stateStart || m.pos < 0 || m.pos >= len(m.history) {
+		return time.Time{}
+	}
+	if m.history[m.pos].entry.Err != nil {
+		return time.Time{}
+	}
+	return nowFn()
+}
+
 // toggleBookmark adds or removes the current target, then reloads the startpage
 // so it reflects the file. Bookmark records contain only the target: the
 // protocol cannot establish a kind, and routing remains response-derived.
@@ -379,7 +395,7 @@ func (m *appModel) toggleBookmark() tea.Cmd {
 		updated = deleteBookmarkLine(data, target)
 		msg = "✓ removed " + target
 	} else {
-		updated = appendBookmarkLine(data, target)
+		updated = appendBookmarkLine(data, target, m.bookmarkVisit())
 		msg = "✓ bookmarked " + target
 	}
 	if err := saveBookmarkData(path, updated); err != nil {

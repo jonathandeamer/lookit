@@ -41,7 +41,7 @@ community @zaibatsu.circumlunar.space Sundogs seeking asylum from the commercial
 
 service @bbs.airandwave.net Over two dozen services, from news to sudoku
 service quake@bbs.airandwave.net Earthquakes in the past day
-service dict@bbs.airandwave.net Dictionary lookup
+service dict@bbs.airandwave.net Look up a word
 service urban@bbs.airandwave.net Slang, internet terms and memes
 service wordsearch:today@bbs.airandwave.net Daily word search puzzle
 service sudoku:easy@bbs.airandwave.net A new, easy sudoku each day

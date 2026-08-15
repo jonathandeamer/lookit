@@ -10,6 +10,11 @@
 # still that showed the previous screen mid-keystroke).
 
 Hide
+# Let the shell finish starting before typing at it — a Type that lands before
+# ttyd's cold prompt is dropped, and here that would silently skip the reset
+# below or the fingerd build. See the same note in tour.tape.
+Sleep 2s
+
 # Same throwaway copy the chrome tour uses, so both families start from the
 # identical bookmarks state and neither can write to the tracked fixture.
 Type "rm -rf out/tui-review/xdg && cp -R docs/tui-review/fixtures/xdg out/tui-review/xdg"

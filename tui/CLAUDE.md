@@ -49,6 +49,28 @@ Bubbles bindings and `help.Styles` but not `help.Model`, whose fixed columns
 cannot provide this responsive layout. The permanent bar still says `? help`
 while open, where `?` acts as the toggle back.
 
+## Filtering: the accept key is lookit's, not the list's
+
+All three filterable lists — startpage, user list, links panel — hand their
+filter keys to `bubbles`, with **one interception: the accept key**. `bubbles`
+computes matches in a `tea.Cmd` and its own accept path flips to `FilterApplied`
+using whatever match set is installed at that instant, so an accept arriving
+before the `FilterMatchesMsg` for the query on screen applies the *pre-filter*
+selection — and the next key acts on it (issue #129: Enter fingered the wrong
+account, `b` wrote a target the user never highlighted into the bookmarks file).
+`handleKey` therefore matches `KeyMap.AcceptWhileFiltering` first and calls
+`acceptFilter` (list.go), which re-applies the query through `SetFilterText` —
+the synchronous path — reproducing the two cases `bubbles` special-cases (an
+empty query and a zero-match query both clear the filter). The startpage wraps
+it as `startModel.acceptFilter` so the header-skipping cursor rule runs too.
+The filter commands already queued by earlier keystrokes still run, and their
+`list.FilterMatchesMsg` carries no query or generation identity, so `Update`
+delegates those messages only while the active list remains in `Filtering`;
+after accept or reset every remaining result is stale and is dropped.
+**Don't route the accept key back to the list**: the selection it settles on is
+what the next keystroke acts on, and a fetch or a bookmark write is not
+something to get from a stale set.
+
 ## Fetching, routing, navigation
 
 - **Request lifecycle (request.go):** every fetch is a `pendingRequest` with its own cancellable context derived from the session ctx, so `esc` while loading aborts the connection itself (`finger.Query` honours ctx), not just the spinner. A result whose id no longer matches the pending request is dropped, so a canceled or superseded fetch can never repaint. `requestNavigate` pushes a new history node; `requestRefresh` (`r`) replaces the current node in place, preserving reader scroll/link focus and list filter/selection, and leaves a `requestFailure` warning with the previous response still on screen when a refresh comes back empty.

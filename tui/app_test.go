@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -224,6 +225,36 @@ func TestLinksPanelStatus(t *testing.T) {
 	}
 }
 
+// racedFilterList lands a three-user list and types a filter WITHOUT delivering
+// the list.FilterMatchesMsg those keystrokes produce. That is the state issue
+// #129 reproduces: bubbles computes matches in a tea.Cmd, so between the
+// keystroke and the message the list's filteredItems still describe the older
+// query. Dropping the message here is what the runtime does under a fast
+// terminal delivering "/bo\r\r" in one read.
+func racedFilterList(t *testing.T, fetch FetchFunc, filter string) appModel {
+	t.Helper()
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	body := "Users currently online:\n\nalice bob slow\n"
+	users, ok := ParseUsers([]byte(body), "")
+	if !ok || len(users) != 3 {
+		t.Fatalf("ParseUsers returned %d users (ok=%v), want 3", len(users), ok)
+	}
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(body)}, state: stateList, listUsers: len(users)}}
+	m.pos, m.state, m.listReady, m.inputFocused = 0, stateList, true, false
+	m.list = newList(m.common, host, users)
+	m.list.setSize(m.common.width, m.common.bodyHeight())
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = step.(appModel)
+	for _, r := range filter {
+		step, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = step.(appModel) // the FilterMatchesMsg cmd is deliberately discarded
+	}
+	return m
+}
+
 // pumpKeys delivers key presses and feeds the list.FilterMatchesMsg they
 // produce back through appModel.Update, which is what the Bubble Tea runtime
 // does — and Update is where the message is routed to a sub-model, so this is
@@ -241,6 +272,169 @@ func pumpKeys(t *testing.T, m appModel, keys ...tea.KeyPressMsg) appModel {
 		}
 	}
 	return m
+}
+
+// TestEnterAfterFilterDrillsTheVisibleSelection is issue #129: the Enter that
+// applies a filter and the Enter that opens a row can arrive faster than the
+// filter results, and lookit fingered the pre-filter user.
+func TestEnterAfterFilterDrillsTheVisibleSelection(t *testing.T) {
+	fetch, seen := fetchTargetRecorder("Plan: hi\n")
+	m := racedFilterList(t, fetch, "bo")
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // accept the filter
+	m = step.(appModel)
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // open the selected row
+	if cmd == nil {
+		t.Fatal("opening a row should return a fetch command")
+	}
+	runCmds(cmd)
+
+	if len(*seen) != 1 {
+		t.Fatalf("fetched %d targets, want 1", len(*seen))
+	}
+	if got := (*seen)[0].Raw; got != "bob@tilde.team" {
+		t.Fatalf("drilled %q, want bob@tilde.team: the second Enter must act on the filtered selection, never the stale pre-filter row", got)
+	}
+}
+
+// TestLateFilterResultCannotReplaceAcceptedSelection covers the other half of
+// the race: filter commands have no ordering guarantee, so an older prefix
+// result can arrive after acceptFilter has synchronously installed the final
+// query. Once accepted, that queued result must not replace the selection the
+// next Enter acts on.
+func TestLateFilterResultCannotReplaceAcceptedSelection(t *testing.T) {
+	fetch, seen := fetchTargetRecorder("Plan: hi\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	host := hostTarget(t, "@tilde.team")
+	body := "Users currently online:\n\nax ab slow\n"
+	users, ok := ParseUsers([]byte(body), "")
+	if !ok || len(users) != 3 {
+		t.Fatalf("ParseUsers returned %d users (ok=%v), want 3", len(users), ok)
+	}
+	m.history = []histNode{{entry: Entry{Target: host, Body: []byte(body)}, state: stateList, listUsers: len(users)}}
+	m.pos, m.state, m.listReady, m.inputFocused = 0, stateList, true, false
+	m.list = newList(m.common, host, users)
+	m.list.setSize(m.common.width, m.common.bodyHeight())
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = step.(appModel)
+	step, prefixCmd := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	m = step.(appModel)
+	prefixResult, ok := findFilterMatches(prefixCmd)
+	if !ok {
+		t.Fatal("typing the prefix produced no list.FilterMatchesMsg")
+	}
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+
+	// Bubble Tea commands run concurrently: deliver the older prefix result
+	// after acceptance, then the next key exactly as the runtime may.
+	step, _ = m.Update(prefixResult)
+	m = step.(appModel)
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("opening the accepted selection should return a fetch command")
+	}
+	runCmds(cmd)
+
+	if len(*seen) != 1 {
+		t.Fatalf("fetched %d targets, want 1", len(*seen))
+	}
+	if got := (*seen)[0].Raw; got != "ab@tilde.team" {
+		t.Fatalf("drilled %q, want ab@tilde.team: a late prefix result must not replace the accepted selection", got)
+	}
+}
+
+// TestBookmarkAfterFilterPinsTheVisibleSelection is the startpage half of
+// issue #129, and the more serious one: the same apply-then-act race reaches
+// `b`, so a stale selection is not merely fingered but written into the user's
+// bookmarks file.
+func TestBookmarkAfterFilterPinsTheVisibleSelection(t *testing.T) {
+	useTempBookmarks(t)
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	m.common.width, m.common.height = 80, 24
+	m.blurInput()
+
+	const filter = "plan.cat"
+
+	unfiltered, ok := m.start.selected()
+	if !ok {
+		t.Fatal("the unfiltered startpage must select a row")
+	}
+
+	// The row the startpage settles on for this query, computed the settled way:
+	// SetFilterText filters synchronously, and the cursor rule is the one the
+	// FilterMatchesMsg branch applies. This is what the screen shows.
+	settled := m.start
+	settled.list.SetFilterText(filter)
+	settled.list.Select(0)
+	settled.skipNonEntry(1)
+	visible, ok := settled.selected()
+	if !ok {
+		t.Fatalf("filter %q selects no row; this test needs one that does", filter)
+	}
+	if visible.target == unfiltered.target {
+		t.Fatalf("this test needs a filter that moves the selection off %q", unfiltered.target)
+	}
+
+	// Type the same filter without delivering the FilterMatchesMsg it produces.
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = step.(appModel)
+	for _, r := range filter {
+		step, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = step.(appModel)
+	}
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // accept the filter
+	m = step.(appModel)
+	step, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = step.(appModel)
+
+	path, err := bookmarksPathFn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := parseBookmarks(data).targets
+	if !slices.Contains(saved, visible.target) {
+		t.Errorf("bookmarks = %v, want the visible selection %q", saved, visible.target)
+	}
+	if slices.Contains(saved, unfiltered.target) {
+		t.Errorf("bookmarks = %v, must not contain the stale pre-filter row %q", saved, unfiltered.target)
+	}
+}
+
+// TestLinksPanelAcceptFilterSelectsTheMatch is the links-panel audit #129 asks
+// for: it is backed by the same bubbles list, so accepting a filter must settle
+// on the match rather than on whatever row was selected before.
+func TestLinksPanelAcceptFilterSelectsTheMatch(t *testing.T) {
+	links := []Link{
+		{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}},
+		{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com/zebra"},
+	}
+	m := linksPanelModel(t, stubFetch(t), links)
+
+	step, _ := m.Update(tea.KeyPressMsg{Code: '/'})
+	m = step.(appModel)
+	for _, r := range "zebra" {
+		step, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = step.(appModel) // the FilterMatchesMsg cmd is deliberately discarded
+	}
+	step, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step.(appModel)
+
+	sel, ok := m.linksPanel.selected()
+	if !ok {
+		t.Fatal("accepting a matching filter must leave a link selected")
+	}
+	if sel.Raw != "https://example.com/zebra" {
+		t.Errorf("selected %q, want the filtered match https://example.com/zebra", sel.Raw)
+	}
 }
 
 // TestLinksPanelFilterNarrowsWhileTyping: the panel accepted a filter query and

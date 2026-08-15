@@ -707,6 +707,15 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	}
+	// The links panel is an overlay that owns the body while it is open, so it
+	// takes the delegated messages too. Routing on m.state alone sent them to
+	// the view underneath — for a panel over a profile, the reader — and the
+	// panel's own list.FilterMatchesMsg never arrived, so its filter accepted a
+	// query, showed the prompt, and silently never narrowed anything.
+	if m.showingLinks {
+		m.linksPanel, cmd = m.linksPanel.update(msg)
+		return m, cmd
+	}
 	switch m.state {
 	case stateList:
 		m.list, cmd = m.list.update(msg)

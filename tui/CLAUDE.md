@@ -14,6 +14,17 @@ transitions with a stub `FetchFunc`/`fetchCmd` (fetch.go).
 
 - **`appModel` (app.go)** is the top-level model. It owns lifecycle (Init/Update/View), the target input, the bottom status bar, quit, and routing between four sub-models via a `state` enum (`stateReader` | `stateList` | `stateAbout` | `stateStart`). The target input is also the active-address display: landing a response, restoring history, drilling, refreshing, and returning to the startpage synchronize it to the visible location; starting an edit seeds from that location, and canceling an edit restores it. `commonModel` holds shared width/height/profile/fetch. The sub-models — **`readerModel` (reader.go)** (a headerless viewport whose first physical line is the first rendered response line), **`listModel` (list.go)** (a `bubbles/v2/list` of a host's users), **`aboutModel` (about.go)** (the full-screen about view), and **`startModel` (start.go)** (the startpage list, assembled by `tui/sections.go`) — do *not* own quit/lifecycle; `appModel` drives them through small methods (`setSize`, `setEntry`, `setProfile`, `setBackground`, `selected`, `filtering`). Landed response latency belongs to the status bar for reader, list, raw, focused-input, and links-panel views; it is omitted when it would displace existing status information and is absent on Start/About.
 
+**Message delegation follows the overlay, not just `state`.** `Update` handles
+app-level messages in its own cases and delegates the rest to one sub-model. The
+`state` enum does not name the links panel, so while `showingLinks` is set the
+panel takes the delegated messages — otherwise they go to the view underneath
+(the reader, for a panel over a profile) and the panel silently never sees its
+own `list.FilterMatchesMsg`, which is exactly how its filter came to accept a
+query, draw the prompt, and narrow nothing. **A test that drops the `tea.Cmd`
+returned by a keystroke cannot catch this**: the message that exposes the
+misroute is the one the runtime would have delivered back. Feed it through
+`appModel.Update`, as `pumpKeys` does.
+
 ## The startpage (`stateStart`)
 
 **`stateStart`** is the startpage — the launch screen shown at `pos == -1`, rendering the embedded catalog (`tui/catalog.txt`) plus the user's bookmarks; like About it is never stored in a `histNode`, so history semantics are untouched. A `catalog off` line in the bookmarks file hides the built-in catalog.

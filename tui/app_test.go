@@ -181,6 +181,55 @@ func TestLinksPanelStatus(t *testing.T) {
 	}
 }
 
+// pumpKeys delivers key presses and feeds the list.FilterMatchesMsg they
+// produce back through appModel.Update, which is what the Bubble Tea runtime
+// does — and Update is where the message is routed to a sub-model, so this is
+// the delivery a routing mistake shows up in. (Everything else those keys
+// produce is left alone: the filter input's cursor blink is an endless tick
+// chain with nothing to assert on.)
+func pumpKeys(t *testing.T, m appModel, keys ...tea.KeyPressMsg) appModel {
+	t.Helper()
+	for _, key := range keys {
+		step, cmd := m.Update(key)
+		m = step.(appModel)
+		if msg, ok := findFilterMatches(cmd); ok {
+			step, _ = m.Update(msg)
+			m = step.(appModel)
+		}
+	}
+	return m
+}
+
+// TestLinksPanelFilterNarrowsWhileTyping: the panel accepted a filter query and
+// showed the filter prompt, but never narrowed — appModel.Update routes
+// messages by m.state, and with the panel open over a profile that state is
+// stateReader, so list.FilterMatchesMsg went to the reader and the panel's
+// match set was never populated.
+func TestLinksPanelFilterNarrowsWhileTyping(t *testing.T) {
+	links := []Link{
+		{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}},
+		{Kind: LinkURL, Action: ActionCopy, Raw: "https://example.com/zebra"},
+	}
+	m := linksPanelModel(t, stubFetch(t), links)
+	m = pumpKeys(t, m,
+		tea.KeyPressMsg{Code: '/'},
+		tea.KeyPressMsg{Code: 'z', Text: "z"},
+		tea.KeyPressMsg{Code: 'e', Text: "e"},
+		tea.KeyPressMsg{Code: 'b', Text: "b"},
+	)
+
+	if got := m.linksPanel.filterValue(); got != "zeb" {
+		t.Fatalf("filter value = %q, want %q", got, "zeb")
+	}
+	if got := len(m.linksPanel.list.VisibleItems()); got != 1 {
+		t.Errorf("panel shows %d links while filtering on %q, want 1", got, "zeb")
+	}
+	sel, ok := m.linksPanel.selected()
+	if !ok || sel.Raw != "https://example.com/zebra" {
+		t.Errorf("selected (%v, %q), want the matching link", ok, sel.Raw)
+	}
+}
+
 func fetchTargetRecorder(body string) (FetchFunc, *[]finger.Target) {
 	var seen []finger.Target
 	f := func(_ context.Context, t finger.Target) ([]byte, finger.Meta, error) {

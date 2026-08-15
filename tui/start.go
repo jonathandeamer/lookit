@@ -325,6 +325,9 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	// leaves every group and header on screen, where a child is still a child.
 	flattened := isFiltered && !emptyFilter
 	showShelf := isSelected && m.FilterState() != list.Filtering
+	// Only the active shelf is painted across the row; the inactive one is a
+	// left rule with nothing behind it, so it renders down the ordinary path.
+	fillShelf := showShelf && d.common.contentFocused
 
 	titleStyle, descStyle := d.st.listItem.NormalTitle, d.st.listItem.NormalDesc
 	if emptyFilter {
@@ -333,10 +336,13 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 		if d.common.contentFocused {
 			titleStyle, descStyle = d.st.listItem.SelectedTitle, d.st.listItem.SelectedDesc
 		} else {
+			// No fill while the input holds focus: a tinted full-width shelf
+			// reads as an active selection, so it competes with the input's
+			// cursor for the one focus signal on screen. The left rule alone
+			// keeps the place browsing will resume from.
 			inactiveShelf := lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder(), false, false, false, true).
 				BorderForeground(d.st.palette.Rule).
-				Background(d.st.palette.SubtleBg).
 				Padding(0, 0, 0, 1)
 			titleStyle = inactiveShelf.Foreground(d.st.palette.Text)
 			descStyle = inactiveShelf.Foreground(d.st.palette.Dim)
@@ -360,7 +366,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 		note := renderStartField(rowNote, noteWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
 		target = padStartField(target, targetWidth, startInlineStyle(titleStyle))
 		row := target + note
-		if showShelf {
+		if fillShelf {
 			fmt.Fprint(w, renderSelectedShelfLine(row, titleStyle, m.Width())) //nolint:errcheck
 			return
 		}
@@ -381,7 +387,7 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 	}
 	target := renderStartField(rowTarget, titleWidth, targetMatches, titleStyle, d.st.listItem.FilterMatch)
 	note := renderStartField(rowNote, descWidth, noteMatches, descStyle, d.st.listItem.FilterMatch)
-	if showShelf {
+	if fillShelf {
 		fmt.Fprintf(w, "%s\n%s", renderSelectedShelfLine(target, titleStyle, m.Width()), renderSelectedShelfLine(note, descStyle, m.Width())) //nolint:errcheck
 		return
 	}

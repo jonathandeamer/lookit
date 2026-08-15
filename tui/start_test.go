@@ -925,7 +925,7 @@ func TestStartSelectionShelfFollowsContentFocus(t *testing.T) {
 
 	common.contentFocused = false
 	inactive := lineContaining(t, m.View(), "@tilde.team")
-	assertFullWidthStyledLine(t, "inactive start selection", inactive, m.list.Width(), common.styles.palette.SubtleBg)
+	assertRuleOnlyShelfLine(t, "inactive start selection", inactive, common.styles.palette.Rule, common.styles.palette.SubtleBg)
 }
 
 func TestStartFilterTransitionsReclaimOverviewHeight(t *testing.T) {

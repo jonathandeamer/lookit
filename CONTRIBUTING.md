@@ -7,7 +7,7 @@ To build it and run the same checks CI does:
 ```
 make build
 make check    # vet, gofmt, lint, race tests
-make hooks    # installs the commit-message hook (once per clone)
+make hooks    # installs the commit-message hook (once per clone — nothing else sets it up)
 ```
 
 Commits follow Conventional Commits (`fix(tui): ...`, `docs: ...`), and the hook checks the subject line. The scope is optional, but when you give one it has to name a real part of lookit — the list lives in `scripts/check-conventional-subject.sh`, and adding to it is the intended way to grow it. PRs are squash-merged, so the PR title becomes the commit on `main` and CI checks it against the same rules; if you're pushed for time locally, `git commit --no-verify` bypasses the hook once, but the title still has to conform.

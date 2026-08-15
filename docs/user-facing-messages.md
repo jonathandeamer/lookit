@@ -140,7 +140,7 @@ embedded catalog and the bookmarks file.
 | `enter apply · esc cancel` | `tui/app.go` (`filterModeHints`, `buildStatusBar`) | Filter being typed with at least one match. |
 | `esc cancel` | `tui/app.go` (`filterModeHints`) | Filter being typed that matches nothing. Enter is deliberately unnamed: bubbles refuses to apply a zero-match filter and drops back to the unfiltered list, which is what Esc does, so there is no second action to offer. |
 | `↑/↓ move · esc clear filter` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, filter applied. |
-| `↑/↓ move · / filter · esc back` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, resting. Link actions come from `linkActionHints` (`↵ go`, `f go`, `y copy`). |
+| `↑/↓ move · / filter · esc back` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, resting. Link actions come from `linkActionHints` (`↵ go`, `f go`, `y copy`). No links-panel state shows a history breadcrumb: Esc closes the panel or clears its filter and returns to the same node. |
 | `1 user` / `<n> users` | `tui/app.go` (`buildStatusBar`, `countLabel`) | User-list metadata. |
 | `↵ go · / filter` plus `r refresh`/`r retry` | `tui/app.go` (`buildStatusBar`) | User-list resting hints, then `joinHints`. While `/` is open the list uses `filterModeHints` instead, with no history breadcrumb: Esc cancels the filter rather than walking back. |
 | `v view source` | `tui/app.go` (`buildStatusBar`) | Extra list hint on a generic (auto-detected) list. |

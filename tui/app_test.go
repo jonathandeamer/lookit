@@ -134,6 +134,49 @@ func linksPanelModel(t *testing.T, fetch FetchFunc, links []Link) appModel {
 	return m
 }
 
+// drilledLinksPanelModel is linksPanelModel with a previous history node, so
+// buildStatusBar has a target it could name in a back breadcrumb. That is the
+// state issue #115 is about: Esc in the links panel closes the overlay and does
+// not pop history, so the breadcrumb must not appear.
+func drilledLinksPanelModel(t *testing.T, links []Link) appModel {
+	t.Helper()
+	m := linksPanelModel(t, stubFetch(t), links)
+	prev := histNode{entry: Entry{Target: hostTarget(t, "@origin.example")}, state: stateList}
+	m.history = append([]histNode{prev}, m.history...)
+	m.pos = 1
+	return m
+}
+
+func TestLinksPanelStatusHasNoBackBreadcrumb(t *testing.T) {
+	link := Link{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}}
+	// Every links-panel filter state: in all of them Esc acts on the overlay,
+	// never on history, so none may paint a back-to-previous-target breadcrumb.
+	for _, tt := range []struct {
+		name string
+		keys []tea.KeyPressMsg
+	}{
+		{"resting", nil},
+		{"empty filter", []tea.KeyPressMsg{{Code: '/'}}},
+		{"non-empty filter", []tea.KeyPressMsg{{Code: '/'}, {Code: 'a', Text: "a"}}},
+		{"applied filter", []tea.KeyPressMsg{{Code: '/'}, {Code: 'a', Text: "a"}, {Code: tea.KeyEnter}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := drilledLinksPanelModel(t, []Link{link})
+			for _, msg := range tt.keys {
+				next, _ := m.Update(msg)
+				m = next.(appModel)
+			}
+			bar := m.buildStatusBar()
+			if bar.escTarget != "" {
+				t.Errorf("links panel status escTarget = %q, want empty: Esc acts on the panel, it does not walk history", bar.escTarget)
+			}
+			if got := strings.Count(bar.hints, "esc"); got != 1 {
+				t.Errorf("links panel hints = %q, want exactly one esc mention, got %d", bar.hints, got)
+			}
+		})
+	}
+}
+
 func TestLinksPanelStatus(t *testing.T) {
 	link := Link{Kind: LinkFinger, Action: ActionDrill, Raw: "alice@tilde.team", Target: finger.Target{HostPort: "tilde.team:79"}}
 	t.Run("unfiltered", func(t *testing.T) {

@@ -105,13 +105,16 @@ embedded catalog and the bookmarks file.
 | `1 service` / `<n> services` | `tui/start.go` (`overviewView`, `countLabel`) | Catalog service count. |
 | `BOOKMARKS` / `COMMUNITIES` / `SERVICES` | `tui/sections.go` (`buildSections`) | Section headers. `PEOPLE` is assembled only if the catalog contains a `person` line; the shipped catalog has none. |
 | `★` | `tui/start.go` (`startBookmarkMarker`) | Prefix on a row the user pinned themselves. |
+| `visited today` / `visited yesterday` / `visited <n> days ago` / `visited 1 month ago` / `visited <n> months ago` / `visited over 1 year ago` | `tui/start.go` (`startRowNote`, `relativeDay`) | Note column on a pinned row with a last-visited date. Buckets are local-zone calendar days; a future stamp clamps to `today`. Blank when the pin has no date, and stands back down to the catalog note while a filter flattens the sections. |
 | `no match for “<query>”` | `tui/start.go` (`noMatchMessage`) | First content row while a typed filter matches nothing. Names the query, not the catalog. |
 | `No entries.` | `tui/start.go` (`newStart`, bubbles `NoItems`) | List empty chrome. Unreachable while typing a zero-match filter (that state uses `noMatchMessage`); reachable only if the list itself has no items. |
 | `No bookmarks yet.` | `tui/app.go` (`startEmptyMessage`) | File-level empty body when the catalog is visible and there is nothing to show. |
 | `No bookmarks yet. The catalog is off — remove \`catalog off\` from <path> to see it.` | `tui/app.go` (`startEmptyMessage`) | File-level empty body when `catalog off` is set and there are no bookmarks. |
 | `<path>: <reason>` / `<path> line <n>: <reason>` / `<n> unreadable lines in <path> (line …)` | `tui/app.go` (`startNotice`) | Bookmark-file problems, named so the user edits the file actually in use. |
 | `expected "catalog off" or "catalog on"` | `tui/bookmarks.go` (`parseBookmarks`) | Reason on a bad `catalog` directive. |
-| `expected one target, got "…"` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line that is not a single target. |
+| `expected a target with an optional RFC 3339 date, got "…"` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line that is not a target plus an optional last-visited date. |
+| `bad last-visited date "…" (want RFC 3339, e.g. 2026-08-14T15:04:05Z)` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line whose date is not strict RFC 3339 UTC at seconds precision. |
+| `target "…" does not round-trip through the bookmarks file` | `tui/bookmarks.go` (`validateBookmarkRecordTarget`) | Reason a target cannot be persisted as a bookmark record; surfaced via the `error: cannot bookmark: <reason>` flash. |
 | `target is not valid UTF-8` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target is not UTF-8. |
 | `target contains a non-printing Unicode control` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target carries C1/Cf/Zl/Zp. |
 | `bad target "…": <parse error>` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target failed `ParseTarget`. |
@@ -142,6 +145,7 @@ embedded catalog and the bookmarks file.
 | `↑/↓ move · esc clear filter` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, filter applied. |
 | `↑/↓ move · / filter · esc back` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, resting. Link actions come from `linkActionHints` (`↵ go`, `f go`, `y copy`). No links-panel state shows a history breadcrumb: Esc closes the panel or clears its filter and returns to the same node. |
 | `1 user` / `<n> users` | `tui/app.go` (`buildStatusBar`, `countLabel`) | User-list metadata. |
+| `512 B` / `1.2 KB` / `3.4 MB` | `tui/statusbar.go` (`formatBytes`), `tui/app.go` (`buildStatusBar`) | Response-body size metadata on the reader and on view-source. Absent on a failed request. |
 | `↵ go · / filter` plus `r refresh`/`r retry` | `tui/app.go` (`buildStatusBar`) | User-list resting hints, then `joinHints`. While `/` is open the list uses `filterModeHints` instead, with no history breadcrumb: Esc cancels the filter rather than walking back. |
 | `v view source` | `tui/app.go` (`buildStatusBar`) | Extra list hint on a generic (auto-detected) list. |
 | `auto-detected` | `tui/app.go` (`buildStatusBar`) | List flag for generic list detection. |

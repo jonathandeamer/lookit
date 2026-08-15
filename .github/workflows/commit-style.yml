@@ -1,0 +1,26 @@
+name: commit-style
+
+# PRs land on main as squash commits, so the PR *title* becomes the subject in
+# published history — and the local commit-msg hook never sees it. This checks
+# the title against the same vocabulary the hook uses.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: check PR title
+        env:
+          # Via the environment, never interpolated into the script: a PR title
+          # is attacker-controlled text.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: ./scripts/check-conventional-subject.sh "$PR_TITLE" "PR title"

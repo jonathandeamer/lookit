@@ -10,7 +10,7 @@ make check    # vet, gofmt, lint, race tests
 make hooks    # installs the commit-message hook (once per clone)
 ```
 
-Commits follow Conventional Commits (`fix(tui): ...`, `docs: ...`), and the hook checks the subject line.
+Commits follow Conventional Commits (`fix(tui): ...`, `docs: ...`), and the hook checks the subject line. The scope is optional, but when you give one it has to name a real part of lookit — the list lives in `scripts/check-conventional-subject.sh`, and adding to it is the intended way to grow it. PRs are squash-merged, so the PR title becomes the commit on `main` and CI checks it against the same rules; if you're pushed for time locally, `git commit --no-verify` bypasses the hook once, but the title still has to conform.
 
 Open an issue for bugs or ideas, and for anything bigger start one before a PR so we can sort out the approach. Security issues go through `SECURITY.md` rather than a public issue. The reasoning behind past decisions lives in `docs/superpowers/specs/` and `CLAUDE.md`.
 

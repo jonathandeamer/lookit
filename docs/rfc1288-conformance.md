@@ -77,8 +77,17 @@ returns. The body is walked rune by rune:
 - **Kept verbatim:** tab, newline, and every printable rune — including all
   valid multibyte UTF-8 (accents, box-drawing, emoji).
 - **Defanged (visualized, not deleted):** C0 controls except tab/newline and
-  DEL → caret notation (`ESC`→`^[`, `BEL`→`^G`); C1 controls (U+0080–U+009F,
-  even when validly UTF-8-encoded) and any invalid UTF-8 byte → `\xXX` hex.
+  DEL → caret notation (`ESC`→`^[`, `BEL`→`^G`, `DEL`→`^?`); C1 controls
+  (U+0080–U+009F, even when validly UTF-8-encoded) and any invalid UTF-8 byte →
+  `\xXX` hex; non-printing Unicode format controls (category Cf — bidi
+  overrides and isolates, zero-width characters, BOM, soft hyphen, tag
+  characters) and line/paragraph separators (Zl/Zp) → `\u{X…}`, a variable-width
+  code-point notation kept distinct from the byte-oriented `\xXX`.
+
+  That third class is not a terminal-escape defense: those code points reorder
+  or hide text with no escape sequence involved, which is why the rune-level
+  walk covers them even though §3.3's "unprintable data" was written about
+  control bytes.
 
 **Two recorded departures / decisions:**
 

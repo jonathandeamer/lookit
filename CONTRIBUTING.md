@@ -14,8 +14,10 @@ Commits follow Conventional Commits (`fix(tui): ...`, `docs: ...`), and the hook
 
 Open an issue for bugs or ideas, and for anything bigger start one before a PR so we can sort out the approach. Security issues go through `SECURITY.md` rather than a public issue. The reasoning behind past decisions lives in `docs/superpowers/specs/` and `CLAUDE.md`.
 
+Two docs are kept in step with the code rather than written once, so update them in the same PR that makes them wrong: `docs/user-facing-messages.md` inventories every string lookit itself can show a user, so changing, adding, or removing copy means editing that table too; `docs/rfc1288-conformance.md` records where lookit stands on each RFC 1288 requirement, so changing what goes on the wire means editing that one.
+
 ## Branching & releases
 
 The project is trunk-based: `main` is the only long-lived branch, and it's protected — every change lands through a short-lived branch and a PR, even maintainer changes, so CI (`make check`) gates `main` rather than your memory. `main` requires the `test` check to be green and up to date before merge, and force-pushes and deletions are blocked, so published history stays stable. There's no `develop` or standing release branch; cut a `release/x.y` branch only if an old minor ever needs a backport while `main` has moved on.
 
-Releases are tags, made deliberately off green `main` — never from a feature branch. Pushing a `v*` tag triggers `release.yml`, which builds the archives and opens a **draft** GitHub release for you to publish by hand (see `CLAUDE.md` for the release tooling). So the flow is: merge the PR → confirm `main` is green → tag from `main`.
+Releases are tags, made deliberately off green `main` — never from a feature branch. Pushing a `v*` tag triggers `release.yml`, which builds the archives and opens a **draft** GitHub release for you to publish by hand (see `docs/releasing.md` for the release tooling, versioning, and prereleases). So the flow is: merge the PR → confirm `main` is green → tag from `main`.

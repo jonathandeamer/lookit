@@ -19,6 +19,37 @@ The release archives bundle `README.md`, `LICENSE`, and a generated
 redistributing the compiled binaries; regenerate with `make notices` after
 changing deps).
 
+## The Homebrew tap: one-time cleanup at the next stable release
+
+`jonathandeamer/homebrew-tap` currently serves lookit from a **hand-written
+formula**, `Formula/lookit.rb`, added on 2026-08-02. It pins the v0.1.0 source
+tarball and builds from source (`depends_on "go" => :build`). The cask
+automation in `.goreleaser.yaml` landed after v0.1.0 was tagged and there has
+been no stable tag since, so `homebrew_casks` has never actually run and
+`Casks/lookit.rb` does not exist yet.
+
+The first stable tag after v0.1.0 creates it, and the tap then holds a formula
+and a cask both named `lookit`. Homebrew is understood to prefer the formula
+when the name is unqualified, which would leave
+`brew install jonathandeamer/tap/lookit` installing v0.1.0 from source and
+`brew upgrade` never moving anyone to the new version: GoReleaser writes only
+the cask and never touches the hand-written formula. That precedence has not
+been tested here, and it doesn't need to be — a tap offering two different
+lookits at two different versions is worth clearing up either way.
+
+**So, as part of the first stable release after v0.1.0:** delete
+`Formula/lookit.rb` from the tap once the release has published and the cask is
+in place, then confirm `brew update && brew info jonathandeamer/tap/lookit`
+reports the new version from `Casks/`. Doing it in that order leaves no window
+where the tap offers nothing. Once the formula is gone this section can go too.
+
+Two things not to be surprised by. Casks are macOS-only, so Homebrew stops
+being an install route for Linux once the formula goes; the release archives
+already are that route, and the README points there first. And `brews:` (the
+formula equivalent of `homebrew_casks`) is deprecated in GoReleaser and fails
+`make release-check`, so staying on a formula is not an option worth
+reaching for.
+
 ## Version injection
 
 Release version info is injected via

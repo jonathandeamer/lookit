@@ -130,17 +130,19 @@ embedded catalog and the bookmarks file.
 | `refresh failed: <error> · showing previous response · r retry` | `tui/request.go` (`requestFailure.priorityStatus`) | Persistent status after an empty-body refresh failure. |
 | `retry failed: <error> · r retry` | `tui/request.go` (`requestFailure.priorityStatus`) | Persistent status after an empty-body retry failure. |
 | `type a target and press ↵ · ↓ browse · ? help` | `tui/app.go` (`startBar`) | Startpage, target input focused. |
-| `↵ go · b bookmark` / `↵ go · b remove` plus `/ filter · i target · ? help` | `tui/app.go` (`startBar`, `startBookmarkAction`) | Startpage, content focused. `b` names what it will do on the selected row. |
+| `↵ go · b bookmark` / `↵ go · b remove` plus `/ filter · i target · ? help` | `tui/app.go` (`startBar`, `startBookmarkAction`) | Startpage, content focused. `b` names what it will do on the selected row. `↵ go` and `b …` act on the selection, so both are dropped when a filter leaves no row selected. |
+| `esc clear filter` | `tui/app.go` (`startBar`) | Replaces `/ filter` on the startpage once a filter is applied — that mode is already open. |
 | `1 entry` / `<n> entries` | `tui/app.go` (`startBar`, `countLabel`) | Startpage listing count (visible selectable rows). |
 | `page <n>/<total>` | `tui/app.go` (`startBar`, list branch of `buildStatusBar`) | Pagination when the startpage or user list has more than one page. |
 | `↵ go · esc cancel` | `tui/app.go` (`buildStatusBar`) | Editing the target over a landed response. |
 | `esc back · ? help` | `tui/app.go` (`buildStatusBar`) | View-source. No history breadcrumb: Esc returns to the same node. |
-| `type to filter · esc cancel` | `tui/app.go` (`buildStatusBar`) | Links panel, `/` just opened, query still empty. |
-| `enter apply · esc cancel` | `tui/app.go` (`buildStatusBar`) | Links panel, filter being typed. |
+| `type to filter · esc cancel` | `tui/app.go` (`filterModeHints`, `buildStatusBar`) | Any list with `/` just opened and the query still empty: startpage, user list, links panel. |
+| `enter apply · esc cancel` | `tui/app.go` (`filterModeHints`, `buildStatusBar`) | Filter being typed with at least one match. |
+| `esc cancel` | `tui/app.go` (`filterModeHints`) | Filter being typed that matches nothing. Enter is deliberately unnamed: bubbles refuses to apply a zero-match filter and drops back to the unfiltered list, which is what Esc does, so there is no second action to offer. |
 | `↑/↓ move · esc clear filter` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, filter applied. |
 | `↑/↓ move · / filter · esc back` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, resting. Link actions come from `linkActionHints` (`↵ go`, `f go`, `y copy`). |
 | `1 user` / `<n> users` | `tui/app.go` (`buildStatusBar`, `countLabel`) | User-list metadata. |
-| `↵ go · / filter` plus `r refresh`/`r retry` | `tui/app.go` (`buildStatusBar`) | User-list resting hints, then `joinHints`. |
+| `↵ go · / filter` plus `r refresh`/`r retry` | `tui/app.go` (`buildStatusBar`) | User-list resting hints, then `joinHints`. While `/` is open the list uses `filterModeHints` instead, with no history breadcrumb: Esc cancels the filter rather than walking back. |
 | `v view source` | `tui/app.go` (`buildStatusBar`) | Extra list hint on a generic (auto-detected) list. |
 | `auto-detected` | `tui/app.go` (`buildStatusBar`) | List flag for generic list detection. |
 | `partial (error)` | `tui/app.go` (`buildStatusBar`) | List flag for a parseable list body returned with an error. |

@@ -138,7 +138,7 @@ embedded catalog and the bookmarks file.
 | `type to filter · esc cancel` | `tui/app.go` (`buildStatusBar`) | Links panel, `/` just opened, query still empty. |
 | `enter apply · esc cancel` | `tui/app.go` (`buildStatusBar`) | Links panel, filter being typed. |
 | `↑/↓ move · esc clear filter` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, filter applied. |
-| `↑/↓ move · / filter · esc back` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, resting. Link actions come from `linkActionHints` (`↵ go`, `f go`, `y copy`). |
+| `↑/↓ move · / filter · esc back` plus link actions | `tui/app.go` (`buildStatusBar`) | Links panel, resting. Link actions come from `linkActionHints` (`↵ go`, `f go`, `y copy`). No links-panel state shows a history breadcrumb: Esc closes the panel or clears its filter and returns to the same node. |
 | `1 user` / `<n> users` | `tui/app.go` (`buildStatusBar`, `countLabel`) | User-list metadata. |
 | `↵ go · / filter` plus `r refresh`/`r retry` | `tui/app.go` (`buildStatusBar`) | User-list resting hints, then `joinHints`. |
 | `v view source` | `tui/app.go` (`buildStatusBar`) | Extra list hint on a generic (auto-detected) list. |

@@ -1451,6 +1451,13 @@ func (m appModel) buildStatusBar() statusBar {
 	}
 
 	if m.showingLinks {
+		// Esc in this overlay acts on the panel — closing it, or clearing its
+		// filter — and returns to the same reader at the same history position.
+		// It does not pop history, so don't promise a back-to-previous-target
+		// breadcrumb (the same rule view-source follows above). Clearing it here
+		// rather than per-case also keeps joinHints' invariant by hand: every
+		// branch below names esc exactly once.
+		bar.escTarget = ""
 		var parts []string
 		switch {
 		case m.linksPanel.filtering() && m.linksPanel.filterValue() == "":

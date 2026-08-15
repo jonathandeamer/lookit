@@ -1740,7 +1740,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = sized.(appModel)
 	oldBg := m.common.styles.palette.BaseBg
-	assertFullWidthStyledLine(t, "inactive start selection before restyle", lineContaining(t, m.start.View(), "@cosmic.voyage"), m.start.list.Width(), m.common.styles.palette.SubtleBg)
+	assertRuleOnlyShelf(t, "inactive start selection before restyle", m.start.View(), "@cosmic.voyage", 1, m.common.styles.palette.Dim, m.common.styles.palette.SubtleBg)
 
 	next, _ := m.Update(tea.BackgroundColorMsg{Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
 	got := next.(appModel)
@@ -1763,7 +1763,7 @@ func TestBackgroundColorMsgRestylesTUI(t *testing.T) {
 	if !sameColor(got.input.Styles().Focused.Prompt.GetForeground(), got.common.styles.input.Focused.Prompt.GetForeground()) {
 		t.Fatal("input styles were not reapplied")
 	}
-	assertFullWidthStyledLine(t, "inactive start selection after restyle", lineContaining(t, got.start.View(), "@cosmic.voyage"), got.start.list.Width(), got.common.styles.palette.SubtleBg)
+	assertRuleOnlyShelf(t, "inactive start selection after restyle", got.start.View(), "@cosmic.voyage", 1, got.common.styles.palette.Dim, got.common.styles.palette.SubtleBg)
 }
 
 func TestBackgroundColorMsgRerendersCurrentReader(t *testing.T) {

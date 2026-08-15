@@ -924,8 +924,14 @@ func TestStartSelectionShelfFollowsContentFocus(t *testing.T) {
 	assertFullWidthStyledLine(t, "active start selection", active, m.list.Width(), common.styles.palette.SelectionBg)
 
 	common.contentFocused = false
-	inactive := lineContaining(t, m.View(), "@tilde.team")
-	assertFullWidthStyledLine(t, "inactive start selection", inactive, m.list.Width(), common.styles.palette.SubtleBg)
+	assertRuleOnlyShelf(t, "inactive start selection", m.View(), "@tilde.team", 1, common.styles.palette.Dim, common.styles.palette.SubtleBg)
+
+	// The narrow layout gives the entry a second row for its note, which the
+	// wide assertion above cannot see. Both rows have to lose the fill: a note
+	// row still painting SubtleBg would leave a half-tinted shelf.
+	common.width = startWideMinWidth - 1
+	narrow := newStart(common, twoSections(), "", "")
+	assertRuleOnlyShelf(t, "inactive start selection, narrow layout", narrow.View(), "@tilde.team", 2, common.styles.palette.Dim, common.styles.palette.SubtleBg)
 }
 
 func TestStartFilterTransitionsReclaimOverviewHeight(t *testing.T) {

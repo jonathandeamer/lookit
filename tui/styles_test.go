@@ -161,16 +161,30 @@ func assertFullWidthStyledLine(t *testing.T, name, line string, width int, bg co
 	}
 }
 
-// assertRuleOnlyShelfLine checks the inactive selection treatment: a left rule
-// in the rule colour and no fill behind the row, so the shelf cannot be read as
-// an active selection while focus lives in the target input.
-func assertRuleOnlyShelfLine(t *testing.T, name, line string, rule, fill color.Color) {
+// assertRuleOnlyShelf checks the inactive selection treatment across every row
+// the delegate gives the selected entry: a left rule in the rule colour and no
+// fill behind any of them, so the shelf cannot be read as an active selection
+// while focus lives in the target input. rows is the delegate height — 1 in the
+// wide layout, where the note shares the title's row, and 2 in the narrow one,
+// where the note gets a row of its own and can paint a fill the title does not.
+func assertRuleOnlyShelf(t *testing.T, name, view, target string, rows int, rule, fill color.Color) {
 	t.Helper()
-	if !strings.Contains(line, foregroundSequence(rule)+"m│") {
-		t.Fatalf("%s missing left rule %s:\n%q", name, foregroundSequence(rule), line)
+	lines := strings.Split(view, "\n")
+	idx := lineIndexContaining(t, view, target)
+	if idx+rows > len(lines) {
+		t.Fatalf("%s: selected entry %q has fewer than %d rows below it:\n%s", name, target, rows, view)
 	}
-	if strings.Contains(line, backgroundSequence(fill)) {
-		t.Fatalf("%s still paints the %s shelf background:\n%q", name, backgroundSequence(fill), line)
+	for i, line := range lines[idx : idx+rows] {
+		row := "title"
+		if i == 1 {
+			row = "note"
+		}
+		if !strings.Contains(line, foregroundSequence(rule)+"m│") {
+			t.Fatalf("%s %s row missing left rule %s:\n%q", name, row, foregroundSequence(rule), line)
+		}
+		if strings.Contains(line, backgroundSequence(fill)) {
+			t.Fatalf("%s %s row still paints the %s shelf background:\n%q", name, row, backgroundSequence(fill), line)
+		}
 	}
 }
 

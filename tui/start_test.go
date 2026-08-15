@@ -1827,7 +1827,7 @@ func TestStartFilterNoMatchNamesTheQuery(t *testing.T) {
 	if !strings.Contains(view, "no match for “zzzzzz”") {
 		t.Fatalf("no-match message missing from view:\n%s", view)
 	}
-	if !strings.Contains(view, "zzzzzz") || !strings.Contains(view, "Filter:") {
+	if !strings.Contains(view, "zzzzzz") || !strings.Contains(view, "filter: ") {
 		t.Fatalf("filter prompt must survive alongside the message:\n%s", view)
 	}
 }
@@ -1847,7 +1847,7 @@ func TestStartFilterNoMatchSitsBelowThePrompt(t *testing.T) {
 	if got := strings.TrimSpace(lines[offset]); got != "no match for “zzzzzz”" {
 		t.Fatalf("line %d = %q, want the no-match message", offset, got)
 	}
-	if !strings.Contains(lines[0], "Filter:") {
+	if !strings.Contains(lines[0], "filter: ") {
 		t.Fatalf("line 0 = %q, want the filter prompt", lines[0])
 	}
 }

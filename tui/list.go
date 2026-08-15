@@ -21,6 +21,9 @@ const maxPreambleRows = 12
 // logins; capping keeps list/filter state bounded so the TUI can't be frozen.
 const maxListEntries = 2000
 
+// filterPrompt is the filter prompt used by lookit.
+const filterPrompt = "filter: "
+
 // userItem is one selectable user in the list.
 type userItem struct {
 	login  string
@@ -136,6 +139,7 @@ func applyListStyles(l *list.Model, st styles) {
 	l.Styles = st.list
 	l.FilterInput.SetStyles(st.list.Filter)
 	l.Help.Styles = st.help
+	l.FilterInput.Prompt = filterPrompt
 	l.Paginator.ActiveDot = st.list.ActivePaginationDot.String()
 	l.Paginator.InactiveDot = st.list.InactivePaginationDot.String()
 	l.SetDelegate(defaultUserDelegate(st))

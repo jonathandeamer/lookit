@@ -811,16 +811,32 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 	}
 
 	// Content focused.
+	// The accept key is intercepted so the filter is applied synchronously;
+	// bubbles' own accept can apply a stale match set, leaving the following
+	// key to act on the pre-filter row (issue #129). Every other filter key
+	// belongs to the list.
 	if m.state == stateList && m.list.filtering() {
+		if key.Matches(msg, m.list.list.KeyMap.AcceptWhileFiltering) {
+			acceptFilter(&m.list.list)
+			return true, m, nil
+		}
 		return false, m, nil // list owns its filter keys
 	}
 	if m.state == stateStart && m.start.filtering() {
+		if key.Matches(msg, m.start.list.KeyMap.AcceptWhileFiltering) {
+			m.start.acceptFilter()
+			return true, m, nil
+		}
 		return false, m, nil
 	}
 	if m.state == stateStart && m.start.filterApplied() && key.Matches(msg, m.keys.Back) {
 		return false, m, nil
 	}
 	if m.showingLinks && m.linksPanel.filtering() {
+		if key.Matches(msg, m.linksPanel.list.KeyMap.AcceptWhileFiltering) {
+			acceptFilter(&m.linksPanel.list)
+			return true, m, nil
+		}
 		var cmd tea.Cmd
 		m.linksPanel, cmd = m.linksPanel.update(msg)
 		return true, m, cmd

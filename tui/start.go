@@ -996,6 +996,18 @@ func (m startModel) filtering() bool {
 	return m.list.FilterState() == list.Filtering
 }
 
+// acceptFilter applies the typed filter synchronously (see list.go's
+// acceptFilter for why), then re-runs the cursor rule the FilterMatchesMsg
+// branch of update applies: filtering removes headers, so the cursor has to
+// land on the first real row rather than on a section title.
+func (m *startModel) acceptFilter() {
+	if acceptFilter(&m.list) {
+		m.list.Select(0)
+		m.skipNonEntry(1)
+	}
+	m.setSize(m.common.width, m.common.bodyHeight())
+}
+
 func (m startModel) filterApplied() bool {
 	return m.list.FilterState() == list.FilterApplied
 }

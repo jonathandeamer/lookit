@@ -255,6 +255,38 @@ func (m listModel) filtering() bool {
 	return m.list.FilterState() == list.Filtering
 }
 
+// acceptFilter applies a bubbles list filter synchronously, and reports whether
+// the list ended up with a filter applied.
+//
+// bubbles computes matches in a tea.Cmd, and its own accept path
+// (list.handleFiltering) flips the list to FilterApplied using whatever match
+// set is installed at that moment. When the accept key arrives before the
+// FilterMatchesMsg for the query already on screen — a terminal delivering
+// "/bo\r\r" in a single read — the applied selection is the *pre-filter* row,
+// and the next key acts on it: Enter fingers the wrong account, b bookmarks a
+// target the user never highlighted (issue #129). The late message then lands
+// and the list visibly settles on the right row, which is what makes the
+// mismatch so hard to read as a bug.
+//
+// SetFilterText runs the same filter synchronously, so re-applying the query
+// that is already in the input settles the matches before anything can act on
+// the selection. The two cases bubbles special-cases on accept are reproduced
+// here: an empty query and a query matching nothing both clear the filter
+// rather than applying it.
+func acceptFilter(l *list.Model) bool {
+	if l.FilterValue() == "" {
+		l.ResetFilter()
+		return false
+	}
+	l.SetFilterText(l.FilterValue())
+	if len(l.VisibleItems()) == 0 {
+		l.ResetFilter()
+		return false
+	}
+	l.FilterInput.Blur()
+	return true
+}
+
 func extractListPreamble(body []byte) string {
 	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
 	if preamble, ok := columnarPreamble(lines); ok {

@@ -339,10 +339,12 @@ func (d startDelegate) renderEntry(w io.Writer, m list.Model, index int, item st
 			// No fill while the input holds focus: a tinted full-width shelf
 			// reads as an active selection, so it competes with the input's
 			// cursor for the one focus signal on screen. The left rule alone
-			// keeps the place browsing will resume from.
+			// keeps the place browsing will resume from — in Dim rather than
+			// Rule, which at #ded8e8 on #fbfafc all but vanishes in a light
+			// terminal, losing the resume point along with the fill.
 			inactiveShelf := lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder(), false, false, false, true).
-				BorderForeground(d.st.palette.Rule).
+				BorderForeground(d.st.palette.Dim).
 				Padding(0, 0, 0, 1)
 			titleStyle = inactiveShelf.Foreground(d.st.palette.Text)
 			descStyle = inactiveShelf.Foreground(d.st.palette.Dim)

@@ -162,7 +162,7 @@ func assertFullWidthStyledLine(t *testing.T, name, line string, width int, bg co
 }
 
 // assertRuleOnlyShelf checks the inactive selection treatment across every row
-// the delegate gives the selected entry: a left rule in the rule colour and no
+// the delegate gives the selected entry: a left rule in the given colour and no
 // fill behind any of them, so the shelf cannot be read as an active selection
 // while focus lives in the target input. rows is the delegate height — 1 in the
 // wide layout, where the note shares the title's row, and 2 in the narrow one,

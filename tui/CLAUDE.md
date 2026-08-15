@@ -46,9 +46,17 @@ while open, where `?` acts as the toggle back.
 - **Drilling & navigation:** Enter on a list user fingers `login@host`; entries that carry an explicit `User.Target` (from `finger://` links or `finger user@host` commands in the response) drill cross-host. **Safety:** server-supplied targets are parsed with `finger.ParseTargetPinned`, which forces port 79 — discarding any explicit port rather than rejecting it, so a malformed/out-of-range port doesn't silently kill the drill — and refuses forwarded `user@host@relay` targets lifted from a response (`finger.ErrServerForwarding`); user-typed ports and forwarding are preserved. Back navigation is history-based: each landed screen is a `histNode` (`push`/`snapshot`/`restore`/`stepBack`), so Esc walks back **without re-fetching** and falls through to the empty target screen at the root; Ctrl+C always quits, Esc is context-dependent. `handleKey`/`drill` return a concrete `appModel`, and `Update` adopts the returned model even when a key isn't fully handled (so model mutations survive a non-handled key).
 - **About screen (about.go):** a full-screen `stateAbout`, opened with `a`. It holds the `☞ lookit` gradient hero (the wordmark lives here, not on the landing), the version/repo/licence, and two actions — finger the author (`↵`) and copy the issues URL (`y`). **Honest keybinding:** `a` is matched only when content is focused (input blurred) or the `?` help panel is open (the landing reaches About via `?`→`a`) — *never* in the input-focused branch, so `a` types into a target like `alice@host`. About is transient: not pushed to history; `aboutFromState` restores the origin screen on close.
 
-## Second untrusted-input ingress
+## Second ingress: the bookmarks file
 
 The bookmarks file (`tui/bookmarks.go`) is the one ingress outside `finger.Query`.
 It validates rather than sanitizes, and displays nothing unvalidated — see
 `finger/CLAUDE.md` for the full contract, and change it only with that contract
 in hand.
+
+It is *not* untrusted input in the sense `Query` is: it lives at
+`~/.config/lookit/bookmarks`, `0o600` under a `0o700` dir, so anyone who can write
+it already owns the home directory. Treat it as an ingress because it parses
+external bytes that must not panic and must not reach the display unvalidated —
+the file is hand-editable by design, and `toggleBookmark` can persist a
+drilled target derived from a remote response body, so a hostile host has narrow,
+validator-filtered influence over its contents.

@@ -3973,7 +3973,14 @@ func TestFilteringKeepsCanonicalServiceParents(t *testing.T) {
 	}
 }
 
-func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
+// The overview counts what each section is showing, not unique listings. A
+// structural parent is a row on screen in SERVICES, so it counts there — which
+// is why pinning a service host that keeps its children does not move the
+// services count, and why a host on screen twice (@happynetbox.com always, a
+// pinned group parent while pinned) is counted twice in the totals. Counting
+// unique listings instead made the SERVICES count contradict the section it
+// described: the header stayed on screen and the number fell (#123).
+func TestOverviewAndStatusCountsFollowRowsOnScreen(t *testing.T) {
 	tests := []struct {
 		name   string
 		seed   string
@@ -3981,10 +3988,14 @@ func TestOverviewAndStatusCountsExcludeStructuralCopies(t *testing.T) {
 		want   startOverviewCounts
 		total  int
 	}{
-		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 22}, total: 28},
-		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 21}, total: 28},
-		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 21}, total: 28},
-		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 22}, total: 29},
+		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 23}, total: 29},
+		// Pinning a child really does remove a row from SERVICES, so this
+		// count honestly falls; pinning the parent does not, so it holds.
+		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 22}, total: 29},
+		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 23}, total: 30},
+		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 23}, total: 30},
+		// A filter flattens the view and drops structural rows with it, so no
+		// host is counted twice under one.
 		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},
 		{name: "filtered pinned parent", seed: "@happynetbox.com\n", filter: "happynetbox.com", want: startOverviewCounts{bookmarks: 1, services: 5}, total: 6},
 	}

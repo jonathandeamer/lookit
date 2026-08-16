@@ -24,7 +24,7 @@ make review-tui
 
 That builds `./lookit` and the loopback fingerd, starts the fingerd, and
 records every `chrome-*.tape` and `responses-*.tape` into
-`out/tui-review/<tape>/` — eight directories. Or record one tape:
+`out/tui-review/<tape>/` — twelve directories. Or record one tape:
 
 ```
 make build review-fingerd
@@ -43,10 +43,30 @@ can't leave frames behind for the next one to file under its own name. Every
 directory is then checked by `verify-frames.sh` (blank stills, duplicate
 stills — see "Why the tapes sleep before every Screenshot").
 
-A full run takes about 3½ minutes. Everything it writes lands in `out/`, which
-is gitignored wholesale — nothing generated is ever interleaved with the tapes
-and fixtures here, and `make clean` removes all of it. Re-record when chrome
-changes; do not commit PNGs.
+A full run takes about seven minutes. Everything it writes lands in `out/`,
+which is gitignored wholesale — nothing generated is ever interleaved with the
+tapes and fixtures here, and `make clean` removes all of it. Re-record when
+chrome changes; do not commit PNGs.
+
+### One tape failing does not end the run
+
+`record-tape.sh` records a single tape and `make review-tui` calls it once per
+tape, **carrying on when one fails**. The run still builds the contact sheets,
+then lists the tapes that did not record and exits non-zero — so a tape that
+drops out at slot 10 of 12 costs you two geometries, not the whole review.
+Before that, one tape failing ended the target before `review-sheet` ever ran,
+which meant no sheets at all, including for the nine tapes that had recorded.
+
+It retries a failed tape once, after a pause. `vhs` loses its `ttyd` socket
+often enough (`use of closed network connection`, a different tape each run,
+each of them recording perfectly on its own) that a 12-tape run rarely
+finished. That is a flake in the harness, not in the scene, and this is a local
+review tool rather than a CI gate, so a retry is the right size of fix.
+
+A tape that fails twice leaves **no** directory behind, so its stale frames
+from an earlier run are never tiled into this run's sheet and read as current.
+Record it by hand afterwards (`vhs docs/tui-review/<name>.tape`) and re-run
+`make review-sheet`.
 
 ## Why the tapes sleep before every Screenshot
 

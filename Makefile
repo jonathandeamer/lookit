@@ -123,28 +123,22 @@ review-tui: build review-fingerd ## record the visual-review stills into out/ (n
 		echo "(port already bound by something else? stale fingerd? run: $(REVIEW_FINGERD) -ping)"; \
 		exit 1; \
 	fi; \
+	failed=''; \
 	for tape in $(REVIEW_CHROME_TAPES) $(REVIEW_RESPONSES_TAPES); do \
-		name=$$(basename "$$tape" .tape); \
-		tour=$$(awk '/^Source /{print $$2}' "$$tape"); \
-		want=$$(grep -c '^Screenshot ' "$$tour"); \
-		echo "recording $$name ($$want stills)"; \
-		rm -f out/tui-review/*.png out/tui-review/_render.txt; \
-		vhs "$$tape" || exit 1; \
-		got=$$(ls out/tui-review/*.png 2>/dev/null | wc -l | tr -d ' '); \
-		if [ "$$got" != "$$want" ]; then \
-			echo "$$name: recorded $$got stills, $$tour asks for $$want"; \
-			echo "(a Screenshot with no following Sleep writes nothing)"; \
-			exit 1; \
-		fi; \
-		dest=out/tui-review/$$name; \
-		mkdir -p "$$dest"; \
-		rm -f "$$dest"/*.png; \
-		mv out/tui-review/*.png "$$dest/"; \
-		rm -f out/tui-review/_render.txt; \
-		sh docs/tui-review/verify-frames.sh "$$dest" || exit 1; \
-	done
-	@$(MAKE) --no-print-directory review-sheet
-	@echo "wrote out/tui-review/{chrome,responses}-{80-dark,100-dark,60-dark,80-light}/"
+		sh docs/tui-review/record-tape.sh "$$tape" || failed="$$failed $$(basename "$$tape" .tape)"; \
+	done; \
+	sheets=ok; \
+	$(MAKE) --no-print-directory review-sheet || sheets=FAILED; \
+	echo "wrote out/tui-review/<tape>/ for each tape that recorded"; \
+	if [ -n "$$failed" ]; then \
+		echo; \
+		echo "  ! these tapes did not record:$$failed"; \
+		echo "    the sheets above cover the rest; re-record one by hand with"; \
+		echo "    sh docs/tui-review/record-tape.sh docs/tui-review/<name>.tape"; \
+		echo "    then rebuild its sheet with: make review-sheet"; \
+		echo; \
+	fi; \
+	[ "$$sheets" = ok ] && [ -z "$$failed" ]
 
 review-sheet: ## tile each recorded directory into one contact sheet
 	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install ffmpeg)"; exit 1; }

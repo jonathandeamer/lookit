@@ -24,7 +24,7 @@ make review-tui
 
 That builds `./lookit` and the loopback fingerd, starts the fingerd, and
 records every `chrome-*.tape` and `responses-*.tape` into
-`out/tui-review/<tape>/` — eight directories. Or record one tape:
+`out/tui-review/<tape>/` — twelve directories. Or record one tape:
 
 ```
 make build review-fingerd
@@ -43,10 +43,34 @@ can't leave frames behind for the next one to file under its own name. Every
 directory is then checked by `verify-frames.sh` (blank stills, duplicate
 stills — see "Why the tapes sleep before every Screenshot").
 
-A full run takes about 3½ minutes. Everything it writes lands in `out/`, which
-is gitignored wholesale — nothing generated is ever interleaved with the tapes
-and fixtures here, and `make clean` removes all of it. Re-record when chrome
-changes; do not commit PNGs.
+A full run takes about seven minutes. Everything it writes lands in `out/`,
+which is gitignored wholesale — nothing generated is ever interleaved with the
+tapes and fixtures here, and `make clean` removes all of it. Re-record when
+chrome changes; do not commit PNGs.
+
+### One tape failing does not end the run
+
+`record-tape.sh` records a single tape and `make review-tui` calls it once per
+tape, **carrying on when one fails**. The run still builds the contact sheets,
+then lists the tapes that did not record and exits non-zero — as it also does
+when the sheets themselves fail, even with every tape recorded — so a tape
+that drops out at slot 10 of 12 costs you two geometries, not the whole
+review.
+Before that, one tape failing ended the target before `review-sheet` ever ran,
+which meant no sheets at all, including for the nine tapes that had recorded.
+
+It retries a failed tape once, after a pause. `vhs` loses its `ttyd` socket
+often enough (`use of closed network connection`, a different tape each run,
+each of them recording perfectly on its own) that a 12-tape run rarely
+finished. That is a flake in the harness, not in the scene, and this is a local
+review tool rather than a CI gate, so a retry is the right size of fix.
+
+A tape that fails twice leaves **no** directory behind — including one that
+recorded fine and only failed the frame check — so its stale frames from an
+earlier run are never tiled into this run's sheet and read as current. Record
+it by hand afterwards (`sh docs/tui-review/record-tape.sh
+docs/tui-review/<name>.tape`, which files the stills where plain `vhs` does
+not) and re-run `make review-sheet`.
 
 ## Why the tapes sleep before every Screenshot
 
@@ -162,12 +186,40 @@ is the worst possible error in a kit whose job is judging density.
 | `about.png` | About (`a` from the open help panel) |
 | `bookmark.png` | `b` on `@cosmic.voyage`: flash, BOOKMARKS 2, catalog count drops |
 | `catalog-off.png` | `catalog off` in the file: BOOKMARKS is the whole page |
-| `start-many-bookmarks.png` | six pins (`fixtures/bookmarks-many`): BOOKMARKS carrying real weight |
+| `start-many-bookmarks.png` | six pins (`fixtures/bookmarks-many.sh`): BOOKMARKS carrying real weight, every last-visited bucket |
+| `start-many-filtered.png` | the same six pins under `/s`: each pinned note stands back down to its catalog description |
 
-The last three mutate the throwaway bookmarks file, so they run last — every
+The last four mutate the throwaway bookmarks file, so they run last — every
 earlier still shows the one-bookmark fixture state. `start-many-bookmarks`
 rewrites the file wholesale rather than appending, so it also clears the
 `catalog off` line the scene before it added.
+
+### The dated fixture is generated, not tracked
+
+A pinned row's note column holds its last-visited date as a relative phrase, so
+a committed RFC 3339 stamp rots: a fixture written today saying `visited 5 days
+ago` says `visited over 1 year ago` next summer, and the still quietly stops
+showing what the scene claims. `fixtures/bookmarks-many.sh` prints the file
+with the stamps computed at record time, and the tape redirects it into the
+throwaway config tree. No `Wait` in either scene matches a date — the pins land
+via the overview's `YOURS 6` count — so the text staying dynamic costs the tape
+nothing.
+
+Its six pins cover every bucket `relativeDay` can produce — today, yesterday,
+`N days ago`, `N months ago`, `over 1 year ago` — plus one undated pin, placed
+last so its blank note reads as *not visited yet* rather than as a feature that
+failed to render. That is also what separates the six rows from each other:
+before the dates existed every pinned note was blank, and
+`start-many-bookmarks` could not answer its own question (shelf, or fourth
+catalog section?) because the rows carried nothing the catalog does not.
+
+`start-many-filtered` is the other half. Flattening restores every row's
+catalog note, so the pinned rows swap `visited …` back for their descriptions —
+the one frame where the note column's two registers appear as one exchange. The
+query is `s` because bubbles ranks filter matches by score, not by section: a
+longer query pushes the pins below the fold, and `s` keeps a dated pin in the
+first few rows even in the two-line stacked layout at 60×20. Editing
+`tui/catalog.txt` reshuffles that ranking.
 
 Two things bite in that tail and are already handled. Quitting needs `Ctrl+C`,
 not `q`: lookit launches with the target input focused, so `q` types a literal
@@ -223,7 +275,8 @@ tape and hunt collisions, not just whether the screen rendered.
 4. macOS-first: no Option chords implied on screen, no mouse capture, native
    select/copy still possible.
 5. Specific hunts: status hints vs available width, help overlay vs the bar,
-   note column at 100 columns and crush at 60, BOOKMARKS vs catalog hierarchy,
+   note column at 100 columns and crush at 60, a pinned row's `visited …` date
+   against the catalog prose in the same column, BOOKMARKS vs catalog hierarchy,
    `├`/`└` children, selection shelf, gradient wordmark, input placeholder
    (`user@host or @host`) vs the list below it.
 

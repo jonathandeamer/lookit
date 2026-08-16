@@ -85,6 +85,83 @@ func TestBuildSectionsCopiesVisitedAfterTheCatalogOverlay(t *testing.T) {
 	}
 }
 
+// bookmarkTargets reads the BOOKMARKS section's targets in rendered order.
+func bookmarkTargets(t *testing.T, sections []startSection) []string {
+	t.Helper()
+	if len(sections) == 0 || sections[0].id != sectionBookmarks {
+		t.Fatalf("sections = %+v, want BOOKMARKS first", sections)
+	}
+	out := make([]string, 0, len(sections[0].entries))
+	for _, e := range sections[0].entries {
+		out = append(out, e.target)
+	}
+	return out
+}
+
+func TestBuildSectionsOrdersBookmarksOldestVisitFirst(t *testing.T) {
+	bm := bookmarkFile{
+		targets: []string{"@plan.cat", "@tilde.team", "quake@bbs.airandwave.net"},
+		visited: map[string]time.Time{
+			"@plan.cat":                time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC),
+			"@tilde.team":              time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+			"quake@bbs.airandwave.net": time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC),
+		},
+	}
+	got := bookmarkTargets(t, buildSections(catalogFixture(), bm))
+	want := []string{"@tilde.team", "quake@bbs.airandwave.net", "@plan.cat"}
+	if !slices.Equal(got, want) {
+		t.Errorf("bookmark order = %v, want %v (longest ago first)", got, want)
+	}
+}
+
+func TestBuildSectionsPutsNeverVisitedBookmarksLastInFileOrder(t *testing.T) {
+	bm := bookmarkFile{
+		targets: []string{"@never.example", "@plan.cat", "@also-never.example", "@tilde.team"},
+		visited: map[string]time.Time{
+			"@plan.cat":   time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC),
+			"@tilde.team": time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	got := bookmarkTargets(t, buildSections(catalogFixture(), bm))
+	want := []string{"@tilde.team", "@plan.cat", "@never.example", "@also-never.example"}
+	if !slices.Equal(got, want) {
+		t.Errorf("bookmark order = %v, want %v (undated last, keeping file order)", got, want)
+	}
+}
+
+func TestBuildSectionsKeepsFileOrderForBookmarksVisitedTogether(t *testing.T) {
+	same := time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC)
+	bm := bookmarkFile{
+		targets: []string{"quake@bbs.airandwave.net", "@plan.cat", "@tilde.team"},
+		visited: map[string]time.Time{
+			"quake@bbs.airandwave.net": same,
+			"@plan.cat":                same,
+			"@tilde.team":              same,
+		},
+	}
+	got := bookmarkTargets(t, buildSections(catalogFixture(), bm))
+	want := []string{"quake@bbs.airandwave.net", "@plan.cat", "@tilde.team"}
+	if !slices.Equal(got, want) {
+		t.Errorf("bookmark order = %v, want %v (equal dates tie-break on file order)", got, want)
+	}
+}
+
+func TestBuildSectionsSortManualKeepsFileOrder(t *testing.T) {
+	bm := bookmarkFile{
+		sortManual: true,
+		targets:    []string{"@plan.cat", "@never.example", "@tilde.team"},
+		visited: map[string]time.Time{
+			"@plan.cat":   time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC),
+			"@tilde.team": time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	got := bookmarkTargets(t, buildSections(catalogFixture(), bm))
+	want := []string{"@plan.cat", "@never.example", "@tilde.team"}
+	if !slices.Equal(got, want) {
+		t.Errorf("bookmark order = %v, want %v (sort manual keeps the file's order)", got, want)
+	}
+}
+
 func TestBuildSectionsBookmarkWithoutCatalogMatchHasNoDescription(t *testing.T) {
 	bm := bookmarkFile{targets: []string{"weather:99501@bbs.airandwave.net"}}
 	got := buildSections(catalogFixture(), bm)

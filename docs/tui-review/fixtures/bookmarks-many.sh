@@ -29,6 +29,11 @@
 # The undated row is deliberately last, next to a dated one: a blank note has
 # to read as "not visited yet" rather than as a feature that failed to render,
 # and it only reads that way beside the dates it is missing.
+#
+# The order below is authoring order, not screen order: the startpage renders a
+# shelf longest-ago first (buildSections), so the still shows these rows
+# reversed, with the undated one still last. That inversion is deliberate — a
+# fixture written in screen order would prove nothing about the sort.
 
 set -eu
 

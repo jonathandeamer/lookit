@@ -21,6 +21,18 @@ type startSection struct {
 	entries []startEntry
 }
 
+// sortByVisit orders dated rows longest-ago first and undated rows after them.
+// Display-only: the file is not rewritten. SliceStable ties on input order.
+func sortByVisit(entries []startEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i].visited, entries[j].visited
+		if a.IsZero() || b.IsZero() {
+			return !a.IsZero() && b.IsZero()
+		}
+		return a.Before(b)
+	})
+}
+
 // buildSections merges the two sources into the rendered order: the user's
 // bookmarks first, then the catalog grouped by kind.
 //
@@ -38,26 +50,6 @@ type startSection struct {
 // with a blank description. The date is copied after that overlay so it is not
 // wiped by the catalog entry — and only then can the shelf be ordered by it
 // (sortByVisit, unless the file says "sort manual").
-// sortByVisit orders a shelf longest-ago first, so the pins that have gone
-// unread rise to the top. Rows with no date sit below every dated row rather
-// than at the top: an undated pin is one lookit has never seen visited — often
-// one just added — and reading it as "infinitely stale" would bury the dated
-// ordering under new arrivals.
-//
-// The sort is display-only: nothing here rewrites the file, so a hand-arranged
-// shelf survives untouched behind the view and "sort manual" restores it.
-// SliceStable keeps the file's order as the tie-break, which is what makes the
-// undated block and same-second visits deterministic.
-func sortByVisit(entries []startEntry) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		a, b := entries[i].visited, entries[j].visited
-		if a.IsZero() || b.IsZero() {
-			return !a.IsZero() && b.IsZero()
-		}
-		return a.Before(b)
-	})
-}
-
 func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 	// Group lines are excluded from every listing map: they describe a header,
 	// not a place, so a bookmark must never inherit one.

@@ -160,17 +160,22 @@ Sleep 200ms
 # other still deterministic, but it cannot pose the question this one does:
 # with six pins, does BOOKMARKS still read as the user's own shelf, or as a
 # fourth catalog section? Pinning also empties two rows out of COMMUNITIES and
-# turns two service roots structural, and one bookmark deliberately matches no
-# catalog entry, so an unclassified row's blank note column is on screen.
-# This rewrites the file wholesale, so it also clears the "catalog off" line
-# the previous scene appended.
+# turns two service roots structural, two bookmarks deliberately match no
+# catalog entry, and the pins carry last-visited dates covering every bucket
+# the note column can render — today, yesterday, days, months, over a year,
+# and one unknown. This rewrites the file wholesale, so it also clears the
+# "catalog off" line the previous scene appended.
+#
+# The fixture is generated, not tracked: the dates are relative phrases, so a
+# committed stamp would rot through the buckets and the still would stop
+# showing what this comment claims. See fixtures/bookmarks-many.sh.
 #
 # The 1s is lookit actually exiting. 200ms was enough when `q` ended the tape,
 # but here the next line types into whatever holds the terminal — and if
-# lookit still does, the cp lands in the target input and the tape fails.
+# lookit still does, the redirect lands in the target input and the tape fails.
 Sleep 1s
 Hide
-Type "cp docs/tui-review/fixtures/bookmarks-many out/tui-review/xdg/lookit/bookmarks"
+Type "sh docs/tui-review/fixtures/bookmarks-many.sh > out/tui-review/xdg/lookit/bookmarks"
 Enter
 Type "clear"
 Enter
@@ -190,6 +195,34 @@ Wait+Screen /YOURS\s+6/
 Sleep 1500ms
 Screenshot out/tui-review/start-many-bookmarks.png
 Sleep 250ms
+
+# The same six pins under a filter. Flattening restores every row's catalog
+# note, so a pinned row's "visited …" stands back down to its description —
+# this is the only frame where that swap is visible, and it is why the note is
+# data a pinned row keeps rather than text it shows.
+#
+# "s" rather than a word: bubbles ranks filter matches by score, not by
+# section, so the pins scatter through the flattened list and a longer query
+# pushes them below the fold. "s" is the shortest query that puts a dated pin
+# in the first few rows at every geometry, including the two-line stacked
+# layout at 60×20. Editing tui/catalog.txt reshuffles that ranking.
+#
+# ↓ first, for the same reason quitting needs Ctrl+C here: lookit launched with
+# the target input focused, and "/" typed there is a literal slash in the
+# target, not a filter. The frame that mistake produces is the unfiltered page
+# with "/s" in the input — a plausible-looking still of the wrong screen.
+Down
+Sleep 200ms
+Type "/"
+Sleep 200ms
+Type "s"
+Wait+Screen /filter: s/
+Sleep 1500ms
+Screenshot out/tui-review/start-many-filtered.png
+Sleep 250ms
+
+Escape
+Sleep 200ms
 
 Ctrl+C
 Sleep 200ms

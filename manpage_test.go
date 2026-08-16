@@ -52,10 +52,48 @@ func TestManPageDocumentsEveryOption(t *testing.T) {
 	// roff escapes a leading hyphen as "\-" so it renders as a minus rather
 	// than a typographic dash; unescape before matching.
 	text := strings.ReplaceAll(string(page), `\-`, "-")
+	section, ok := manPageSection(text, "OPTIONS")
+	if !ok {
+		t.Fatalf("%s has no .SH OPTIONS", manPagePath)
+	}
 	for _, opt := range runOptions(t) {
-		if !strings.Contains(text, opt) {
-			t.Errorf("%s does not document %q", manPagePath, opt)
+		if !optionDocumented(section, opt) {
+			t.Errorf("%s OPTIONS does not document %q", manPagePath, opt)
 		}
+	}
+}
+
+func manPageSection(page, name string) (string, bool) {
+	mark := ".SH " + name
+	start := strings.Index(page, mark)
+	if start < 0 {
+		return "", false
+	}
+	body := page[start+len(mark):]
+	if i := strings.Index(body, "\n.SH "); i >= 0 {
+		body = body[:i]
+	}
+	return body, true
+}
+
+// optionDocumented requires opt as its own token so -h is not found inside --help.
+func optionDocumented(section, opt string) bool {
+	pat := regexp.MustCompile(`(?:^|[^A-Za-z0-9-])` + regexp.QuoteMeta(opt) + `(?:[^A-Za-z0-9-]|$)`)
+	return pat.MatchString(section)
+}
+
+func TestOptionDocumentedTreatsFlagsAsTokens(t *testing.T) {
+	if optionDocumented("--help", "-h") {
+		t.Error("-h must not match inside --help")
+	}
+	if optionDocumented("--version", "-v") {
+		t.Error("-v must not match inside --version")
+	}
+	if !optionDocumented("-h, --help", "-h") {
+		t.Error("-h should match as its own token")
+	}
+	if !optionDocumented("-h, --help", "--help") {
+		t.Error("--help should match as its own token")
 	}
 }
 

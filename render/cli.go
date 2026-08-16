@@ -35,9 +35,6 @@ func Usage(profile colorprofile.Profile) string {
 	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Field.Render("jonathan@tilde.team"))
 	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Field.Render("@plan.cat"))
 	fmt.Fprintln(&b)
-	// Two handoffs, because --help is a reminder and not the reference: "?" for
-	// the keys (context-aware, so only lookit itself can list them honestly),
-	// and the man page for everything else this deliberately leaves out.
 	fmt.Fprintln(&b, t.Footer.Render("Press ? inside lookit for keyboard shortcuts."))
 	fmt.Fprintln(&b, t.Footer.Render("See man lookit for the full reference."))
 	return b.String()

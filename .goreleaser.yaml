@@ -70,7 +70,7 @@ nfpms:
       - deb
       - rpm
     maintainer: Jonathan Deamer <jonathandeamer@gmail.com>
-    description: Finger client (RFC 1288) for the modern terminal
+    description: Interactive client for the finger protocol (RFC 1288)
     license: MIT
     homepage: "https://github.com/jonathandeamer/lookit"
     section: net
@@ -138,7 +138,7 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Casks
     homepage: "https://github.com/jonathandeamer/lookit"
-    description: "Finger client (RFC 1288) for the modern terminal"
+    description: "Interactive client for the finger protocol"
     # Homebrew symlinks this into its own man path, so `man lookit` works on
     # macOS the way it does from the deb/rpm on Linux.
     manpages:

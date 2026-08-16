@@ -118,7 +118,7 @@ func parseBookmarks(data []byte) bookmarkFile {
 			default:
 				out.problems = append(out.problems, parseProblem{
 					line:   lineNo,
-					reason: `expected "catalog off" or "catalog on"`,
+					reason: `expected "catalog on" or "catalog off"`,
 				})
 			}
 			continue
@@ -170,16 +170,54 @@ func stripComment(line string) string {
 	return line
 }
 
-// parseBookmarkTarget accepts a target with an optional RFC 3339 last-visited
-// date: "<target>" or "<target> <timestamp>". Anything else is refused. A bad
-// date refuses the whole record — a line lookit cannot understand is surfaced
-// as a problem, never guessed at (the file's existing contract), and only a
+// bookmarkFileHeader is written above the starter bookmark when lookit creates
+// the file, and never again: it is a greeting, not managed content, so a user
+// who deletes or rewrites it keeps their edit forever.
+//
+// The file is the whole of lookit's configuration UI, and a lone target line
+// documents none of it — that the second field is a date lookit maintains, that
+// "#" starts a comment, that either directive exists. Comments are already
+// skipped by the parser and preserved byte-for-byte by all three write paths,
+// so this costs the grammar nothing. TestBookmarkFileHeaderIsAllComments keeps
+// it parseable.
+const bookmarkFileHeader = `# lookit bookmarks — one target per line: @tilde.team, you@example.org
+#
+# lookit adds the date it last saw you visit a target (2026-08-14). The
+# startpage lists them longest ago first, so what you have been neglecting is
+# at the top. Anything after a "#" is a comment: lookit keeps it, never shows it.
+#
+# Edit this file while lookit is running: it re-reads it the next time you
+# return to the startpage ("h" from a page you have open).
+#
+#   catalog off    hide the built-in catalog
+#   sort manual    keep this file's order instead
+
+`
+
+// bookmarkDateLayout is the file's last-visited date: a plain calendar day.
+//
+// The display buckets by local calendar day (relativeDay), so a day is
+// everything it consumes — an instant would record a precision nothing reads
+// back, on every line of a file meant to be read by a person. The cost is
+// real but small: a visit recorded in one timezone and read in another can
+// land one bucket out, which day-fuzzy prose absorbs.
+const bookmarkDateLayout = "2006-01-02"
+
+// parseBookmarkTarget accepts a target with an optional last-visited date:
+// "<target>" or "<target> <YYYY-MM-DD>". Anything else is refused. A bad date
+// refuses the whole record — a line lookit cannot understand is surfaced as a
+// problem, never guessed at (the file's existing contract), and only a
 // validated time.Time ever reaches the display, so the file still needs no
 // sanitize call.
 func parseBookmarkTarget(line string) (string, time.Time, error) {
+	// The reasons below quote nothing from the file. A notice leads with the
+	// path and the line number, which already point at the offending text, and
+	// every cell an echo takes is one the reason cannot have: the startpage
+	// prints a notice as a single unwrapped row, so a reason that outgrows the
+	// terminal costs the page a line it has not budgeted.
 	fields := strings.Fields(line)
 	if len(fields) == 0 || len(fields) > 2 {
-		return "", time.Time{}, fmt.Errorf("expected a target with an optional RFC 3339 date, got %q", line)
+		return "", time.Time{}, fmt.Errorf("expected a target and an optional date")
 	}
 	if err := validateTarget(fields[0]); err != nil {
 		return "", time.Time{}, err
@@ -187,12 +225,13 @@ func parseBookmarkTarget(line string) (string, time.Time, error) {
 	if len(fields) == 1 {
 		return fields[0], time.Time{}, nil
 	}
-	visited, err := time.Parse(time.RFC3339, fields[1])
-	// Spec: strict RFC 3339 UTC at seconds precision (the Z form the write
-	// path emits). time.RFC3339 also accepts offsets and +00:00; those are
-	// refused so the file's grammar stays one token, not "any RFC 3339".
-	if err != nil || fields[1] != visited.UTC().Truncate(time.Second).Format(time.RFC3339) {
-		return "", time.Time{}, fmt.Errorf("bad last-visited date %q (want RFC 3339, e.g. 2026-08-14T15:04:05Z)", fields[1])
+	// Local, not UTC: the date names the day the user was there, and that is
+	// the day relativeDay compares against. The round-trip check pins one
+	// spelling — "2026-8-4" parses but is refused, so what the file holds is
+	// always what the write path would emit.
+	visited, err := time.ParseInLocation(bookmarkDateLayout, fields[1], time.Local)
+	if err != nil || fields[1] != visited.Format(bookmarkDateLayout) {
+		return "", time.Time{}, fmt.Errorf("expected a date like 2026-08-14")
 	}
 	return fields[0], visited, nil
 }
@@ -206,7 +245,7 @@ func validateBookmarkRecordTarget(target string) error {
 		return err
 	}
 	if parsed != target {
-		return fmt.Errorf("target %q does not round-trip through the bookmarks file", target)
+		return fmt.Errorf("target %q cannot be saved unchanged", target)
 	}
 	return nil
 }
@@ -244,7 +283,10 @@ func validateTarget(target string) error {
 		return fmt.Errorf("target is not valid UTF-8")
 	}
 	if hasNonPrintingControl(target) {
-		return fmt.Errorf("target contains a non-printing Unicode control")
+		// "Invisible character", not the Unicode category: the user is looking
+		// at a target that appears ordinary, and naming Cf/Zl/Zp explains
+		// nothing about what they can see.
+		return fmt.Errorf("target has an invisible character")
 	}
 	if _, err := finger.ParseTarget(target); err != nil {
 		return fmt.Errorf("bad target %q: %w", target, err)
@@ -292,7 +334,7 @@ func loadBookmarks() (bookmarkFile, string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			data = appendBookmarkLine(nil, aboutFingerAuthor, time.Time{})
+			data = appendBookmarkLine([]byte(bookmarkFileHeader), aboutFingerAuthor, time.Time{})
 			return initializeBookmarkData(path, data), path
 		}
 		return bookmarkFile{problems: []parseProblem{{reason: "cannot read: " + err.Error()}}}, path
@@ -327,7 +369,7 @@ func appendBookmarkLine(data []byte, target string, visited time.Time) []byte {
 	}
 	record := target
 	if !visited.IsZero() {
-		record += " " + visited.UTC().Truncate(time.Second).Format(time.RFC3339)
+		record += " " + visited.Format(bookmarkDateLayout)
 	}
 	return []byte(out + record + "\n")
 }
@@ -353,10 +395,12 @@ func deleteBookmarkLine(data []byte, target string) []byte {
 // rewritten (all duplicates, consistent with deleteBookmarkLine), each keeps
 // its leading whitespace and its trailing comment byte-identical, and
 // everything else — comments, malformed lines, blanks, directives, ordering —
-// is untouched. changed is false when no record matched; that is also the
-// "is it bookmarked?" test for the caller.
+// is untouched. changed is false when no record matched *or when every match
+// already reads the way it would be rewritten*, so a second visit on the
+// same day writes nothing. The caller treats that as "nothing to save",
+// which is right for both cases.
 func updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool) {
-	stamp := ts.UTC().Truncate(time.Second).Format(time.RFC3339)
+	stamp := ts.Format(bookmarkDateLayout)
 	lines := strings.Split(string(data), "\n")
 	changed := false
 	for i, line := range lines {
@@ -365,12 +409,16 @@ func updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool)
 			continue
 		}
 		rewritten := rewriteBookmarkRecord(line, target, stamp)
+		if rewritten == line {
+			continue
+		}
 		// Round-trip guard: the emitted record must parse back to the same
-		// target and instant, or the line is left untouched rather than
-		// writing a record the parser would later refuse.
+		// target and day, or the line is left untouched rather than writing a
+		// record the parser would later refuse. The day is compared as the
+		// text the file holds, not as an instant: the parser reads a date as
+		// local midnight, while ts carries whatever zone the caller had.
 		check, checkTS, err := parseBookmarkTarget(strings.TrimSpace(stripComment(rewritten)))
-		want, _ := time.Parse(time.RFC3339, stamp)
-		if err != nil || check != target || !checkTS.Equal(want) {
+		if err != nil || check != target || checkTS.Format(bookmarkDateLayout) != stamp {
 			continue
 		}
 		lines[i] = rewritten

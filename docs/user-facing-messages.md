@@ -110,14 +110,14 @@ embedded catalog and the bookmarks file.
 | `No entries.` | `tui/start.go` (`newStart`, bubbles `NoItems`) | List empty chrome. Unreachable while typing a zero-match filter (that state uses `noMatchMessage`); reachable only if the list itself has no items. |
 | `No bookmarks yet.` | `tui/app.go` (`startEmptyMessage`) | File-level empty body when the catalog is visible and there is nothing to show. |
 | `No bookmarks yet. The catalog is off — remove \`catalog off\` from <path> to see it.` | `tui/app.go` (`startEmptyMessage`) | File-level empty body when `catalog off` is set and there are no bookmarks. |
-| `<path>: <reason>` / `<path> line <n>: <reason>` / `<n> unreadable lines in <path> (line …)` | `tui/app.go` (`startNotice`) | Bookmark-file problems, named so the user edits the file actually in use. |
-| `expected "catalog off" or "catalog on"` | `tui/bookmarks.go` (`parseBookmarks`) | Reason on a bad `catalog` directive. |
+| `<path>: <reason>` / `<path> line <n>: <reason>` / `… (+<n>)` | `tui/app.go` (`startNotice`) | Bookmark-file problems, named so the user edits the file actually in use. Several problems report the first in full and count the rest; the count is terse because the notice is printed as one unwrapped row. |
+| `expected "catalog on" or "catalog off"` | `tui/bookmarks.go` (`parseBookmarks`) | Reason on a bad `catalog` directive. |
 | `expected "sort visited" or "sort manual"` | `tui/bookmarks.go` (`parseBookmarks`) | Reason on a bad `sort` directive. |
-| `expected a target with an optional RFC 3339 date, got "…"` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line that is not a target plus an optional last-visited date. |
-| `bad last-visited date "…" (want RFC 3339, e.g. 2026-08-14T15:04:05Z)` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line whose date is not strict RFC 3339 UTC at seconds precision. |
-| `target "…" does not round-trip through the bookmarks file` | `tui/bookmarks.go` (`validateBookmarkRecordTarget`) | Reason a target cannot be persisted as a bookmark record; surfaced via the `error: cannot bookmark: <reason>` flash. |
+| `expected a target and an optional date` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line carrying more than a target and a date — most often a description, which belongs after a `#`. |
+| `expected a date like 2026-08-14` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line whose date is not a zero-padded `YYYY-MM-DD` calendar day. |
+| `target "…" cannot be saved unchanged` | `tui/bookmarks.go` (`validateBookmarkRecordTarget`) | Reason a target cannot be persisted as a bookmark record; surfaced via the `error: cannot bookmark: <reason>` flash. |
 | `target is not valid UTF-8` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target is not UTF-8. |
-| `target contains a non-printing Unicode control` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target carries C1/Cf/Zl/Zp. |
+| `target has an invisible character` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target carries C1/Cf/Zl/Zp. |
 | `bad target "…": <parse error>` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target failed `ParseTarget`. |
 | `cannot locate a config directory: …` / `cannot read: …` / `cannot create: …` | `tui/bookmarks.go` (`loadBookmarks`, `initializeBookmarkData`) | File-level problems with no line number. |
 

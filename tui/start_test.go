@@ -1423,9 +1423,9 @@ func TestStartNoItemsLineIsTheListsOwnNoun(t *testing.T) {
 }
 
 func TestStartViewShowsNoticeAndHeaders(t *testing.T) {
-	m := newStart(testCommon(), twoSections(), "2 unreadable lines in ~/.config/lookit/bookmarks", "")
+	m := newStart(testCommon(), twoSections(), "~/.config/lookit/bookmarks line 3: expected one target (and 1 more)", "")
 	got := m.View()
-	for _, want := range []string{"unreadable lines", "BOOKMARKS", "COMMUNITIES", "@tilde.team"} {
+	for _, want := range []string{"line 3: expected one target", "BOOKMARKS", "COMMUNITIES", "@tilde.team"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("View() missing %q:\n%s", want, got)
 		}

@@ -446,23 +446,25 @@ func (m *appModel) reloadStart() {
 
 // startNotice surfaces parse problems rather than swallowing them, naming the
 // file actually in use so the user edits the one that has an effect.
+//
+// Several problems report the first in full and count the rest. The startpage
+// budgets one unwrapped row for the notice; one described problem is the
+// actable one, and fixing it usually explains its neighbours.
 func startNotice(file bookmarkFile, path string) string {
 	if len(file.problems) == 0 {
 		return ""
 	}
 	shown := shortenHome(path)
-	if len(file.problems) == 1 {
-		p := file.problems[0]
-		if p.line == 0 {
-			return fmt.Sprintf("%s: %s", shown, p.reason)
-		}
-		return fmt.Sprintf("%s line %d: %s", shown, p.line, p.reason)
+	first := file.problems[0]
+	where := shown + ":"
+	if first.line > 0 {
+		where = fmt.Sprintf("%s line %d:", shown, first.line)
 	}
-	lines := make([]string, 0, len(file.problems))
-	for _, p := range file.problems {
-		lines = append(lines, fmt.Sprintf("line %d", p.line))
+	notice := fmt.Sprintf("%s %s", where, first.reason)
+	if rest := len(file.problems) - 1; rest > 0 {
+		notice += fmt.Sprintf(" (+%d)", rest)
 	}
-	return fmt.Sprintf("%d unreadable lines in %s (%s)", len(file.problems), shown, strings.Join(lines, ", "))
+	return notice
 }
 
 // startEmptyMessage explains a blank startpage instead of letting it look

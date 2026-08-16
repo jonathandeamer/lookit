@@ -21,6 +21,18 @@ type startSection struct {
 	entries []startEntry
 }
 
+// sortByVisit orders dated rows longest-ago first and undated rows after them.
+// Display-only: the file is not rewritten. SliceStable ties on input order.
+func sortByVisit(entries []startEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i].visited, entries[j].visited
+		if a.IsZero() || b.IsZero() {
+			return !a.IsZero() && b.IsZero()
+		}
+		return a.Before(b)
+	})
+}
+
 // buildSections merges the two sources into the rendered order: the user's
 // bookmarks first, then the catalog grouped by kind.
 //
@@ -36,7 +48,8 @@ type startSection struct {
 // The bookmark file stores targets and an optional last-visited date. A catalog
 // match supplies its authored metadata; an unmatched target stays unclassified
 // with a blank description. The date is copied after that overlay so it is not
-// wiped by the catalog entry.
+// wiped by the catalog entry — and only then can the shelf be ordered by it
+// (sortByVisit, unless the file says "sort manual").
 func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 	// Group lines are excluded from every listing map: they describe a header,
 	// not a place, so a bookmark must never inherit one.
@@ -61,6 +74,9 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 			e.bookmarked = true
 			e.visited = bm.visited[target] // zero when unknown — the row renders blank
 			bookmarked = append(bookmarked, e)
+		}
+		if !bm.sortManual {
+			sortByVisit(bookmarked)
 		}
 		sections = append(sections, startSection{id: sectionBookmarks, title: "BOOKMARKS", entries: bookmarked})
 	}

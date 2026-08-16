@@ -82,6 +82,7 @@ type bookmarkFile struct {
 	targets       []string
 	visited       map[string]time.Time // last-visited instant per target; absent = unknown
 	catalogHidden bool
+	sortManual    bool // "sort manual": render the shelf in file order, not oldest-visit-first
 	problems      []parseProblem
 }
 
@@ -94,6 +95,20 @@ func parseBookmarks(data []byte) bookmarkFile {
 			continue
 		}
 		fields := strings.Fields(line)
+		if fields[0] == "sort" {
+			switch {
+			case len(fields) == 2 && fields[1] == "manual":
+				out.sortManual = true
+			case len(fields) == 2 && fields[1] == "visited":
+				out.sortManual = false
+			default:
+				out.problems = append(out.problems, parseProblem{
+					line:   lineNo,
+					reason: `expected "sort visited" or "sort manual"`,
+				})
+			}
+			continue
+		}
 		if fields[0] == "catalog" {
 			switch {
 			case len(fields) == 2 && fields[1] == "off":

@@ -101,6 +101,33 @@ func TestParseBookmarksCatalogOff(t *testing.T) {
 	}
 }
 
+func TestParseBookmarksSortManual(t *testing.T) {
+	got := parseBookmarks([]byte("sort manual\n@plan.cat\n"))
+	if !got.sortManual {
+		t.Fatal("sortManual = false, want true")
+	}
+	if len(got.targets) != 1 {
+		t.Fatalf("targets = %+v, want 1", got.targets)
+	}
+	if len(got.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", got.problems)
+	}
+}
+
+func TestParseBookmarksSortVisitedIsTheDefault(t *testing.T) {
+	if parseBookmarks([]byte("@plan.cat\n")).sortManual {
+		t.Error("sortManual = true with no directive, want false")
+	}
+	// Last line wins, the same way the catalog directive resolves.
+	got := parseBookmarks([]byte("sort manual\nsort visited\n@plan.cat\n"))
+	if got.sortManual {
+		t.Error("sortManual = true after a later \"sort visited\", want false")
+	}
+	if len(got.problems) != 0 {
+		t.Errorf("problems = %+v, want none", got.problems)
+	}
+}
+
 func TestParseBookmarksRejects(t *testing.T) {
 	tests := []struct {
 		name string
@@ -111,6 +138,7 @@ func TestParseBookmarksRejects(t *testing.T) {
 		{name: "bidi override in target", line: "@plan\u202ecat.example"},
 		{name: "c1 control in target", line: "@plan\u009bcat.example"},
 		{name: "unknown directive", line: "catalog maybe"},
+		{name: "unknown sort directive", line: "sort soon"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

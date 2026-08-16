@@ -186,7 +186,7 @@ is the worst possible error in a kit whose job is judging density.
 | `about.png` | About (`a` from the open help panel) |
 | `bookmark.png` | `b` on `@cosmic.voyage`: flash, BOOKMARKS 2, catalog count drops |
 | `catalog-off.png` | `catalog off` in the file: BOOKMARKS is the whole page |
-| `start-many-bookmarks.png` | six pins (`fixtures/bookmarks-many.sh`): BOOKMARKS carrying real weight, every last-visited bucket |
+| `start-many-bookmarks.png` | six pins (`fixtures/bookmarks-many.sh`): BOOKMARKS carrying real weight, every last-visited bucket, longest ago at the top |
 | `start-many-filtered.png` | the same six pins under `/s`: each pinned note stands back down to its catalog description |
 
 The last four mutate the throwaway bookmarks file, so they run last — every
@@ -206,12 +206,21 @@ via the overview's `YOURS 6` count — so the text staying dynamic costs the tap
 nothing.
 
 Its six pins cover every bucket `relativeDay` can produce — today, yesterday,
-`N days ago`, `N months ago`, `over 1 year ago` — plus one undated pin, placed
-last so its blank note reads as *not visited yet* rather than as a feature that
-failed to render. That is also what separates the six rows from each other:
+`N days ago`, `N months ago`, `over 1 year ago` — plus one undated pin, which
+lands last so its blank note reads as *not visited yet* rather than as a feature
+that failed to render. That is also what separates the six rows from each other:
 before the dates existed every pinned note was blank, and
 `start-many-bookmarks` could not answer its own question (shelf, or fourth
 catalog section?) because the rows carried nothing the catalog does not.
+
+The dates also order the shelf: BOOKMARKS renders longest-ago first, undated
+rows last, so the still shows the fixture's six pins in the reverse of the
+order the script writes them. Check that inversion when you review the frame —
+it is the only place the ordering is visible, and a shelf that came out in file
+order means the sort did not run. A file carrying `sort manual` keeps its own
+order instead; no scene records that, because it draws the same six rows in the
+same two columns and only the sequence differs — nothing this kit can judge that
+`TestBuildSectionsSortManualKeepsFileOrder` does not already settle.
 
 `start-many-filtered` is the other half. Flattening restores every row's
 catalog note, so the pinned rows swap `visited …` back for their descriptions —

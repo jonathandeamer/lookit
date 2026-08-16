@@ -6,7 +6,7 @@ To build it and run the same checks CI does:
 
 ```
 make build
-make check    # vet, gofmt, lint, race tests
+make check    # vet, gofmt, lint, cross-compile, race tests
 make hooks    # installs the commit-message hook (once per clone — nothing else sets it up)
 ```
 

@@ -66,8 +66,8 @@ func TestPaginationDotsUseReadableHouseColours(t *testing.T) {
 			if got := st.list.ActivePaginationDot.Value(); got != "•" {
 				t.Fatalf("active pagination glyph = %q, want •", got)
 			}
-			if got := st.list.InactivePaginationDot.Value(); got != "•" {
-				t.Fatalf("inactive pagination glyph = %q, want •", got)
+			if got := st.list.InactivePaginationDot.Value(); got != "◦" {
+				t.Fatalf("inactive pagination glyph = %q, want ◦", got)
 			}
 		})
 	}

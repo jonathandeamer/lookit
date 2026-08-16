@@ -21,6 +21,15 @@ builds:
     goarch:
       - amd64
       - arm64
+      - arm
+    # 32-bit ARM only makes sense on linux here, and only at ARMv6: that is the
+    # Pi Zero / Pi 1 baseline (ARM1176JZF-S), and an ARMv6 binary also runs on
+    # the ARMv7 boards, so one build covers both rather than shipping two.
+    goarm:
+      - "6"
+    ignore:
+      - goos: darwin
+        goarch: arm
     # Inject the tag version and a YYYY-MM-DD build date into the vars main.go
     # reads (main.version / main.builtAt). The date format matches the about
     # screen's "built <date>" line.
@@ -34,13 +43,43 @@ archives:
   - id: lookit
     formats:
       - tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # The {{ .Arm }} suffix keeps 32-bit ARM archives self-describing
+    # (lookit_x.y.z_linux_armv6) and leaves the other names unchanged, since
+    # .Arm is empty for every non-arm target.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     # An explicit list replaces GoReleaser's default README/LICENSE globs, so
     # re-list them, and ship the generated dependency license notices alongside.
     files:
       - LICENSE
       - README.md
       - THIRD_PARTY_NOTICES.md
+
+# Linux packages, built by nfpm from the binaries above — no dpkg-deb or
+# rpmbuild needed, so they cross-build on any runner. These are files attached
+# to the GitHub release, not a repository: `apt install ./lookit_*.deb` works,
+# plain `apt install lookit` does not, and that would mean hosting a signed apt
+# repo. What they buy over the tar.gz is a managed install — the binary lands on
+# PATH, `apt remove lookit` cleans up, and the version is recorded.
+nfpms:
+  - id: lookit
+    package_name: lookit
+    formats:
+      - deb
+      - rpm
+    maintainer: Jonathan Deamer <jonathandeamer@gmail.com>
+    description: Finger client (RFC 1288) for the modern terminal
+    license: MIT
+    homepage: "https://github.com/jonathandeamer/lookit"
+    section: net
+    bindir: /usr/bin
+    # Mirrors the archives' extra files, under the paths a distro expects.
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/lookit/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/lookit/README.md
+      - src: THIRD_PARTY_NOTICES.md
+        dst: /usr/share/doc/lookit/THIRD_PARTY_NOTICES.md
 
 checksum:
   name_template: checksums.txt

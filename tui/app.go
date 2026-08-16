@@ -447,11 +447,9 @@ func (m *appModel) reloadStart() {
 // startNotice surfaces parse problems rather than swallowing them, naming the
 // file actually in use so the user edits the one that has an effect.
 //
-// Several problems report the FIRST one in full and count the rest. Listing
-// every line number and no reason at all — what this used to do — named the
-// lines but left the user to guess what was wrong with each; one described
-// problem is something to act on, and fixing it usually explains its
-// neighbours, since a file's bad lines tend to be bad the same way.
+// Several problems report the first in full and count the rest. The startpage
+// budgets one unwrapped row for the notice; one described problem is the
+// actable one, and fixing it usually explains its neighbours.
 func startNotice(file bookmarkFile, path string) string {
 	if len(file.problems) == 0 {
 		return ""

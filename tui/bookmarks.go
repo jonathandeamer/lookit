@@ -186,8 +186,8 @@ const bookmarkFileHeader = `# lookit bookmarks — one target per line: @tilde.t
 # startpage lists them longest ago first, so what you have been neglecting is
 # at the top. Anything after a "#" is a comment: lookit keeps it, never shows it.
 #
-# Edit this file while lookit is running: it re-reads it every time you return
-# to the startpage, so your changes show up as soon as you press "h".
+# Edit this file while lookit is running: it re-reads it the next time you
+# return to the startpage ("h" from a page you have open).
 #
 #   catalog off    hide the built-in catalog
 #   sort manual    keep this file's order instead
@@ -396,10 +396,9 @@ func deleteBookmarkLine(data []byte, target string) []byte {
 // its leading whitespace and its trailing comment byte-identical, and
 // everything else — comments, malformed lines, blanks, directives, ordering —
 // is untouched. changed is false when no record matched *or when every match
-// already reads the way it would be rewritten* — a second visit on the same
-// day now leaves the file alone, where a stamp carrying seconds moved on every
-// landing. The caller treats that as "nothing to save", which is exactly right
-// for both cases.
+// already reads the way it would be rewritten*, so a second visit on the
+// same day writes nothing. The caller treats that as "nothing to save",
+// which is right for both cases.
 func updateBookmarkLine(data []byte, target string, ts time.Time) ([]byte, bool) {
 	stamp := ts.Format(bookmarkDateLayout)
 	lines := strings.Split(string(data), "\n")

@@ -137,7 +137,7 @@ func newStyles(dark bool) styles {
 		SetString("•")
 	listStyles.InactivePaginationDot = listStyles.InactivePaginationDot.
 		Foreground(p.Dim).
-		SetString("•")
+		SetString("◦")
 	listStyles.ArabicPagination = listStyles.ArabicPagination.Foreground(p.BarText)
 	listStyles.DividerDot = listStyles.DividerDot.
 		Foreground(p.Rule).

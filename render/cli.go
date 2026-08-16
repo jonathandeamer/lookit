@@ -36,6 +36,7 @@ func Usage(profile colorprofile.Profile) string {
 	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Field.Render("@plan.cat"))
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, t.Footer.Render("Press ? inside lookit for keyboard shortcuts."))
+	fmt.Fprintln(&b, t.Footer.Render("See man lookit for the full reference."))
 	return b.String()
 }
 

@@ -1,0 +1,190 @@
+.\" Man page for lookit, a finger client built for exploring.
+.\" Preview it without installing:  man ./man/lookit.1
+.\"
+.\" Keep this readable as prose. It is the reference for people on a tilde or
+.\" pubnix box who have no browser to hand, so it explains rather than lists.
+.\" Deliberately absent: the keybindings. "?" inside lookit is context-aware and
+.\" derived from the live keymap, so any list printed here would start rotting
+.\" the day a binding moves.
+.TH LOOKIT 1 2026-08-16 lookit "User Commands"
+.SH NAME
+lookit \- interactive client for the finger protocol
+.SH SYNOPSIS
+.B lookit
+.RI [ target ]
+.br
+.B lookit
+.BR \-v | \-\-version
+.br
+.B lookit
+.BR \-h | \-\-help
+.SH DESCRIPTION
+lookit is a finger client built for exploring, not just querying. It opens a
+full-screen browser: the list of users on a host is selectable, links inside a
+response can be followed, and you can walk back through everywhere you have
+been without fetching any of it again.
+.PP
+Finger (RFC 1288, TCP port 79) is one of the oldest things on the internet: ask
+a server about a person and it tells you who they are, whether they are logged
+in, and whatever they have left in their \&.plan file. It faded when the web
+arrived but never died \(em tilde communities and public access unix systems
+still run finger servers, and people still keep a \&.plan as a slow, personal
+sort of microblog.
+.BR finger (1)
+is built around asking about one address; lookit is for looking around when you
+do not know where you are going.
+.PP
+Run it with no arguments and it opens on the startpage \(em a built-in catalog
+of finger communities and services, with your own bookmarks above it. Give it a
+target and it opens there instead, with the startpage one keypress away.
+.PP
+lookit only reads. It does not post, does not edit, does not poll, and does not
+answer anybody's queries; serving a \&.plan of your own is
+.BR fingerd (8)'s
+job.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Print a short usage summary and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version and build date and exit.
+.PP
+That is the entire command line. Everything else happens inside the browser,
+where pressing \fB?\fR shows the keys that work on the screen you are currently
+looking at. That list is the honest one, which is why there is not a copy of it
+here.
+.SH TARGETS
+At most one target may be given.
+.TP
+.I user@host
+Look up one person.
+.TP
+.I @host
+Ask a host who is around. When it answers with something lookit recognises as a
+list of users, that list opens for browsing; when it does not, the response is
+shown as it came.
+.TP
+.I finger://host/user
+A finger URL, of the sort you find inside a response.
+.PP
+Any of these may carry an explicit port, as in
+.IR @tilde.team:79 ;
+79 is the default and rarely needs saying. One-relay forwarding
+.RI ( user@host@relay )
+works. Longer relay chains do not, and lookit will tell you so rather than
+guess.
+.PP
+A blank or malformed target is not a usage error: lookit still opens, and shows
+you what was wrong with it where you can edit it.
+.SH FILES
+.TP
+.I ~/.config/lookit/bookmarks
+Your bookmarks, and the only configuration lookit has. If
+.B XDG_CONFIG_HOME
+is set, the file lives at
+.I $XDG_CONFIG_HOME/lookit/bookmarks
+instead.
+.PP
+This file is meant to be edited by hand, and lookit treats it that way: your
+comments, blank lines, indentation and ordering all survive anything it writes.
+One target per line, optionally followed by the date you were last there.
+.PP
+.RS 4
+.EX
+jonathan@tilde.team 2026\-08\-14
+@plan.cat
+weather@bbs.airandwave.net   # a note to yourself
+.EE
+.RE
+.PP
+Anything after a
+.B #
+is a comment. lookit keeps it exactly as you wrote it, and never displays
+it \(em it is for you, not for the screen.
+.PP
+lookit fills in those dates itself, whenever you visit somewhere you have
+already bookmarked. Visiting the same place twice in one day changes nothing,
+so the file stays quiet.
+.SS Settings
+Two settings can appear on a line of their own, anywhere in the file.
+.TP
+.B catalog off
+Hide the built-in catalog, leaving the startpage as your own bookmarks and
+nothing else.
+.B catalog on
+brings it back, and is the default.
+.TP
+.B sort manual
+Show your bookmarks in the order the file lists them. By default lookit shows
+them longest ago first, so whatever you have been neglecting is at the top, and
+anything it has never seen you visit waits at the bottom.
+.SS While you are editing
+You do not have to quit. lookit re-reads the file every time you return to the
+startpage, so your changes are one keypress away.
+.PP
+If a line does not make sense, lookit says so across the top of the startpage,
+naming the file and the line number, and ignores that one line. Nothing else in
+the file is affected, and nothing is silently rewritten.
+.PP
+On first run, if the file does not exist, lookit creates it \(em mode 0600, in a
+directory mode 0700 \(em with a short comment header explaining the format and
+.I jonathan@tilde.team
+as a starter bookmark. Delete that line if you would rather not have it: an
+existing file is always taken at its word, so it will not reappear. Deleting
+the file itself makes lookit create it again the next time it starts.
+.SH ENVIRONMENT
+.TP
+.B XDG_CONFIG_HOME
+Where lookit looks for its config directory. When set, the bookmarks file is
+.IR $XDG_CONFIG_HOME/lookit/bookmarks ;
+otherwise
+.IR ~/.config/lookit/bookmarks .
+.PP
+lookit detects your terminal's colour support and adapts to light and dark
+backgrounds on its own. It has no theme setting and no colour flag.
+.SH EXIT STATUS
+.TP
+.B 0
+lookit ran, and you quit it.
+.TP
+.B 1
+lookit could not start \(em an unknown option, more than one target, or a
+terminal it cannot run in. A finger lookup that fails is not an error here: it
+is shown inside the browser, and you carry on.
+.SH EXAMPLES
+Open the browser and start from the catalog:
+.PP
+.RS 4
+.EX
+lookit
+.EE
+.RE
+.PP
+Open on one person, or on a host to see who is around:
+.PP
+.RS 4
+.EX
+lookit jonathan@tilde.team
+lookit @plan.cat
+.EE
+.RE
+.PP
+Bookmark somewhere without opening lookit at all, by adding a line to the file:
+.PP
+.RS 4
+.EX
+echo '@cosmic.voyage' >> ~/.config/lookit/bookmarks
+.EE
+.RE
+.SH SEE ALSO
+.BR finger (1),
+.BR fingerd (8)
+.PP
+RFC 1288, the Finger User Information Protocol:
+https://www.rfc\-editor.org/rfc/rfc1288
+.PP
+Bugs, ideas and patches:
+https://github.com/jonathandeamer/lookit
+.SH AUTHOR
+Jonathan Deamer

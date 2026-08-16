@@ -21,7 +21,7 @@ ARMv6 build covers the ARMv7 boards too, so there is deliberately no separate
 binaries and attached to the release as files — they are not a repository, so
 `apt install ./lookit_*.deb` works and plain `apt install lookit` does not.
 
-The release archives bundle `README.md`, `LICENSE`, and a generated
+The release archives bundle `README.md`, `LICENSE`, `man/lookit.1`, and a generated
 `THIRD_PARTY_NOTICES.md` (the dependency license texts, required when
 redistributing the compiled binaries; regenerate with `make notices` after
 changing deps).

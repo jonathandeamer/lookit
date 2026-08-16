@@ -9,6 +9,22 @@ GORELEASER_VERSION := v2.16.0
 GO_LICENSES_VERSION := v1.6.0
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
+# Platforms the cross gate compiles for. Chosen for signal per second rather
+# than coverage: each one breaks differently from the host, so together they
+# catch the assumptions a Linux/macOS amd64/arm64 build never exercises.
+#
+#   linux/386      32-bit (int size, alignment)
+#   linux/arm      ARM, the Pi-class hardware finger daemons tend to run on
+#   openbsd/amd64  a non-Linux unix — finger is BSD-heritage, and the pubnixes
+#                  most likely to run this are on the BSDs
+#   windows/amd64  the least unix-like target, so it catches a stray
+#                  golang.org/x/sys/unix import fastest. A canary only: it is
+#                  deliberately not a published platform (finger/errors.go
+#                  classifies failures with syscall.ECONNREFUSED, which Windows
+#                  never matches), so drop it here if it ever costs more than
+#                  it catches.
+CROSS_TARGETS := linux/386 linux/arm openbsd/amd64 windows/amd64
+
 REVIEW_CHROME_TAPES := \
 	docs/tui-review/chrome-80-dark.tape \
 	docs/tui-review/chrome-100-dark.tape \
@@ -27,7 +43,7 @@ REVIEW_RESPONSES_TAPES := \
 
 REVIEW_FINGERD := out/fingerd
 
-.PHONY: build test race vet fmt fmt-check lint vuln check hooks hooks-check tidy clean \
+.PHONY: build test race vet fmt fmt-check lint cross vuln check hooks hooks-check tidy clean \
 	notices release-check release-snapshot release review-tui review-fingerd \
 	review-sheet
 
@@ -60,7 +76,15 @@ lint: ## run golangci-lint (config in .golangci.yml)
 vuln: ## scan dependencies for known vulnerabilities
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-check: vet fmt-check lint race ## run the full CI gate set
+cross: ## compile for other platforms to catch portability breaks (keeps no binaries)
+	@for t in $(CROSS_TARGETS); do \
+		os=$${t%%/*}; arch=$${t##*/}; \
+		printf 'cross %-16s ' "$$os/$$arch"; \
+		GOOS=$$os GOARCH=$$arch GOARM=6 CGO_ENABLED=0 go build ./... || exit 1; \
+		echo ok; \
+	done
+
+check: vet fmt-check lint cross race ## run the full CI gate set
 	@$(MAKE) --no-print-directory hooks-check
 
 # Runs last in `check` so the notice is the final thing on screen rather than

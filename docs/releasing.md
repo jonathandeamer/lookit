@@ -7,12 +7,19 @@ isn't releasing doesn't carry them.
 ## The pipeline
 
 `.github/workflows/release.yml` runs `make release` (GoReleaser) on a pushed
-`v*` tag, building macOS/Linux × amd64/arm64 archives, creating a **draft**
+`v*` tag, building macOS/Linux × amd64/arm64 archives plus a `linux/armv6`
+archive, `.deb`/`.rpm` packages for each Linux target, creating a **draft**
 GitHub release, and publishing the updated Homebrew cask to
 `jonathandeamer/homebrew-tap` (via `HOMEBREW_TAP_GITHUB_TOKEN`). Validate the
 config locally with `make release-check` and dry-run a build with
 `make release-snapshot`. Workflow actions are pinned to commit SHAs (Dependabot
 keeps them current).
+
+The `linux/armv6` build is the Pi Zero / Pi 1 baseline (ARM1176JZF-S). One
+ARMv6 build covers the ARMv7 boards too, so there is deliberately no separate
+`goarm: 7` archive. The `.deb`/`.rpm` packages are built by nfpm from those same
+binaries and attached to the release as files — they are not a repository, so
+`apt install ./lookit_*.deb` works and plain `apt install lookit` does not.
 
 The release archives bundle `README.md`, `LICENSE`, and a generated
 `THIRD_PARTY_NOTICES.md` (the dependency license texts, required when

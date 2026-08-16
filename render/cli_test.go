@@ -28,7 +28,8 @@ const plainUsage = "A finger client built for exploring, not just querying.\n" +
 	"  lookit jonathan@tilde.team\n" +
 	"  lookit @plan.cat\n" +
 	"\n" +
-	"Press ? inside lookit for keyboard shortcuts.\n"
+	"Press ? inside lookit for keyboard shortcuts.\n" +
+	"See man lookit for the full reference.\n"
 
 func TestUsagePlainIsByteIdentical(t *testing.T) {
 	if got := Usage(colorprofile.NoTTY); got != plainUsage {

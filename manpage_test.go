@@ -5,6 +5,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/colorprofile"
+
+	"github.com/jonathandeamer/lookit/render"
 )
 
 const manPagePath = "man/lookit.1"
@@ -52,6 +56,44 @@ func TestManPageDocumentsEveryOption(t *testing.T) {
 		if !strings.Contains(text, opt) {
 			t.Errorf("%s does not document %q", manPagePath, opt)
 		}
+	}
+}
+
+// TestTheThreeSurfacesPointAtEachOther guards the division of labour between
+// lookit's three documentation surfaces, each of which is deliberately
+// incomplete on its own:
+//
+//   - --help is a reminder of what to type, so it hands off to "?" for the keys
+//     and to the man page for everything else;
+//   - the man page is the full reference, but cannot list context-aware keys, so
+//     it hands off to "?" too;
+//   - the README sells and installs, and defers the bookmarks-file grammar to
+//     the man page rather than restating it.
+//
+// A handoff that goes missing turns its surface into a dead end, and nothing
+// else would notice.
+func TestTheThreeSurfacesPointAtEachOther(t *testing.T) {
+	help := render.Usage(colorprofile.NoTTY)
+	for _, want := range []string{"man lookit", "?"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("--help does not point at %q", want)
+		}
+	}
+
+	page, err := os.ReadFile(manPagePath)
+	if err != nil {
+		t.Fatalf("read %s: %v", manPagePath, err)
+	}
+	if !strings.Contains(string(page), `\fB?\fR`) {
+		t.Errorf("%s does not point at \"?\" for the keys it leaves out", manPagePath)
+	}
+
+	readme, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	if !strings.Contains(string(readme), "man lookit") {
+		t.Error("README.md does not point at the man page")
 	}
 }
 

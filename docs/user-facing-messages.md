@@ -15,7 +15,8 @@ named function or constant when changing copy; line numbers drift.
 | Message | Source | Surface |
 | --- | --- | --- |
 | `A finger client built for exploring, not just querying.` plus the structured `Usage:`, `Targets:`, `Options:`, and `Examples:` sections | `render/cli.go` (`Usage`) | `-h`/`--help` output on stdout. |
-| `Press ? inside lookit for keyboard shortcuts.` | `render/cli.go` (`Usage`) | Final pointer in `-h`/`--help` output. |
+| `Press ? inside lookit for keyboard shortcuts.` | `render/cli.go` (`Usage`) | First of two closing pointers in `-h`/`--help` output: the keys live in the app, not here. |
+| `See man lookit for the full reference.` | `render/cli.go` (`Usage`) | Second closing pointer in `-h`/`--help` output: everything help deliberately omits is in `man/lookit.1`. |
 | `lookit version <version> (built <builtAt>)`, or `lookit version <version>` when the build date is unknown | `main.go` (`versionString`) | `-v`/`--version` output on stdout. |
 | `lookit: unknown option "<option>"` followed by `Try 'lookit --help' for usage.` | `main.go` (`run`), `render/cli.go` (`InvocationError`) | Unknown option diagnostic on stderr. |
 | `lookit: expected at most one target` followed by `Try 'lookit --help' for usage.` | `main.go` (`run`), `render/cli.go` (`InvocationError`) | Excess positional-target diagnostic on stderr. |

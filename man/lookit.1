@@ -19,19 +19,20 @@ lookit \- browse finger servers from the terminal
 .B lookit
 .BR \-h | \-\-help
 .SH DESCRIPTION
+lookit is a finger client built for exploring, not just querying. It opens a
+full-screen browser: the list of users on a host is selectable, links inside a
+response can be followed, and you can walk back through everywhere you have
+been without fetching any of it again.
+.PP
 Finger (RFC 1288, TCP port 79) is one of the oldest things on the internet: ask
 a server about a person and it tells you who they are, whether they are logged
 in, and whatever they have left in their \&.plan file. It faded when the web
 arrived but never died \(em tilde communities and public access unix systems
 still run finger servers, and people still keep a \&.plan as a slow, personal
 sort of microblog.
-.PP
 .BR finger (1)
-is built around asking about one address. lookit is built for looking around
-when you do not know where you are going. It opens a full-screen browser: the
-list of users on a host is selectable, links inside a response can be followed,
-and you can walk back through everywhere you have been without fetching any of
-it again.
+is built around asking about one address; lookit is for looking around when you
+do not know where you are going.
 .PP
 Run it with no arguments and it opens on the startpage \(em a built-in catalog
 of finger communities and services, with your own bookmarks above it. Give it a

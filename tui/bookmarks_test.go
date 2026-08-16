@@ -68,6 +68,27 @@ func useNow(t *testing.T, now time.Time) {
 	t.Cleanup(func() { nowFn = saved })
 }
 
+// TestBookmarkFileHeaderIsAllComments guards the one thing that would make the
+// seeded header worse than none: a header lookit itself refuses to read.
+func TestBookmarkFileHeaderIsAllComments(t *testing.T) {
+	got := parseBookmarks([]byte(bookmarkFileHeader))
+	if len(got.problems) != 0 {
+		t.Fatalf("problems = %+v, want none: the header must parse clean", got.problems)
+	}
+	if len(got.targets) != 0 {
+		t.Fatalf("targets = %+v, want none: the header must not look like a bookmark", got.targets)
+	}
+	if got.catalogHidden || got.sortManual {
+		t.Errorf("catalogHidden=%v sortManual=%v, want both false: the header documents directives, it does not set them",
+			got.catalogHidden, got.sortManual)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(bookmarkFileHeader, "\n"), "\n") {
+		if line != "" && !strings.HasPrefix(line, "#") {
+			t.Errorf("header line %q is not a comment", line)
+		}
+	}
+}
+
 func TestParseBookmarksValidLines(t *testing.T) {
 	in := []byte("# my list\n\n@tilde.team\njonathan@tilde.team\nweather@bbs.airandwave.net # local comment\n")
 	got := parseBookmarks(in)
@@ -313,7 +334,7 @@ func TestLoadBookmarksMissingFileCreatesAuthorBookmark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read initialized bookmarks: %v", err)
 	}
-	if got, want := string(data), aboutFingerAuthor+"\n"; got != want {
+	if got, want := string(data), bookmarkFileHeader+aboutFingerAuthor+"\n"; got != want {
 		t.Fatalf("bookmarks = %q, want %q", got, want)
 	}
 	fileInfo, err := os.Stat(path)
@@ -404,9 +425,10 @@ func TestLoadBookmarksDoesNotRestoreDeletedAuthorBookmark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bookmarks after removal: %v", err)
 	}
-	// Deleting the only line leaves an existing zero-byte file, which remains
-	// authoritative rather than restoring the author bookmark.
-	if got, want := string(data), ""; got != want {
+	// Deleting the only record leaves the seeded header and nothing else. The
+	// file still exists, so it stays authoritative rather than being
+	// initialized again with the author bookmark.
+	if got, want := string(data), bookmarkFileHeader; got != want {
 		t.Fatalf("bookmarks after removal = %q, want %q", got, want)
 	}
 }
@@ -522,14 +544,16 @@ func TestParseCatalogLineKeepsTheWholeNote(t *testing.T) {
 }
 
 func TestParseBookmarksReadsLastVisited(t *testing.T) {
-	got := parseBookmarks([]byte("@plan.cat 2026-08-14T15:04:05Z\njonathan@tilde.team\n"))
+	got := parseBookmarks([]byte("@plan.cat 2026-08-14\njonathan@tilde.team\n"))
 	if len(got.problems) != 0 {
 		t.Fatalf("problems = %+v, want none", got.problems)
 	}
 	if len(got.targets) != 2 {
 		t.Fatalf("targets = %+v, want 2", got.targets)
 	}
-	want := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	// A date names a local calendar day, which is the unit relativeDay
+	// renders — so it is read as local midnight, not as UTC.
+	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local)
 	if !got.visited["@plan.cat"].Equal(want) {
 		t.Errorf("visited[@plan.cat] = %v, want %v", got.visited["@plan.cat"], want)
 	}
@@ -540,12 +564,13 @@ func TestParseBookmarksReadsLastVisited(t *testing.T) {
 
 func TestParseBookmarksRejectsBadDate(t *testing.T) {
 	for _, line := range []string{
-		"@plan.cat friendly",                   // two fields, second not a date
-		"@plan.cat 2026-08-14",                 // date only, not RFC 3339
-		"@plan.cat 2026-08-14T15:04:05",        // no zone
-		"@plan.cat 2026-08-14T15:04:05+00:00",  // RFC 3339, but not the UTC Z form
-		"@plan.cat 2026-08-14T15:04:05-07:00",  // offset zone
-		"@plan.cat 2026-08-14T15:04:05Z extra", // three fields
+		"@plan.cat friendly",              // two fields, second not a date
+		"@plan.cat 2026-08-14T15:04:05Z",  // an instant, not a day
+		"@plan.cat 2026-8-14",             // unpadded, so it would not round-trip
+		"@plan.cat 20260814",              // no separators
+		"@plan.cat 14/08/2026",            // a human ordering we do not accept
+		"@plan.cat 2026-13-01",            // no such month
+		"@plan.cat 2026-08-14 2026-08-15", // three fields
 	} {
 		got := parseBookmarks([]byte(line + "\n"))
 		if len(got.targets) != 0 {
@@ -558,17 +583,17 @@ func TestParseBookmarksRejectsBadDate(t *testing.T) {
 }
 
 func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
-	got := parseBookmarks([]byte("@plan.cat 2026-08-01T00:00:00Z\n@plan.cat 2026-08-14T00:00:00Z\n"))
+	got := parseBookmarks([]byte("@plan.cat 2026-08-01\n@plan.cat 2026-08-14\n"))
 	if len(got.targets) != 2 {
 		t.Fatalf("targets = %+v, want both duplicate rows kept", got.targets)
 	}
-	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)
+	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local)
 	if !got.visited["@plan.cat"].Equal(want) {
 		t.Errorf("visited[@plan.cat] = %v, want last-wins %v", got.visited["@plan.cat"], want)
 	}
 
 	// A later dateless duplicate is last-wins unknown, not "keep the earlier date".
-	got = parseBookmarks([]byte("@plan.cat 2026-08-14T00:00:00Z\n@plan.cat\n"))
+	got = parseBookmarks([]byte("@plan.cat 2026-08-14\n@plan.cat\n"))
 	if _, ok := got.visited["@plan.cat"]; ok {
 		t.Errorf("visited[@plan.cat] = %v, want absent after a trailing dateless duplicate", got.visited["@plan.cat"])
 	}
@@ -576,10 +601,10 @@ func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
 
 func TestUpdateBookmarkLineStampsTheDate(t *testing.T) {
 	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
-	in := "# my shelf\n@plan.cat\n\njonathan@tilde.team 2026-01-01T00:00:00Z # the author\ncatalog off\n"
-	want := "# my shelf\n@plan.cat 2026-08-14T15:04:05Z\n\njonathan@tilde.team 2026-08-14T15:04:05Z # the author\ncatalog off\n"
+	in := "# my shelf\n@plan.cat\n\njonathan@tilde.team 2026-01-01 # the author\ncatalog off\n"
+	want := "# my shelf\n@plan.cat 2026-08-14\n\njonathan@tilde.team 2026-08-14 # the author\ncatalog off\n"
 	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
-	if !changed || string(got) != in[:len("# my shelf\n")]+"@plan.cat 2026-08-14T15:04:05Z\n\njonathan@tilde.team 2026-01-01T00:00:00Z # the author\ncatalog off\n" {
+	if !changed || string(got) != in[:len("# my shelf\n")]+"@plan.cat 2026-08-14\n\njonathan@tilde.team 2026-01-01 # the author\ncatalog off\n" {
 		t.Fatalf("first target: changed=%v got=\n%q", changed, got)
 	}
 	got, changed = updateBookmarkLine(got, "jonathan@tilde.team", ts)
@@ -590,14 +615,23 @@ func TestUpdateBookmarkLineStampsTheDate(t *testing.T) {
 
 func TestUpdateBookmarkLinePreservesSpacingAndComments(t *testing.T) {
 	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
-	in := "  @plan.cat   2026-01-01T00:00:00Z   #  spaced comment\n"
+	in := "  @plan.cat   2026-01-01   #  spaced comment\n"
 	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
 	if !changed {
 		t.Fatal("changed = false, want the record rewritten")
 	}
 	s := string(got)
-	if want := "  @plan.cat 2026-08-14T15:04:05Z   #  spaced comment\n"; s != want {
+	if want := "  @plan.cat 2026-08-14   #  spaced comment\n"; s != want {
 		t.Errorf("got %q, want indent + record + original gap + comment", s)
+	}
+}
+
+func TestUpdateBookmarkLineSameDayIsANoOp(t *testing.T) {
+	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
+	in := "@plan.cat 2026-08-14 # already today\n"
+	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
+	if changed || string(got) != in {
+		t.Fatalf("changed=%v got=%q, want no write: the record already reads as today", changed, got)
 	}
 }
 
@@ -612,8 +646,8 @@ func TestUpdateBookmarkLineNoMatchWritesNothing(t *testing.T) {
 
 func TestUpdateBookmarkLineUpdatesEveryDuplicate(t *testing.T) {
 	ts := time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC)
-	in := "@plan.cat\n@plan.cat 2026-01-01T00:00:00Z\n"
-	want := "@plan.cat 2026-08-14T15:04:05Z\n@plan.cat 2026-08-14T15:04:05Z\n"
+	in := "@plan.cat\n@plan.cat 2026-01-01\n"
+	want := "@plan.cat 2026-08-14\n@plan.cat 2026-08-14\n"
 	got, changed := updateBookmarkLine([]byte(in), "@plan.cat", ts)
 	if !changed || string(got) != want {
 		t.Fatalf("changed=%v got=%q, want both duplicates at %q", changed, got, want)

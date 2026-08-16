@@ -11,7 +11,7 @@
 #
 # WHY THIS IS A SCRIPT AND NOT A TRACKED FILE. A pinned row's note column holds
 # its last-visited date as a relative phrase ("visited 5 days ago"), so a
-# hardcoded RFC 3339 stamp rots: a fixture written today saying "5 days ago"
+# hardcoded date rots: a fixture written today saying "5 days ago"
 # says "over 1 year ago" next summer, and the stills quietly stop showing what
 # the scene claims. Generating the stamps at record time keeps every run
 # starting from the same state, which is the whole premise of this kit.
@@ -37,12 +37,14 @@
 
 set -eu
 
-# stamp <days ago> -> RFC 3339 UTC at seconds precision, the one form
-# parseBookmarkTarget accepts. BSD date first (macOS is the primary target),
-# GNU date as the fallback so this works on a Linux clone too.
+# stamp <days ago> -> YYYY-MM-DD, the one form parseBookmarkTarget accepts.
+# Local, not UTC, because the date names a local calendar day — the same unit
+# relativeDay buckets by, so a stamp taken near midnight still reads as the day
+# the fixture meant. BSD date first (macOS is the primary target), GNU date as
+# the fallback so this works on a Linux clone too.
 stamp() {
-	date -u -v-"$1"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null ||
-		date -u -d "$1 days ago" +%Y-%m-%dT%H:%M:%SZ
+	date -v-"$1"d +%Y-%m-%d 2>/dev/null ||
+		date -d "$1 days ago" +%Y-%m-%d
 }
 
 cat <<EOF

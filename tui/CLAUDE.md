@@ -88,6 +88,8 @@ It validates rather than sanitizes, and displays nothing unvalidated — see
 `finger/CLAUDE.md` for the full contract, and change it only with that contract
 in hand.
 
+**The file is the whole of lookit's configuration UI**, so it documents itself: `loadBookmarks` seeds a new one with `bookmarkFileHeader` (comments only, written once and never re-applied) naming the record shape, the `#` comment rule, and both directives. A record's date is a plain `YYYY-MM-DD` day, not an instant — `relativeDay` buckets by local calendar day, so a day is everything the display consumes, and `updateBookmarkLine` leaves a record untouched when the rewrite would be byte-identical, which makes a second visit on the same day write nothing.
+
 It is *not* untrusted input in the sense `Query` is: it lives at
 `~/.config/lookit/bookmarks`, `0o600` under a `0o700` dir, so anyone who can write
 it already owns the home directory. Treat it as an ingress because it parses

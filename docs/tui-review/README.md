@@ -197,7 +197,7 @@ rewrites the file wholesale rather than appending, so it also clears the
 ### The dated fixture is generated, not tracked
 
 A pinned row's note column holds its last-visited date as a relative phrase, so
-a committed RFC 3339 stamp rots: a fixture written today saying `visited 5 days
+a committed date rots: a fixture written today saying `visited 5 days
 ago` says `visited over 1 year ago` next summer, and the still quietly stops
 showing what the scene claims. `fixtures/bookmarks-many.sh` prints the file
 with the stamps computed at record time, and the tape redirects it into the

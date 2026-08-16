@@ -1178,7 +1178,7 @@ func TestBookmarkKeyTogglesCurrentTargetInRawReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bookmark written from raw reader: %v", err)
 	}
-	if got, want := string(data), "alice@plan.cat 2026-08-14T15:04:05Z\n"; got != want {
+	if got, want := string(data), "alice@plan.cat 2026-08-14\n"; got != want {
 		t.Fatalf("bookmarks = %q, want %q", got, want)
 	}
 	if !strings.Contains(m.flash, "bookmarked alice@plan.cat") {
@@ -3475,6 +3475,55 @@ func TestStartNoticeNamesResolvedPath(t *testing.T) {
 	}
 }
 
+func TestStartNoticeKeepsTheFirstReasonWhenSeveralLinesFail(t *testing.T) {
+	file := bookmarkFile{problems: []parseProblem{
+		{line: 3, reason: "expected a date like 2026-08-14"},
+		{line: 7, reason: "expected a target and an optional date"},
+		{line: 9, reason: "expected a target and an optional date"},
+	}}
+	got := startNotice(file, "/tmp/xdg/lookit/bookmarks")
+	if !strings.Contains(got, "line 3") || !strings.Contains(got, "expected a date like 2026-08-14") {
+		t.Fatalf("notice = %q, want the first line and its reason: a list of line numbers says nothing to act on", got)
+	}
+	if !strings.Contains(got, "(+2)") {
+		t.Fatalf("notice = %q, want the count of the lines it did not describe", got)
+	}
+	if strings.Contains(got, "line 7") || strings.Contains(got, "line 9") {
+		t.Errorf("notice = %q, want the later lines summarized, not enumerated", got)
+	}
+}
+
+// TestStartNoticeFitsTheFirstClassWidth pins the budget the notice is printed
+// under: startModel.View prepends it as one unwrapped row and noticeHeight
+// counts "\n" only, so a notice wider than the terminal takes a second row the
+// layout never reserved. 80 columns is the first-class review tier and the
+// default path eats 26 of them, which is why the record reasons quote nothing
+// back from the file — the path and line number already point at it.
+//
+// It covers the record grammar only. A reason that quotes a target
+// (validateTarget) is as long as the target, so no amount of wording keeps it
+// inside a row.
+func TestStartNoticeFitsTheFirstClassWidth(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory to render a default path against: %v", err)
+	}
+	path := filepath.Join(home, ".config", "lookit", "bookmarks")
+	for _, bad := range []string{
+		"@plan.cat Big friendly pubnix", // more than a target and a date
+		"@tilde.team yesterday",         // unparseable date
+	} {
+		file := parseBookmarks([]byte(bad + "\n@plan.cat also bad\n@tilde.team also bad\n"))
+		if len(file.problems) != 3 {
+			t.Fatalf("%q: problems = %+v, want 3", bad, file.problems)
+		}
+		got := startNotice(file, path)
+		if width := ansi.StringWidth(got); width > 80 {
+			t.Errorf("notice is %d cells, want <= 80:\n%s", width, got)
+		}
+	}
+}
+
 func TestStartEmptyMessageNamesResolvedPath(t *testing.T) {
 	got := startEmptyMessage(bookmarkFile{catalogHidden: true}, "/tmp/xdg/lookit/bookmarks")
 	if !strings.Contains(got, "/tmp/xdg/lookit/bookmarks") {
@@ -4412,7 +4461,7 @@ func TestLandingStampsABookmarkedTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "alice@plan.cat 2026-08-14T15:04:05Z\n@tilde.team\n"
+	want := "alice@plan.cat 2026-08-14\n@tilde.team\n"
 	if string(data) != want {
 		t.Fatalf("bookmarks =\n%q\nwant\n%q", data, want)
 	}
@@ -4433,7 +4482,7 @@ func TestBookmarkingALandedPageStampsTheVisit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(data), "alice@plan.cat 2026-08-14T15:04:05Z\n"; got != want {
+	if got, want := string(data), "alice@plan.cat 2026-08-14\n"; got != want {
 		t.Fatalf("bookmarks = %q, want %q", got, want)
 	}
 }
@@ -4519,7 +4568,7 @@ func TestLandingStampsATruncatedSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "2026-08-14T15:04:05Z") {
+	if !strings.Contains(string(data), "2026-08-14") {
 		t.Fatalf("bookmarks = %q, want a stamp: post-body reset is Err == nil", data)
 	}
 }
@@ -4568,7 +4617,9 @@ func TestRefreshStampsTheVisit(t *testing.T) {
 	}
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m = deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
-	nowFn = func() time.Time { return time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC) }
+	// The next day, not the next hour: the file records a day, so a same-day
+	// refresh is deliberately a no-op and could not show that it ran.
+	nowFn = func() time.Time { return time.Date(2026, 8, 15, 16, 0, 0, 0, time.UTC) }
 	fresh := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi again\n")}
 	deliverRefresh(m, fresh, false)
 	data, err := os.ReadFile(path)
@@ -4576,10 +4627,10 @@ func TestRefreshStampsTheVisit(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(data)
-	if !strings.Contains(got, "2026-08-14T16:00:00Z") {
+	if !strings.Contains(got, "2026-08-15") {
 		t.Fatalf("bookmarks = %q, want the refresh to have stamped T2", data)
 	}
-	if strings.Contains(got, "2026-08-14T15:04:05Z") {
+	if strings.Contains(got, "2026-08-14") {
 		t.Fatalf("bookmarks = %q, want T1 replaced by the refresh stamp", data)
 	}
 }
@@ -4592,7 +4643,7 @@ func TestRefreshDoesNotStampAPartialBody(t *testing.T) {
 	}
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m = deliverNavigation(m, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("Plan: hi\n")})
-	nowFn = func() time.Time { return time.Date(2026, 8, 14, 16, 0, 0, 0, time.UTC) }
+	nowFn = func() time.Time { return time.Date(2026, 8, 15, 16, 0, 0, 0, time.UTC) }
 	partial := Entry{
 		Target: hostTarget(t, "alice@plan.cat"),
 		Body:   []byte("Plan: cut off"),
@@ -4604,10 +4655,10 @@ func TestRefreshDoesNotStampAPartialBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(data)
-	if !strings.Contains(got, "2026-08-14T15:04:05Z") {
+	if !strings.Contains(got, "2026-08-14") {
 		t.Fatalf("bookmarks = %q, want the successful landing stamp kept", data)
 	}
-	if strings.Contains(got, "2026-08-14T16:00:00Z") {
+	if strings.Contains(got, "2026-08-15") {
 		t.Fatalf("bookmarks = %q, want no refresh stamp when Err != nil", data)
 	}
 }

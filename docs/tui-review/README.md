@@ -52,8 +52,10 @@ chrome changes; do not commit PNGs.
 
 `record-tape.sh` records a single tape and `make review-tui` calls it once per
 tape, **carrying on when one fails**. The run still builds the contact sheets,
-then lists the tapes that did not record and exits non-zero — so a tape that
-drops out at slot 10 of 12 costs you two geometries, not the whole review.
+then lists the tapes that did not record and exits non-zero — as it also does
+when the sheets themselves fail, even with every tape recorded — so a tape
+that drops out at slot 10 of 12 costs you two geometries, not the whole
+review.
 Before that, one tape failing ended the target before `review-sheet` ever ran,
 which meant no sheets at all, including for the nine tapes that had recorded.
 
@@ -63,10 +65,12 @@ each of them recording perfectly on its own) that a 12-tape run rarely
 finished. That is a flake in the harness, not in the scene, and this is a local
 review tool rather than a CI gate, so a retry is the right size of fix.
 
-A tape that fails twice leaves **no** directory behind, so its stale frames
-from an earlier run are never tiled into this run's sheet and read as current.
-Record it by hand afterwards (`vhs docs/tui-review/<name>.tape`) and re-run
-`make review-sheet`.
+A tape that fails twice leaves **no** directory behind — including one that
+recorded fine and only failed the frame check — so its stale frames from an
+earlier run are never tiled into this run's sheet and read as current. Record
+it by hand afterwards (`sh docs/tui-review/record-tape.sh
+docs/tui-review/<name>.tape`, which files the stills where plain `vhs` does
+not) and re-run `make review-sheet`.
 
 ## Why the tapes sleep before every Screenshot
 

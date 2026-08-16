@@ -125,22 +125,20 @@ review-tui: build review-fingerd ## record the visual-review stills into out/ (n
 	fi; \
 	failed=''; \
 	for tape in $(REVIEW_CHROME_TAPES) $(REVIEW_RESPONSES_TAPES); do \
-		name=$$(basename "$$tape" .tape); \
-		tour=$$(awk '/^Source /{print $$2}' "$$tape"); \
-		want=$$(grep -c '^Screenshot ' "$$tour"); \
-		echo "recording $$name ($$want stills)"; \
-		sh docs/tui-review/record-tape.sh "$$tape" "$$want" || failed="$$failed $$name"; \
+		sh docs/tui-review/record-tape.sh "$$tape" || failed="$$failed $$(basename "$$tape" .tape)"; \
 	done; \
-	$(MAKE) --no-print-directory review-sheet; \
+	sheets=ok; \
+	$(MAKE) --no-print-directory review-sheet || sheets=FAILED; \
 	echo "wrote out/tui-review/<tape>/ for each tape that recorded"; \
 	if [ -n "$$failed" ]; then \
 		echo; \
 		echo "  ! these tapes did not record:$$failed"; \
-		echo "    the sheets above cover the rest; record one by hand with"; \
-		echo "    vhs docs/tui-review/<name>.tape"; \
+		echo "    the sheets above cover the rest; re-record one by hand with"; \
+		echo "    sh docs/tui-review/record-tape.sh docs/tui-review/<name>.tape"; \
+		echo "    then rebuild its sheet with: make review-sheet"; \
 		echo; \
-		exit 1; \
-	fi
+	fi; \
+	[ "$$sheets" = ok ] && [ -z "$$failed" ]
 
 review-sheet: ## tile each recorded directory into one contact sheet
 	@command -v ffmpeg >/dev/null || { echo "ffmpeg not on PATH (brew install ffmpeg)"; exit 1; }

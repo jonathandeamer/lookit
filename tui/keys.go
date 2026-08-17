@@ -3,9 +3,10 @@ package tui
 import "charm.land/bubbles/v2/key"
 
 // keyMap holds lookit's app-level key bindings. It is matched with key.Matches.
-// Scroll, page, and jump bindings are owned by the bubbles viewport/list at
-// runtime. Move and Page appear here so the help panel can advertise them; Jump
-// mirrors the working advanced shortcut but is intentionally omitted from help.
+// Scroll and page bindings are owned by the bubbles viewport/list at runtime.
+// Move and Page appear here so the help panel can advertise them. Jump is
+// routed to a viewport offset change in the reader (matching the vim-style
+// list behaviour) but is intentionally omitted from help.
 type keyMap struct {
 	FocusInput key.Binding
 	Back       key.Binding

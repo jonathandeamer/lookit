@@ -934,6 +934,17 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			return m.activateFocusedLink(node)
 		}
 		return false, m, nil // no focused link — fall through
+	case key.Matches(msg, m.keys.Jump) && m.state == stateReader:
+		// The Bubbles v2 viewport's default keymap has no g/G binding, so
+		// route the keyMap.Jump intent to a viewport offset change here —
+		// matching the vim-style list behaviour — instead of forwarding it
+		// to readerModel.update, where it would be inert.
+		if msg.Code == 'G' {
+			m.reader.viewport.GotoBottom()
+		} else {
+			m.reader.viewport.GotoTop()
+		}
+		return true, m, nil
 	case key.Matches(msg, m.keys.Raw) && m.pos >= 0:
 		if m.showingRaw {
 			m.exitRaw()

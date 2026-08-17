@@ -196,3 +196,28 @@ func TestReaderFocusedLinkScrollHasNoHeaderOffset(t *testing.T) {
 		t.Fatalf("YOffset = %d, want 2 without a header offset", got)
 	}
 }
+
+func TestReaderJumpKeysGotoTopAndBottom(t *testing.T) {
+	body := strings.Repeat("line\n", 40)
+	m := settledReader(t, Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte(body)})
+	m.reader.setSize(40, 6)
+	// Park mid-response so a jump has somewhere to go.
+	m.reader.viewport.SetYOffset(8)
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	got := next.(appModel)
+	if offset := got.reader.viewport.YOffset(); offset != 0 {
+		t.Fatalf("g: YOffset = %d, want 0 (top)", offset)
+	}
+
+	// Press G from the top to jump to the bottom.
+	m = got
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	got = next.(appModel)
+	if offset := got.reader.viewport.YOffset(); offset != got.reader.viewport.TotalLineCount()-got.reader.viewport.VisibleLineCount() {
+		t.Fatalf("G: YOffset = %d, want max %d (bottom)", offset, got.reader.viewport.TotalLineCount()-got.reader.viewport.VisibleLineCount())
+	}
+	if !got.reader.viewport.AtBottom() {
+		t.Fatalf("G: viewport not at bottom, YOffset = %d", got.reader.viewport.YOffset())
+	}
+}

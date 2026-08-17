@@ -196,3 +196,42 @@ func TestReaderFocusedLinkScrollHasNoHeaderOffset(t *testing.T) {
 		t.Fatalf("YOffset = %d, want 2 without a header offset", got)
 	}
 }
+
+func TestReaderFocusedLinkScrollUsesRepeatedOccurrence(t *testing.T) {
+	m := newReader(colorprofile.NoTTY)
+	target, err := finger.ParseTarget("alice@plan.cat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const raw = "alice@example.com"
+	m.setSize(40, 2)
+	m.focusedLink = 1
+	m.setEntryWithLinks(
+		Entry{Target: target, Body: []byte(raw + "\none\ntwo\nthree\nfour\n" + raw + "\ntail\ntail\n")},
+		[]Link{
+			{Kind: LinkFinger, Action: ActionCopy, Raw: raw},
+			{Kind: LinkFinger, Action: ActionCopy, Raw: raw},
+		},
+	)
+	if got := m.viewport.YOffset(); got != 4 {
+		t.Fatalf("YOffset = %d, want 4 for the second occurrence", got)
+	}
+}
+
+func TestReaderFocusedLinkScrollUsesRenderedLines(t *testing.T) {
+	m := newReader(colorprofile.NoTTY)
+	target, err := finger.ParseTarget("alice@tilde.team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const raw = "alice@example.com"
+	m.setSize(40, 2)
+	m.focusedLink = 0
+	m.setEntryWithLinks(
+		Entry{Target: target, Body: []byte("Pronouns: they/them\nzero\n" + raw + "\ntail\ntail\n")},
+		[]Link{{Kind: LinkFinger, Action: ActionCopy, Raw: raw}},
+	)
+	if got := m.viewport.YOffset(); got != 2 {
+		t.Fatalf("YOffset = %d, want 2 after rendered pronouns reflow", got)
+	}
+}

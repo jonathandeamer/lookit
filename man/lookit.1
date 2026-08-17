@@ -27,9 +27,9 @@ been without fetching any of it again.
 Finger (RFC 1288, TCP port 79) is one of the oldest things on the internet: ask
 a server about a person and it tells you who they are, whether they are logged
 in, and whatever they have left in their \&.plan file. It faded when the web
-arrived but never died \(em tilde communities and public access unix systems
-still run finger servers, and people still keep a \&.plan as a slow, personal
-sort of microblog.
+arrived but never died. Tilde communities and public access unix systems still
+run finger servers, and people still keep a \&.plan as a slow, personal sort of
+microblog.
 .BR finger (1)
 is built around asking about one address; lookit is for looking around when you
 do not know where you are going.
@@ -52,8 +52,7 @@ Print the version and build date and exit.
 .PP
 That is the entire command line. Everything else happens inside the browser,
 where pressing \fB?\fR shows the keys that work on the screen you are currently
-looking at. That list is the honest one, which is why there is not a copy of it
-here.
+looking at.
 .SH TARGETS
 At most one target may be given.
 .TP
@@ -100,14 +99,13 @@ weather@bbs.airandwave.net   # a note to yourself
 .PP
 Anything after a
 .B #
-is a comment. lookit keeps it exactly as you wrote it, and never displays
-it \(em it is for you, not for the screen.
+is a comment. lookit keeps it exactly as you wrote it, and never displays it.
 .PP
 lookit fills in those dates itself, whenever you visit somewhere you have
 already bookmarked. Visiting the same place twice in one day changes nothing,
-so the file stays quiet.
+so the file is left alone.
 .SS Settings
-Two settings can appear on a line of their own, anywhere in the file.
+These settings can appear on a line of their own, anywhere in the file.
 .TP
 .B catalog off
 Hide the built-in catalog, leaving the startpage as your own bookmarks and
@@ -149,8 +147,8 @@ backgrounds on its own. It has no theme setting and no colour flag.
 lookit ran, and you quit it.
 .TP
 .B 1
-lookit could not start \(em an unknown option, more than one target, or a
-terminal it cannot run in. A finger lookup that fails is not an error here: it
+lookit could not start: an unknown option, more than one target, or a
+terminal it cannot run in. A finger lookup that fails is not an error here; it
 is shown inside the browser, and you carry on.
 .SH EXAMPLES
 Open the browser and start from the catalog:

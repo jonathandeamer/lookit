@@ -196,3 +196,76 @@ func TestReaderFocusedLinkScrollHasNoHeaderOffset(t *testing.T) {
 		t.Fatalf("YOffset = %d, want 2 without a header offset", got)
 	}
 }
+
+func TestReaderFocusedLinkScrollRepeatedAddress(t *testing.T) {
+	m := newReader(colorprofile.NoTTY)
+	target, err := finger.ParseTarget("alice@plan.cat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const raw = "alice@example.com"
+	// Create a body with the address at line 0, 60 spacer lines, and the address again at line 61.
+	var bodyBuilder strings.Builder
+	bodyBuilder.WriteString(raw + "\n")
+	for i := 1; i < 61; i++ {
+		bodyBuilder.WriteString("line\n")
+	}
+	bodyBuilder.WriteString(raw + "\n")
+	for i := 0; i < 20; i++ {
+		bodyBuilder.WriteString("tail\n")
+	}
+
+	links := []Link{
+		{Kind: LinkFinger, Action: ActionCopy, Raw: raw},
+		{Kind: LinkFinger, Action: ActionCopy, Raw: raw},
+	}
+
+	m.setSize(80, 20)
+
+	// First link at line 0: offset 0 - 10 = 0
+	m.focusedLink = 0
+	m.setEntryWithLinks(Entry{Target: target, Body: []byte(bodyBuilder.String())}, links)
+	if got := m.viewport.YOffset(); got != 0 {
+		t.Fatalf("first link YOffset = %d, want 0", got)
+	}
+
+	// Second link at line 61: offset 61 - 10 = 51
+	m.focusedLink = 1
+	m.setEntryWithLinks(Entry{Target: target, Body: []byte(bodyBuilder.String())}, links)
+	if got := m.viewport.YOffset(); got != 51 {
+		t.Fatalf("second link YOffset = %d, want 51", got)
+	}
+}
+
+func TestReaderFocusedLinkScrollReflowedPronouns(t *testing.T) {
+	m := newReader(colorprofile.NoTTY)
+	target, err := finger.ParseTarget("alice@tilde.team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const raw = "https://example.com"
+	// Pronouns: they/them reflows into 2 rendered lines (label + value).
+	var bodyBuilder strings.Builder
+	bodyBuilder.WriteString("Pronouns: they/them\n")
+	for i := 1; i < 41; i++ {
+		bodyBuilder.WriteString("line\n")
+	}
+	bodyBuilder.WriteString(raw + "\n")
+	for i := 0; i < 20; i++ {
+		bodyBuilder.WriteString("tail\n")
+	}
+
+	links := []Link{
+		{Kind: LinkURL, Action: ActionCopy, Raw: raw},
+	}
+
+	m.setSize(80, 20)
+	m.focusedLink = 0
+	m.setEntryWithLinks(Entry{Target: target, Body: []byte(bodyBuilder.String())}, links)
+
+	// Raw line was 41, but rendered line is 42 due to pronoun reflow: 42 - 10 = 32
+	if got := m.viewport.YOffset(); got != 32 {
+		t.Fatalf("rendered link YOffset = %d, want 32", got)
+	}
+}
+

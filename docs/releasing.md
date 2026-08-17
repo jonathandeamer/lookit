@@ -70,10 +70,21 @@ trims it and both installs print `lookit version 0.2.0`. GoReleaser performs thi
 injection on a tagged release (see `.goreleaser.yaml`).
 
 Building from source needs Go 1.21+: the deps use the stdlib `cmp`/`slices`
-packages, and the toolchain auto-fetches the `go 1.26` declared in `go.mod`, so
+packages, and the toolchain auto-fetches the `go 1.25.0` declared in `go.mod`, so
 `go install`/`go build` work on 1.21+ but fail with
 `package cmp/slices is not in GOROOT` on the older Go common to tilde/pubnix
 boxes — which is exactly what the prebuilt release binaries are for.
+
+That 1.21 floor assumes `GOTOOLCHAIN=auto` and a reachable module proxy, which is
+how a person installing by hand gets it. **A distro packager gets neither**: ports
+build sandboxes pin `GOTOOLCHAIN=local` and forbid network access, so for them the
+`go` directive is a hard requirement with no auto-fetch escape, and the tree has to
+carry a toolchain at least that new. That is why the directive states the true
+floor rather than whatever is current — it is set by the Charm v2 stack
+(`bubbletea/v2`, `bubbles/v2`, `lipgloss/v2`, `ultraviolet`, `colorprofile`) plus
+`x/sys`/`x/sync`, all of which declare `go 1.25.0`; nothing in lookit's own code
+needs it. Don't raise it by hand. `go mod tidy` will raise it on its own when a
+dependency bump demands it, and that is the only reason it should move.
 
 ## Versioning
 

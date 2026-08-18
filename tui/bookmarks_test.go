@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -582,41 +583,50 @@ func TestParseBookmarksRejectsBadDate(t *testing.T) {
 	}
 }
 
-func TestParseBookmarksDwduplicatesPreservingFirstPosition(t *testing.T) {
-	// deduplicates while preserving first occurrence position
+// A repeated line is one target, kept where it first appeared: "sort manual"
+// means the file's order is the user's order, so a later duplicate must not
+// move the row it duplicates.
+func TestParseBookmarksDeduplicatesKeepingFirstPosition(t *testing.T) {
 	got := parseBookmarks([]byte("@first.cat\n@second.cat\n@first.cat\n"))
 	if len(got.problems) != 0 {
-		t.Fatalf("problems = %+v, want none", got.problems)
+		t.Fatalf("problems = %+v, want none — a duplicate is not malformed", got.problems)
 	}
-	wantTargets := []string{"@first.cat", "@second.cat"}
-	if len(got.targets) != len(wantTargets) {
-		t.Fatalf("targets = %+v, want %v", got.targets, wantTargets)
+	want := []string{"@first.cat", "@second.cat"}
+	if !slices.Equal(got.targets, want) {
+		t.Fatalf("targets = %v, want %v", got.targets, want)
 	}
+}
 
-	for i, w := range wantTargets {
-		if got.targets[i] != w {
-			t.Errorf("target %d = %q, want %q", i, got.targets[i], w)
-		}
-	}
-
-	//last date wins on duplicates
-
-	got = parseBookmarks([]byte("@plan.cat 2026-08-01\n@plan.cat 2026-08-14\n"))
+// The date is the one thing a duplicate still has an opinion about: the
+// dedupe keeps the first position, the visited map keeps the last date.
+func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
+	got := parseBookmarks([]byte("@plan.cat 2026-08-01\n@plan.cat 2026-08-14\n"))
 	if len(got.targets) != 1 {
-		t.Fatalf("targets = %+v, want 1 deduplicated target", got.targets)
+		t.Fatalf("targets = %+v, want the duplicate collapsed", got.targets)
 	}
-	wantDate := time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local)
-	if !got.visited["@plan.cat"].Equal(wantDate) {
-		t.Errorf("visited[@plan.cat] = %v, want last-wins %v", got.visited["@plan.cat"], wantDate)
+	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local)
+	if !got.visited["@plan.cat"].Equal(want) {
+		t.Errorf("visited[@plan.cat] = %v, want last-wins %v", got.visited["@plan.cat"], want)
 	}
 
-	//a later dateless duplicates is last-wins unknown, not "keep the earlier date!"
+	// A later dateless duplicate is last-wins unknown, not "keep the earlier date".
 	got = parseBookmarks([]byte("@plan.cat 2026-08-14\n@plan.cat\n"))
 	if len(got.targets) != 1 {
-		t.Fatalf("targets = %+v, want 1 deduplicated target", got.targets)
+		t.Fatalf("targets = %+v, want the duplicate collapsed", got.targets)
 	}
 	if _, ok := got.visited["@plan.cat"]; ok {
 		t.Errorf("visited[@plan.cat] = %v, want absent after a trailing dateless duplicate", got.visited["@plan.cat"])
+	}
+}
+
+// The shelf shows one row per repeated target, so unpinning it has to clear
+// every record — the row the user acted on stands for all of them.
+func TestDeleteBookmarkLineRemovesEveryDuplicate(t *testing.T) {
+	in := []byte("@plan.cat\n@tilde.team\n@plan.cat 2026-08-14\n# keep me\n")
+	got := string(deleteBookmarkLine(in, "@plan.cat"))
+	want := "@tilde.team\n# keep me\n"
+	if got != want {
+		t.Fatalf("deleteBookmarkLine =\n%q\nwant\n%q", got, want)
 	}
 }
 

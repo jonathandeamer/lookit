@@ -601,18 +601,26 @@ func TestParseBookmarksDeduplicatesKeepingFirstPosition(t *testing.T) {
 // dedupe keeps the first position, the visited map keeps the last date.
 func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
 	got := parseBookmarks([]byte("@plan.cat 2026-08-01\n@plan.cat 2026-08-14\n"))
+	if len(got.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", got.problems)
+	}
 	if len(got.targets) != 1 {
-		t.Fatalf("targets = %+v, want the duplicate collapsed", got.targets)
+		t.Fatalf("targets = %+v, want 1 deduplicated target", got.targets)
 	}
 	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local)
 	if !got.visited["@plan.cat"].Equal(want) {
 		t.Errorf("visited[@plan.cat] = %v, want last-wins %v", got.visited["@plan.cat"], want)
 	}
+}
 
-	// A later dateless duplicate is last-wins unknown, not "keep the earlier date".
-	got = parseBookmarks([]byte("@plan.cat 2026-08-14\n@plan.cat\n"))
+// seperation of concerns on the TestParseBookmarksDuplicateDatesLastWins function
+func TestParseBookmarksTrailingDatelessDuplicateClearsVisited(t *testing.T) {
+	got := parseBookmarks([]byte("@plan.cat 2026-08-14\n@plan.cat\n"))
+	if len(got.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", got.problems)
+	}
 	if len(got.targets) != 1 {
-		t.Fatalf("targets = %+v, want the duplicate collapsed", got.targets)
+		t.Fatalf("targets = %+v, want 1 deduplicated target", got.targets)
 	}
 	if _, ok := got.visited["@plan.cat"]; ok {
 		t.Errorf("visited[@plan.cat] = %v, want absent after a trailing dateless duplicate", got.visited["@plan.cat"])

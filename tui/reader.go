@@ -105,19 +105,30 @@ func (m *readerModel) setEntryWithLinks(entry Entry, links []Link) {
 }
 
 // scrollToFocusedLink scrolls the viewport so the focused link is roughly
-// centred vertically. It works by counting newlines in the body bytes before
-// the link's raw token.
+// centred vertically. Resolve links against the rendered response in document
+// order, matching the overlay pass, so repeated tokens and renderer-inserted
+// lines map to the occurrence that is actually focused.
 func (m *readerModel) scrollToFocusedLink(links []Link) {
 	if m.focusedLink < 0 || m.focusedLink >= len(links) || m.current == nil {
 		return
 	}
-	raw := links[m.focusedLink].Raw
-	bodyText := string(m.current.Body)
-	pos := strings.Index(bodyText, raw)
-	if pos < 0 {
-		return
+	rendered := m.render(*m.current)
+	remaining := rendered
+	consumed := 0
+	pos := -1
+	for i, link := range links[:m.focusedLink+1] {
+		rel := strings.Index(remaining, link.Raw)
+		if rel < 0 {
+			if i == m.focusedLink {
+				return
+			}
+			continue
+		}
+		pos = consumed + rel
+		consumed = pos + len(link.Raw)
+		remaining = rendered[consumed:]
 	}
-	bodyLine := strings.Count(bodyText[:pos], "\n")
+	bodyLine := strings.Count(rendered[:pos], "\n")
 	offset := bodyLine - m.viewport.Height()/2
 	if offset < 0 {
 		offset = 0

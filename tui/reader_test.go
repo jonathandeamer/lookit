@@ -205,14 +205,20 @@ func TestReaderFocusedLinkScrollUsesRepeatedOccurrence(t *testing.T) {
 	}
 	const raw = "alice@example.com"
 	m.setSize(40, 2)
+	entry := Entry{Target: target, Body: []byte(raw + "\none\ntwo\nthree\nfour\n" + raw + "\ntail\ntail\n")}
+	links := []Link{
+		{Kind: LinkFinger, Action: ActionCopy, Raw: raw},
+		{Kind: LinkFinger, Action: ActionCopy, Raw: raw},
+	}
+
+	m.focusedLink = 0
+	m.setEntryWithLinks(entry, links)
+	if got := m.viewport.YOffset(); got != 0 {
+		t.Fatalf("YOffset = %d, want 0 for the first occurrence", got)
+	}
+
 	m.focusedLink = 1
-	m.setEntryWithLinks(
-		Entry{Target: target, Body: []byte(raw + "\none\ntwo\nthree\nfour\n" + raw + "\ntail\ntail\n")},
-		[]Link{
-			{Kind: LinkFinger, Action: ActionCopy, Raw: raw},
-			{Kind: LinkFinger, Action: ActionCopy, Raw: raw},
-		},
-	)
+	m.setEntryWithLinks(entry, links)
 	if got := m.viewport.YOffset(); got != 4 {
 		t.Fatalf("YOffset = %d, want 4 for the second occurrence", got)
 	}

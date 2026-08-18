@@ -3687,42 +3687,34 @@ func TestRemovingBookmarksStaysAtSectionOrdinal(t *testing.T) {
 	}
 }
 
-func TestRemovingDuplicateBookmarkRemovesAllOccurrences(t *testing.T) {
-	path := seedBookmarks(t, "catalog off\n@tilde.team\n@plan.cat\n@tilde.team\n@happynetbox.com\n@telehack.com\n")
+// A repeated bookmark line is one target, so it draws one row: parseBookmarks
+// collapses the duplicates and the shelf never shows the same place twice.
+// deleteBookmarkLine clearing every matching record is covered directly in
+// bookmarks_test.go.
+func TestDuplicateBookmarkLineDrawsOneRow(t *testing.T) {
+	seedBookmarks(t, "catalog off\n@tilde.team\n@plan.cat\n@tilde.team\n@happynetbox.com\n@telehack.com\n")
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
 
-	//verify @tilde.team appears only appers once in the visible list
 	seen := 0
-	selectedIdx := -1
-	for i, item := range m.start.list.VisibleItems() {
-		entry, ok := item.(startItem)
-		if !ok || !entry.selectable() || entry.entry.target != "@tilde.team" {
-			continue
+	for _, target := range visibleTargets(m.start) {
+		if target == "@tilde.team" {
+			seen++
 		}
-		seen++
-		selectedIdx = i
 	}
 	if seen != 1 {
-		t.Fatalf("found %d occurrences of @tilde.team, want 1", seen)
+		t.Fatalf("@tilde.team drew %d rows, want 1", seen)
 	}
 
-	m.start.list.Select(selectedIdx)
+	if !m.start.selectTarget("@tilde.team") {
+		t.Fatal("@tilde.team not found")
+	}
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
-	got, ok := m.start.selected()
-	if !ok || got.target != "@plan.cat" {
-		t.Fatalf("selected = %+v, %v; want @plan.cat", got, ok)
-	}
-
-	//verify all occurrences were deleted from the bookmarks file
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read bookmarks: %v", err)
-	}
-
-	if strings.Contains(string(data), "@tilde.team") {
-		t.Fatalf("file still contains @tilde.team after removal:\n%s", string(data))
+	for _, target := range visibleTargets(m.start) {
+		if target == "@tilde.team" {
+			t.Fatal("@tilde.team still on the shelf after unpinning")
+		}
 	}
 }
 

@@ -88,6 +88,7 @@ type bookmarkFile struct {
 
 func parseBookmarks(data []byte) bookmarkFile {
 	var out bookmarkFile
+	seen := make(map[string]bool)
 	for i, raw := range strings.Split(string(data), "\n") {
 		lineNo := i + 1
 		line := strings.TrimSpace(stripComment(raw))
@@ -128,7 +129,11 @@ func parseBookmarks(data []byte) bookmarkFile {
 			out.problems = append(out.problems, parseProblem{line: lineNo, reason: err.Error()})
 			continue
 		}
-		out.targets = append(out.targets, target)
+		if !seen[target] {
+			seen[target] = true
+			out.targets = append(out.targets, target)
+		}
+
 		if visited.IsZero() {
 			delete(out.visited, target) // last-line wins, including a trailing dateless duplicate
 			continue

@@ -3687,33 +3687,42 @@ func TestRemovingBookmarksStaysAtSectionOrdinal(t *testing.T) {
 	}
 }
 
-func TestRemovingLaterDuplicateBookmarkUsesActualOrdinal(t *testing.T) {
-	seedBookmarks(t, "catalog off\n@tilde.team\n@plan.cat\n@tilde.team\n@happynetbox.com\n@telehack.com\n")
+func TestRemovingDuplicateBookmarkRemovesAllOccurrences(t *testing.T) {
+	path := seedBookmarks(t, "catalog off\n@tilde.team\n@plan.cat\n@tilde.team\n@happynetbox.com\n@telehack.com\n")
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
+
+	//verify @tilde.team appears only appers once in the visible list
 	seen := 0
-	selected := false
+	selectedIdx := -1
 	for i, item := range m.start.list.VisibleItems() {
 		entry, ok := item.(startItem)
 		if !ok || !entry.selectable() || entry.entry.target != "@tilde.team" {
 			continue
 		}
 		seen++
-		if seen == 2 {
-			m.start.list.Select(i)
-			selected = true
-			break
-		}
+		selectedIdx = i
 	}
-	if !selected {
-		t.Fatal("second @tilde.team bookmark not found")
+	if seen != 1 {
+		t.Fatalf("found %d occurrences of @tilde.team, want 1", seen)
 	}
 
+	m.start.list.Select(selectedIdx)
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
 	got, ok := m.start.selected()
-	if !ok || got.target != "@telehack.com" {
-		t.Fatalf("selected = %+v, %v; want ordinal of the acted-on duplicate", got, ok)
+	if !ok || got.target != "@plan.cat" {
+		t.Fatalf("selected = %+v, %v; want @plan.cat", got, ok)
+	}
+
+	//verify all occurrences were deleted from the bookmarks file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bookmarks: %v", err)
+	}
+
+	if strings.Contains(string(data), "@tilde.team") {
+		t.Fatalf("file still contains @tilde.team after removal:\n%s", string(data))
 	}
 }
 
@@ -4285,7 +4294,7 @@ func TestOverviewAndStatusCountsFollowRowsOnScreen(t *testing.T) {
 		// count honestly falls; pinning the parent does not, so it holds.
 		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 22}, total: 29},
 		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 23}, total: 30},
-		{name: "repeated bookmarks stay repeated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 2, communities: 5, services: 23}, total: 30},
+		{name: "repeated bookmarks are deduplicated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 1, communities: 5, services: 23}, total: 29},
 		// A filter flattens the view and drops structural rows with it, so no
 		// host is counted twice under one.
 		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},

@@ -582,18 +582,39 @@ func TestParseBookmarksRejectsBadDate(t *testing.T) {
 	}
 }
 
-func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
-	got := parseBookmarks([]byte("@plan.cat 2026-08-01\n@plan.cat 2026-08-14\n"))
-	if len(got.targets) != 2 {
-		t.Fatalf("targets = %+v, want both duplicate rows kept", got.targets)
+func TestParseBookmarksDwduplicatesPreservingFirstPosition(t *testing.T) {
+	// deduplicates while preserving first occurrence position
+	got := parseBookmarks([]byte("@first.cat\n@second.cat\n@first.cat\n"))
+	if len(got.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", got.problems)
 	}
-	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local)
-	if !got.visited["@plan.cat"].Equal(want) {
-		t.Errorf("visited[@plan.cat] = %v, want last-wins %v", got.visited["@plan.cat"], want)
+	wantTargets := []string{"@first.cat", "@second.cat"}
+	if len(got.targets) != len(wantTargets) {
+		t.Fatalf("targets = %+v, want %v", got.targets, wantTargets)
 	}
 
-	// A later dateless duplicate is last-wins unknown, not "keep the earlier date".
+	for i, w := range wantTargets {
+		if got.targets[i] != w {
+			t.Errorf("target %d = %q, want %q", i, got.targets[i], w)
+		}
+	}
+
+	//last date wins on duplicates
+
+	got = parseBookmarks([]byte("@plan.cat 2026-08-01\n@plan.cat 2026-08-14\n"))
+	if len(got.targets) != 1 {
+		t.Fatalf("targets = %+v, want 1 deduplicated target", got.targets)
+	}
+	wantDate := time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local)
+	if !got.visited["@plan.cat"].Equal(wantDate) {
+		t.Errorf("visited[@plan.cat] = %v, want last-wins %v", got.visited["@plan.cat"], wantDate)
+	}
+
+	//a later dateless duplicates is last-wins unknown, not "keep the earlier date!"
 	got = parseBookmarks([]byte("@plan.cat 2026-08-14\n@plan.cat\n"))
+	if len(got.targets) != 1 {
+		t.Fatalf("targets = %+v, want 1 deduplicated target", got.targets)
+	}
 	if _, ok := got.visited["@plan.cat"]; ok {
 		t.Errorf("visited[@plan.cat] = %v, want absent after a trailing dateless duplicate", got.visited["@plan.cat"])
 	}

@@ -605,7 +605,7 @@ func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
 		t.Fatalf("problems = %+v, want none", got.problems)
 	}
 	if len(got.targets) != 1 {
-		t.Fatalf("targets = %+v, want 1 deduplicated target", got.targets)
+		t.Fatalf("targets = %+v, want the duplicate collapsed", got.targets)
 	}
 	want := time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local)
 	if !got.visited["@plan.cat"].Equal(want) {
@@ -613,14 +613,15 @@ func TestParseBookmarksDuplicateDatesLastWins(t *testing.T) {
 	}
 }
 
-// seperation of concerns on the TestParseBookmarksDuplicateDatesLastWins function
+// A later dateless duplicate is last-wins unknown, not "keep the earlier
+// date": the file says it no longer knows when you were there.
 func TestParseBookmarksTrailingDatelessDuplicateClearsVisited(t *testing.T) {
 	got := parseBookmarks([]byte("@plan.cat 2026-08-14\n@plan.cat\n"))
 	if len(got.problems) != 0 {
 		t.Fatalf("problems = %+v, want none", got.problems)
 	}
 	if len(got.targets) != 1 {
-		t.Fatalf("targets = %+v, want 1 deduplicated target", got.targets)
+		t.Fatalf("targets = %+v, want the duplicate collapsed", got.targets)
 	}
 	if _, ok := got.visited["@plan.cat"]; ok {
 		t.Errorf("visited[@plan.cat] = %v, want absent after a trailing dateless duplicate", got.visited["@plan.cat"])

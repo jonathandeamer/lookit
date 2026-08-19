@@ -191,10 +191,19 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		link, ok := classifyAtToken(parseRaw, cueWord, origin)
 		if !ok && quoted {
 			// The quoted span did not classify — a help page's syntax template
-			// ("add?user@host"@relay) has a placeholder inner host. Fall back to
-			// the bare token, so the relay itself still links.
-			start, raw, quoted = bareStart, bareRaw, false
-			link, ok = classifyAtToken(raw, cueWord, origin)
+			// ("add?user@host"@relay) has a placeholder inner host, or the relay
+			// itself is a placeholder. First, try the inner token: if the relay
+			// is a placeholder but the inner address is real, it should still link.
+			innerQuery := parseRaw[:strings.LastIndexByte(parseRaw, '@')]
+			if strings.ContainsRune(innerQuery, '@') {
+				link, ok = classifyAtToken(innerQuery, cueWord, origin)
+			}
+			if !ok {
+				// Fall back to the bare token, so the relay itself still links
+				// on syntax templates.
+				start, raw, quoted = bareStart, bareRaw, false
+				link, ok = classifyAtToken(raw, cueWord, origin)
+			}
 		}
 		if !ok {
 			pos = end

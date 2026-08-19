@@ -789,6 +789,24 @@ func TestDetectLinks_QuotedFingerQuery_PlaceholderInnerHostDeclined(t *testing.T
 	}
 }
 
+// A generic document might use a literal placeholder for the relay, which will
+// fail domainSane ("host"). We want the inner token to still classify and
+// become the drill target, maintaining existing behavior for this shape.
+func TestDetectLinks_QuotedFingerQuery_PlaceholderOuterRelayDeclined(t *testing.T) {
+	body := []byte(`finger "tomasino@cosmic.voyage"@host`)
+	links := DetectLinks(body, "example.com:79")
+	if len(links) != 1 {
+		t.Fatalf("DetectLinks(%s) = %#v, want exactly 1 link", body, links)
+	}
+	l := links[0]
+	if l.Raw != `"tomasino@cosmic.voyage"@host` {
+		t.Errorf("Raw = %q, want the whole quoted span", l.Raw)
+	}
+	if l.Target.Query != "tomasino" || l.Target.HostPort != "cosmic.voyage:79" {
+		t.Errorf("Target = %q @ %q, want tomasino @ cosmic.voyage:79", l.Target.Query, l.Target.HostPort)
+	}
+}
+
 func TestDetectLinks_QuotedFingerQuery_FinalReviewCases(t *testing.T) {
 	tests := []struct {
 		name string

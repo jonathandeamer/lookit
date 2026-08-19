@@ -4744,7 +4744,7 @@ func TestReaderRestingHintsAdvertiseLinks(t *testing.T) {
 func TestReaderFocusedLinkHintsOmitLinksHint(t *testing.T) {
 	m := readerWithLinks(t, []Link{{Kind: LinkURL, Action: ActionCopy, Raw: "https://a.example"}})
 	m.reader.focusedLink = 0
-	if got := m.buildStatusBar().hints; strings.Contains(got, "tab 1 link ") {
-		t.Fatalf("focused hints repeat the resting links hint: %q", got)
+	if got, want := m.buildStatusBar().hints, "link 1/1 · url · y copy · tab next · r refresh"; got != want {
+		t.Fatalf("focused hints = %q, want %q", got, want)
 	}
 }

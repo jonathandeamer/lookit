@@ -790,8 +790,10 @@ func TestDetectLinks_QuotedFingerQuery_PlaceholderInnerHostDeclined(t *testing.T
 }
 
 // A generic document might use a literal placeholder for the relay, which will
-// fail domainSane ("host"). We want the inner token to still classify and
-// become the drill target, maintaining existing behavior for this shape.
+// fail domainSane ("host"). We want the inner address to still classify and
+// become the drill target, maintaining existing behavior for this shape. Raw
+// narrows to that address: it is what Enter drills and what "c" copies, so the
+// placeholder relay must not ride along into the clipboard or the highlight.
 func TestDetectLinks_QuotedFingerQuery_PlaceholderOuterRelayDeclined(t *testing.T) {
 	body := []byte(`finger "tomasino@cosmic.voyage"@host`)
 	links := DetectLinks(body, "example.com:79")
@@ -799,11 +801,48 @@ func TestDetectLinks_QuotedFingerQuery_PlaceholderOuterRelayDeclined(t *testing.
 		t.Fatalf("DetectLinks(%s) = %#v, want exactly 1 link", body, links)
 	}
 	l := links[0]
-	if l.Raw != `"tomasino@cosmic.voyage"@host` {
-		t.Errorf("Raw = %q, want the whole quoted span", l.Raw)
+	if l.Raw != "tomasino@cosmic.voyage" {
+		t.Errorf("Raw = %q, want just the inner address", l.Raw)
 	}
 	if l.Target.Query != "tomasino" || l.Target.HostPort != "cosmic.voyage:79" {
 		t.Errorf("Target = %q @ %q, want tomasino @ cosmic.voyage:79", l.Target.Query, l.Target.HostPort)
+	}
+}
+
+// The inner-address fallback must not redirect a *command* to the inner host.
+// "add?tomasino@cosmic.voyage" is the aggregator's registration command, whose
+// address argument names cosmic.voyage; firing it at cosmic.voyage is the very
+// split this rule exists to prevent, so a placeholder relay means no drill.
+func TestDetectLinks_QuotedFingerCommand_PlaceholderRelayDoesNotDrillInnerHost(t *testing.T) {
+	body := []byte(`finger "add?tomasino@cosmic.voyage"@host`)
+	for _, l := range DetectLinks(body, "example.com:79") {
+		if l.Action == ActionDrill {
+			t.Errorf("link %q drills to %q, want no drill for a command with a placeholder relay",
+				l.Raw, l.Target.HostPort)
+		}
+		if strings.Contains(l.Target.HostPort, "cosmic.voyage") {
+			t.Errorf("link %q targets %q, want nothing pointed at the argument's host",
+				l.Raw, l.Target.HostPort)
+		}
+	}
+}
+
+// A single-label host is a supported target (@localhost, an intranet name), so
+// a dotless relay is not always a placeholder. When it is the host being read,
+// the span is ordinary same-relay forwarding — not a licence to drop the relay
+// and connect to the inner host instead.
+func TestDetectLinks_QuotedFingerQuery_DotlessRelayIsOriginForwards(t *testing.T) {
+	body := []byte(`finger "alice@example.com"@localhost`)
+	links := DetectLinks(body, "localhost:79")
+	if len(links) != 1 {
+		t.Fatalf("DetectLinks(%s) = %#v, want exactly 1 link", body, links)
+	}
+	l := links[0]
+	if !l.Forwarded || l.Action != ActionDrill {
+		t.Errorf("Forwarded = %v, Action = %v, want a forwarded drill", l.Forwarded, l.Action)
+	}
+	if l.Target.Query != "alice@example.com" || l.Target.HostPort != "localhost:79" {
+		t.Errorf("Target = %q @ %q, want alice@example.com @ localhost:79", l.Target.Query, l.Target.HostPort)
 	}
 }
 

@@ -192,11 +192,19 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		if !ok && quoted {
 			// The quoted span did not classify — a help page's syntax template
 			// ("add?user@host"@relay) has a placeholder inner host, or the relay
-			// itself is a placeholder. First, try the inner token: if the relay
-			// is a placeholder but the inner address is real, it should still link.
-			innerQuery := parseRaw[:strings.LastIndexByte(parseRaw, '@')]
-			if strings.ContainsRune(innerQuery, '@') {
-				link, ok = classifyAtToken(innerQuery, cueWord, origin)
+			// itself is a placeholder. First try the inner address: if the relay
+			// is the placeholder but the inner address is real, it should still
+			// link. Only a plain login qualifies — a command query such as
+			// add?user@host belongs to the relay's protocol, and firing it at
+			// the inner host is exactly the split this rule exists to prevent.
+			innerAddr := parseRaw[:strings.LastIndexByte(parseRaw, '@')]
+			if login, _, hasInner := strings.Cut(innerAddr, "@"); hasInner && loginRe.MatchString(login) {
+				if inner, okInner := classifyAtToken(innerAddr, cueWord, origin); okInner {
+					// The whole span stays consumed, so the placeholder relay
+					// cannot link on its own, but Raw narrows to the inner
+					// address: it is what Enter drills and what "c" copies.
+					link, ok, quoted = inner, true, false
+				}
 			}
 			if !ok {
 				// Fall back to the bare token, so the relay itself still links
@@ -657,7 +665,13 @@ func classifyForwardedAtToken(raw, origin string) (Link, bool) {
 	relay := raw[lastAt+1:]
 	innerQuery := raw[:lastAt] // "user@host"
 
-	if relay == "" || !domainSane(relay) {
+	relayHost := canonicalHost(relay) // no port — relay is host only
+
+	// The relay must look like a domain, or be the host we are already reading
+	// from. A single-label origin (@localhost, an intranet name) is a supported
+	// target, and forwarding through it is the one case where a dotless relay is
+	// certainly a real host rather than a documentation placeholder.
+	if relay == "" || (!domainSane(relay) && relayHost != origin) {
 		return Link{}, false
 	}
 	// Inner query must have exactly one @.
@@ -670,8 +684,6 @@ func classifyForwardedAtToken(raw, origin string) (Link, bool) {
 	if _, innerHost, _ := strings.Cut(innerQuery, "@"); !domainSane(innerHost) {
 		return Link{}, false
 	}
-
-	relayHost := canonicalHost(relay) // no port — relay is host only
 
 	if relayHost == origin {
 		// Same relay — build Target manually (ParseTargetPinned rejects 2-@ forms).

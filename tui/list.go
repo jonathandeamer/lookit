@@ -31,8 +31,13 @@ type userItem struct {
 	target string
 }
 
-// FilterValue lets the list filter by login as the user types "/".
-func (i userItem) FilterValue() string { return i.login }
+// FilterValue lets the list filter by login as the user types "/", and by target for cross-host listings.
+func (i userItem) FilterValue() string {
+	if i.target != "" {
+		return i.target
+	}
+	return i.login
+}
 
 // Title satisfies list.DefaultItem — the primary line is the login.
 func (i userItem) Title() string { return i.login }

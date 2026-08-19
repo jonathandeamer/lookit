@@ -572,7 +572,8 @@ func parseAddressList(lines []string) ([]User, string, bool) {
 	var bestUsers []User
 
 	for i := 0; i < len(lines); {
-		if _, ok := addressLine(lines[i]); !ok {
+		_, _, sane := addressLine(lines[i])
+		if !sane {
 			i++
 			continue
 		}
@@ -580,11 +581,11 @@ func parseAddressList(lines []string) ([]User, string, bool) {
 		seen := map[string]bool{}
 		var runUsers []User
 		for i < len(lines) {
-			addr, ok := addressLine(lines[i])
-			if !ok {
+			addr, shaped, sane := addressLine(lines[i])
+			if !shaped {
 				break
 			}
-			if !seen[addr] {
+			if sane && !seen[addr] {
 				seen[addr] = true
 				login, _, _ := strings.Cut(addr, "@")
 				runUsers = append(runUsers, User{Login: login, Target: addr})
@@ -601,15 +602,15 @@ func parseAddressList(lines []string) ([]User, string, bool) {
 	return bestUsers, trimPreamble(lines[:bestStart]), true
 }
 
-// addressLine returns the sole "user@host" address on a line, when that address
-// is the entire line.
-func addressLine(line string) (string, bool) {
+// addressLine returns the sole "user@host" address on a line, whether the line
+// is address-shaped (matches the regex), and whether the host is domainSane.
+func addressLine(line string) (addr string, shaped bool, sane bool) {
 	trimmed := strings.TrimSpace(line)
 	m := addressLineRe.FindStringSubmatch(trimmed)
-	if m == nil || !domainSane(m[2]) {
-		return "", false
+	if m == nil {
+		return "", false, false
 	}
-	return trimmed, true
+	return trimmed, true, domainSane(m[2])
 }
 
 // parseGenericList is tried after every named parser declines, and before

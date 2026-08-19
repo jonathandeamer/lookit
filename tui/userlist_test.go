@@ -595,6 +595,7 @@ func TestParseUsers_AddressList(t *testing.T) {
 			"Registered accounts (4):\n" +
 			"  0@typed-hole.org\n" +
 			"  akkartik@plan.cat\n" +
+			"  simonmorehouse@local\n" +
 			"  ben@tilde.team\n" +
 			"  tomasino@cosmic.voyage\n",
 	)

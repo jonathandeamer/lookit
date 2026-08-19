@@ -567,6 +567,13 @@ const minAddressRun = 3
 // only claim a body nothing else recognized. The result is not marked generic:
 // an unbroken run of address-only lines is a definite shape, not the guess that
 // label warns about.
+//
+// A line inside the run whose host is not domainSane ("simonmorehouse@local")
+// keeps the run going but is deliberately dropped from the entries: there is no
+// host lookit could drill it to, and an entry that cannot be opened is worse
+// than one that is missing. The cost is that the list is not a complete
+// transcript of the body — an unresolvable address the server lists is not
+// shown anywhere, since the list replaces the body on screen.
 func parseAddressList(lines []string) ([]User, string, bool) {
 	bestStart, bestCount := -1, 0
 	var bestUsers []User

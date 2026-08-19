@@ -720,6 +720,75 @@ func TestDetectLinks_QuotedFingerQuery_ForwardingDeclinedCrossRelay(t *testing.T
 	}
 }
 
+// A quoted query may itself contain one "@", which is how aggregator services
+// document a command that takes an address as its argument, e.g.
+// crossed-fingers.andros.dev's `finger "add?user@host"@crossed-fingers…`.
+// The shell strips the quotes, so the wire form is the ordinary one-relay
+// forwarding token add?user@host@relay — which is exactly what the server
+// expects. lookit must read the whole quoted span as one address rather than
+// splitting it at the inner "@".
+func TestDetectLinks_QuotedFingerQuery_AddressArgumentSameRelay(t *testing.T) {
+	body := []byte(`finger "add?tomasino@cosmic.voyage"@crossed-fingers.andros.dev`)
+	links := DetectLinks(body, "crossed-fingers.andros.dev:79")
+	if len(links) != 1 {
+		t.Fatalf("DetectLinks(%s) = %#v, want exactly 1 link", body, links)
+	}
+	l := links[0]
+	if l.Raw != `"add?tomasino@cosmic.voyage"@crossed-fingers.andros.dev` {
+		t.Errorf("Raw = %q, want the whole quoted span", l.Raw)
+	}
+	if l.Target.Query != "add?tomasino@cosmic.voyage" {
+		t.Errorf("Target.Query = %q, want %q", l.Target.Query, "add?tomasino@cosmic.voyage")
+	}
+	if l.Target.HostPort != "crossed-fingers.andros.dev:79" {
+		t.Errorf("Target.HostPort = %q, want the relay, not the inner host", l.Target.HostPort)
+	}
+	if l.Action != ActionDrill || l.Blocked != "" || !l.Forwarded || !l.Strong {
+		t.Errorf("link = %#v, want a strong unblocked forwarded drill", l)
+	}
+}
+
+// The bug this fixes: the inner "@" was found first, so the span was split at
+// the quotes and lookit offered a drill to cosmic.voyage — a host named nowhere
+// on the line the user was reading.
+func TestDetectLinks_QuotedFingerQuery_AddressArgumentNotSplit(t *testing.T) {
+	body := []byte(`finger "add?tomasino@cosmic.voyage"@crossed-fingers.andros.dev`)
+	links := DetectLinks(body, "crossed-fingers.andros.dev:79")
+	for _, l := range links {
+		if l.Target.HostPort == "cosmic.voyage:79" {
+			t.Fatalf("DetectLinks(%s) = %#v, quoted span was split and points at the inner host", body, links)
+		}
+	}
+}
+
+func TestDetectLinks_QuotedFingerQuery_AddressArgumentCrossRelay(t *testing.T) {
+	body := []byte(`finger "add?tomasino@cosmic.voyage"@crossed-fingers.andros.dev`)
+	links := DetectLinks(body, "tilde.team:79")
+	if len(links) != 1 {
+		t.Fatalf("DetectLinks(%s) = %#v, want exactly 1 link", body, links)
+	}
+	l := links[0]
+	if l.Action != ActionCopy || l.Blocked == "" || !l.Forwarded {
+		t.Errorf("link = %#v, want a blocked copy-only forwarded link when the relay is not the origin", l)
+	}
+}
+
+// A syntax template is not an address. "add?user@host" has a placeholder inner
+// host with no dot, so the span must not become a drill — pressing Enter on a
+// help page's grammar line would otherwise write a junk entry to the service.
+// The bare relay stays linked, which is what shipped before quoted spans could
+// carry an inner "@".
+func TestDetectLinks_QuotedFingerQuery_PlaceholderInnerHostDeclined(t *testing.T) {
+	body := []byte(`finger "add?user@host"@crossed-fingers.andros.dev`)
+	links := DetectLinks(body, "crossed-fingers.andros.dev:79")
+	if len(links) != 1 || links[0].Raw != "@crossed-fingers.andros.dev" {
+		t.Fatalf("DetectLinks(%s) = %#v, want the bare relay fallback only", body, links)
+	}
+	if links[0].Target.Query != "" {
+		t.Errorf("Target.Query = %q, want the host query", links[0].Target.Query)
+	}
+}
+
 func TestDetectLinks_QuotedFingerQuery_FinalReviewCases(t *testing.T) {
 	tests := []struct {
 		name string

@@ -1585,7 +1585,14 @@ func (m appModel) buildStatusBar() statusBar {
 			bar.hints = fmt.Sprintf("link %d/%d · %s · %s", n, total, label, strings.Join(extra, " · "))
 			return bar
 		}
-		bar.hints = joinHints([]string{"↑↓ scroll", m.refreshHint()}, bar.escTarget)
+		parts := []string{"↑↓ scroll", m.refreshHint()}
+		// A page's links are reachable only by tab, and nothing on screen says
+		// so — the body renders them as ordinary text. Lead with the count so
+		// that presence, not just the key, is what the bar announces.
+		if n := len(node.links); n > 0 {
+			parts = append([]string{"tab " + countLabel(n, "link", "links")}, parts...)
+		}
+		bar.hints = joinHints(parts, bar.escTarget)
 		if m.reader.viewport.TotalLineCount() > m.reader.viewport.Height() {
 			bar.scroll = fmt.Sprintf("%d%%", int(math.Round(m.reader.viewport.ScrollPercent()*100)))
 		}

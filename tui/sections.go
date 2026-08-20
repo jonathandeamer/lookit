@@ -3,6 +3,8 @@ package tui
 import (
 	"sort"
 	"strings"
+
+	"github.com/jonathandeamer/lookit/finger"
 )
 
 type startSectionID uint8
@@ -40,11 +42,23 @@ func sortByVisit(entries []startEntry) {
 // targetLess is the alphabetical order used everywhere targets are sorted for
 // display: host first, then the query token, so one host's rows stay adjacent.
 func targetLess(left, right string) bool {
-	leftHost, rightHost := entryHost(left), entryHost(right)
+	leftHost, leftToken := targetSortParts(left)
+	rightHost, rightToken := targetSortParts(right)
 	if leftHost != rightHost {
 		return leftHost < rightHost
 	}
-	return entryToken(left) < entryToken(right)
+	if leftToken != rightToken {
+		return leftToken < rightToken
+	}
+	return left < right
+}
+
+func targetSortParts(target string) (host, token string) {
+	parsed, err := finger.ParseTarget(target)
+	if err != nil {
+		return entryHost(target), entryToken(target)
+	}
+	return parsed.HostPort, parsed.QueryLine()
 }
 
 // buildSections merges the two sources into the rendered order: the user's

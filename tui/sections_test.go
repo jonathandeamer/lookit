@@ -147,6 +147,29 @@ func TestBuildSectionsSortsBookmarksVisitedTogetherAlphabetically(t *testing.T) 
 	}
 }
 
+func TestBuildSectionsSortsAcceptedTargetFormsByParsedHostAndQuery(t *testing.T) {
+	bm := bookmarkFile{
+		targets: []string{
+			"@z.example",
+			"a.example/charlie",
+			"bob@a.example",
+			"alice@destination.example@relay.example",
+			"finger://a.example/alice",
+		},
+	}
+	got := bookmarkTargets(t, buildSections(catalogFixture(), bm))
+	want := []string{
+		"finger://a.example/alice",
+		"bob@a.example",
+		"a.example/charlie",
+		"alice@destination.example@relay.example",
+		"@z.example",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("bookmark order = %v, want %v (parsed host, then query)", got, want)
+	}
+}
+
 func TestBuildSectionsSortManualKeepsFileOrder(t *testing.T) {
 	bm := bookmarkFile{
 		sortManual: true,

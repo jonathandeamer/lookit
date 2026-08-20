@@ -17,7 +17,7 @@ jobs:
           persist-credentials: false # make check needs no git auth; don't leave the token in .git/config
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: stable
+          go-version-file: go.mod
       # The gate set (vet, gofmt-check, golangci-lint, race tests) lives in the
       # Makefile so local `make check` runs exactly what CI runs. golangci-lint
       # is fetched on demand at the version pinned in the Makefile.

@@ -171,6 +171,40 @@ func TestUserItemImplementsDefaultItem(t *testing.T) {
 	}
 }
 
+// A cross-host listing is filtered by host as well as by login, and the login
+// stays at the front of the filter value: bubbles maps matched rune indices
+// onto Title(), which is the login alone.
+func TestUserItemFilterValue(t *testing.T) {
+	tests := []struct {
+		name string
+		item userItem
+		want string
+	}{
+		{
+			name: "target present",
+			item: userItem{login: "alrs", target: "alrs@tilde.team"},
+			want: "alrs alrs@tilde.team",
+		},
+		{
+			name: "login differs from the target's login",
+			item: userItem{login: "weather", target: "weather-bot@sava.rocks"},
+			want: "weather weather-bot@sava.rocks",
+		},
+		{
+			name: "no target",
+			item: userItem{login: "alrs"},
+			want: "alrs",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.item.FilterValue(); got != tc.want {
+				t.Fatalf("FilterValue() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestUserItemDescription(t *testing.T) {
 	tests := []struct {
 		name string

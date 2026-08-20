@@ -31,8 +31,18 @@ type userItem struct {
 	target string
 }
 
-// FilterValue lets the list filter by login as the user types "/".
-func (i userItem) FilterValue() string { return i.login }
+// FilterValue lets the list filter by login as the user types "/", plus the
+// target where there is one, so a cross-host listing can be filtered by host.
+// The login comes first and unchanged: list.DefaultDelegate maps the matched
+// rune indices straight onto Title(), so leading with the login keeps a login
+// match highlighted on the row, and a host match simply falls past the end of
+// the title rather than colouring the wrong characters.
+func (i userItem) FilterValue() string {
+	if i.target != "" {
+		return i.login + " " + i.target
+	}
+	return i.login
+}
 
 // Title satisfies list.DefaultItem — the primary line is the login.
 func (i userItem) Title() string { return i.login }

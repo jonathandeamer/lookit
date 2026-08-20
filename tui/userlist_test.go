@@ -582,3 +582,121 @@ func TestParseUsers_NoLiveEscapeInParsedFields(t *testing.T) {
 		}
 	}
 }
+
+// ---- Address-only listings (a run of bare user@host lines) ----
+
+// An aggregator lists accounts that live on other hosts, so each line is a
+// whole address rather than a local login. crossed-fingers.andros.dev's
+// "Registered accounts" index is the shape this matches.
+func TestParseUsers_AddressList(t *testing.T) {
+	body := []byte(
+		"For help: finger help@crossed-fingers.andros.dev\n" +
+			"\n" +
+			"Registered accounts (4):\n" +
+			"  0@typed-hole.org\n" +
+			"  akkartik@plan.cat\n" +
+			"  simonmorehouse@local\n" +
+			"  ben@tilde.team\n" +
+			"  tomasino@cosmic.voyage\n",
+	)
+	parsed, ok := parseUserList(body, "crossed-fingers.andros.dev:79")
+	if !ok {
+		t.Fatal("parseUserList ok = false, want true for a run of address-only lines")
+	}
+	wantLogins := []string{"0", "akkartik", "ben", "tomasino"}
+	if got := logins(parsed.users); !reflect.DeepEqual(got, wantLogins) {
+		t.Errorf("logins = %v, want %v", got, wantLogins)
+	}
+	// Each entry must drill to its own host, not to the aggregator.
+	wantTargets := []string{"0@typed-hole.org", "akkartik@plan.cat", "ben@tilde.team", "tomasino@cosmic.voyage"}
+	for i, want := range wantTargets {
+		if parsed.users[i].Target != want {
+			t.Errorf("users[%d].Target = %q, want %q", i, parsed.users[i].Target, want)
+		}
+	}
+	if parsed.generic {
+		t.Error("generic = true, want false: an address-only run is a recognized shape, not a guess")
+	}
+	if !strings.Contains(parsed.preamble, "Registered accounts (4):") {
+		t.Errorf("preamble = %q, want it to keep the lines above the run", parsed.preamble)
+	}
+}
+
+// Two addresses on their own lines are ordinary prose in a contact block. The
+// run has to be long enough to mean a listing.
+func TestParseUsers_AddressListDeclinesShortRun(t *testing.T) {
+	body := []byte(
+		"Questions about the server?\n" +
+			"\n" +
+			"admin@example.com\n" +
+			"postmaster@example.com\n",
+	)
+	if _, ok := parseUserList(body, "example.com:79"); ok {
+		t.Error("parseUserList ok = true, want false for a two-address contact block")
+	}
+}
+
+// A line has to be nothing but the address. Prose around it means the address
+// is a mention, not a list entry.
+func TestParseUsers_AddressListDeclinesProse(t *testing.T) {
+	body := []byte(
+		"mail alice@example.com about accounts\n" +
+			"mail bob@example.com about billing\n" +
+			"mail carol@example.com about anything else\n",
+	)
+	if _, ok := parseUserList(body, "example.com:79"); ok {
+		t.Error("parseUserList ok = true, want false when the addresses sit in prose")
+	}
+}
+
+// A placeholder host with no dot is not an address.
+func TestParseUsers_AddressListDeclinesPlaceholderHosts(t *testing.T) {
+	body := []byte(
+		"Syntax:\n" +
+			"  user@host\n" +
+			"  name@server\n" +
+			"  login@machine\n",
+	)
+	if _, ok := parseUserList(body, "example.com:79"); ok {
+		t.Error("parseUserList ok = true, want false for placeholder hosts with no dot")
+	}
+}
+
+// A recognized local-login format still wins: the address run must not steal a
+// body that an earlier matcher already understands.
+func TestParseUsers_AddressListYieldsToColumnar(t *testing.T) {
+	body := []byte(
+		"Login   Name\n" +
+			"alice   Alice Smith\n" +
+			"bob     Bob Jones\n" +
+			"\n" +
+			"Mirrors:\n" +
+			"  alice@mirror.example\n" +
+			"  bob@mirror.example\n" +
+			"  carol@mirror.example\n",
+	)
+	parsed, ok := parseUserList(body, "example.com:79")
+	if !ok {
+		t.Fatal("parseUserList ok = false, want true")
+	}
+	if len(parsed.users) < 2 || parsed.users[0].Login != "alice" || parsed.users[0].Target != "" {
+		t.Fatalf("users = %#v, want the columnar logins first with no explicit target", parsed.users)
+	}
+}
+
+// Duplicates collapse and first position is kept, matching every other matcher.
+func TestParseUsers_AddressListDeduplicates(t *testing.T) {
+	body := []byte(
+		"  a@x.example\n" +
+			"  b@y.example\n" +
+			"  a@x.example\n" +
+			"  c@z.example\n",
+	)
+	parsed, ok := parseUserList(body, "example.com:79")
+	if !ok {
+		t.Fatal("parseUserList ok = false, want true")
+	}
+	if got := logins(parsed.users); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Errorf("logins = %v, want [a b c]", got)
+	}
+}

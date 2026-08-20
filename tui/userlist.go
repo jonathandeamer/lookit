@@ -81,6 +81,9 @@ func parseUserList(body []byte, originHostPort string) (parsedUserList, bool) {
 	if users, preamble, ok := parseGenericList(lines, originHostPort); ok {
 		return parsedUserList{users: users, preamble: preamble, generic: true}, true
 	}
+	if users, preamble, ok := parseAddressList(lines); ok {
+		return parsedUserList{users: users, preamble: preamble}, true
+	}
 	return parsedUserList{}, false
 }
 
@@ -542,8 +545,84 @@ func appendHarvestedTargets(users []User, body []byte, originHostPort string) []
 	return users
 }
 
-// parseGenericList is the last-resort matcher, tried only after every named
-// parser declines. It finds the longest contiguous run of structuredLogin
+// addressLineRe matches a line holding one "user@host" address and nothing
+// else. The login half is loginRe's class; the host half is only shape-checked
+// here and then validated by domainSane, which is what rejects a placeholder
+// like "user@host" (no dot) and anything carrying a port.
+var addressLineRe = regexp.MustCompile(`^([A-Za-z0-9_][A-Za-z0-9_.-]{0,31})@(\S+)$`)
+
+// minAddressRun is how many consecutive address-only lines open a listing. Two
+// is too low: a pair of addresses on their own lines is an ordinary contact
+// block, and this matcher sees every host response no earlier format claimed.
+const minAddressRun = 3
+
+// parseAddressList handles a run of lines that each hold nothing but one
+// "user@host" address — how an aggregator lists accounts living on other hosts
+// (crossed-fingers.andros.dev's "Registered accounts" index is the case this
+// was written for). Unlike every other matcher here the entries are cross-host,
+// so each carries an explicit Target and drills to its own host rather than to
+// the host that served the list.
+//
+// It runs last, after every named format and after parseGenericList, so it can
+// only claim a body nothing else recognized. The result is not marked generic:
+// an unbroken run of address-only lines is a definite shape, not the guess that
+// label warns about.
+//
+// A line inside the run whose host is not domainSane ("simonmorehouse@local")
+// keeps the run going but is deliberately dropped from the entries: there is no
+// host lookit could drill it to, and an entry that cannot be opened is worse
+// than one that is missing. The cost is that the list is not a complete
+// transcript of the body — an unresolvable address the server lists is not
+// shown anywhere, since the list replaces the body on screen.
+func parseAddressList(lines []string) ([]User, string, bool) {
+	bestStart, bestCount := -1, 0
+	var bestUsers []User
+
+	for i := 0; i < len(lines); {
+		_, _, sane := addressLine(lines[i])
+		if !sane {
+			i++
+			continue
+		}
+		start := i
+		seen := map[string]bool{}
+		var runUsers []User
+		for i < len(lines) {
+			addr, shaped, sane := addressLine(lines[i])
+			if !shaped {
+				break
+			}
+			if sane && !seen[addr] {
+				seen[addr] = true
+				login, _, _ := strings.Cut(addr, "@")
+				runUsers = append(runUsers, User{Login: login, Target: addr})
+			}
+			i++
+		}
+		if len(seen) > bestCount {
+			bestCount, bestStart, bestUsers = len(seen), start, runUsers
+		}
+	}
+	if bestCount < minAddressRun {
+		return nil, "", false
+	}
+	return bestUsers, trimPreamble(lines[:bestStart]), true
+}
+
+// addressLine returns the sole "user@host" address on a line, whether the line
+// is address-shaped (matches the regex), and whether the host is domainSane.
+func addressLine(line string) (addr string, shaped bool, sane bool) {
+	trimmed := strings.TrimSpace(line)
+	m := addressLineRe.FindStringSubmatch(trimmed)
+	if m == nil {
+		return "", false, false
+	}
+	return trimmed, true, domainSane(m[2])
+}
+
+// parseGenericList is tried after every named parser declines, and before
+// parseAddressList, so a body whose lines are local logins is read as local
+// logins. It finds the longest contiguous run of structuredLogin
 // lines and opens a list when that run holds >= 2 distinct logins; otherwise it
 // declines. A blank or non-entry line ends a run.
 func parseGenericList(lines []string, originHostPort string) ([]User, string, bool) {

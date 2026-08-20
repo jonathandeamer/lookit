@@ -1,11 +1,8 @@
 package render
 
 import (
-	"strings"
-
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -29,37 +26,7 @@ func RenderWithBackground(t finger.Target, body []byte, queryErr error, profile 
 // is never reflowed, so ASCII art and column layouts keep their exact bytes. A
 // width of 0 or less means no wrapping.
 func RenderWithWidth(t finger.Target, body []byte, queryErr error, profile colorprofile.Profile, darkBackground bool, width int) string {
-	theme := NewThemeWithBackground(profile, darkBackground)
-	var sb strings.Builder
-
-	if len(body) == 0 && queryErr == nil {
-		sb.WriteString(theme.Footer.Render("(no response body)"))
-		sb.WriteByte('\n')
-	} else {
-		if isTildeTeam(t) {
-			body = reflowPronouns(body)
-		}
-		sb.WriteString(highlightFields(theme, body, extraFieldPrefixes(t)))
-		if len(body) > 0 && body[len(body)-1] != '\n' {
-			sb.WriteByte('\n')
-		}
-	}
-
-	if queryErr != nil {
-		text := queryErr.Error()
-		if width > 0 {
-			// ansi.Wrap prefers word boundaries and breaks mid-word only when a
-			// token is longer than the line, so no error text is ever clipped.
-			text = ansi.Wrap(text, width, "")
-		}
-		for i, line := range strings.Split(text, "\n") {
-			if i > 0 {
-				sb.WriteByte('\n')
-			}
-			sb.WriteString(theme.ErrLine.Render(line))
-		}
-		sb.WriteByte('\n')
-	}
-
-	return sb.String()
+	return RenderLayout(t, body, queryErr, profile, darkBackground, LayoutOptions{
+		ErrorWidth: width,
+	}).Text
 }

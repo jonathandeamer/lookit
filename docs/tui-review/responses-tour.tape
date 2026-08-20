@@ -123,6 +123,25 @@ Sleep 250ms
 Type "i"
 Sleep 200ms
 Ctrl+U
+Type "wrapplan@127.0.0.1:2479"
+Enter
+Wait+Screen /2026-08-20 14:32/
+Sleep 1500ms
+Screenshot out/tui-review/wrap-original.png
+Sleep 250ms
+
+Type "w"
+Wait+Screen /WRAP-CONTINUATION-MARKER/
+# The ordinary link hint replaces the two-second flash at every geometry;
+# `? help` is lower priority and is deliberately shed at 45 columns.
+Wait+Screen /tab 1 link/
+Sleep 1500ms
+Screenshot out/tui-review/wrap-enabled.png
+Sleep 250ms
+
+Type "i"
+Sleep 200ms
+Ctrl+U
 Type "@127.0.0.1:2480"
 Enter
 Wait+Screen /auto-detected/

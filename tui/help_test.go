@@ -31,7 +31,7 @@ func TestHelpCandidatesUsePriorityOrder(t *testing.T) {
 	m.help = true
 	(&m).updateKeymap()
 	got := strings.Join(helpKeys(m.helpLayout().bindings), ",")
-	want := "↑/↓,↵,esc,i,h,←/→,tab,shift+tab,v,r,y,b,L,a,q"
+	want := "↑/↓,↵,esc,i,h,←/→,tab,shift+tab,v,w,r,y,b,L,a,q"
 	if got != want {
 		t.Fatalf("Help order = %q, want %q", got, want)
 	}
@@ -140,8 +140,8 @@ func TestHelpLayoutsByContext(t *testing.T) {
 		"focused input":    "↵,esc,↓,a",
 		"start content":    "↑/↓,↵,esc,i,←/→,/,b,a,q",
 		"user list":        "↑/↓,↵,esc,i,h,←/→,/,v,r,y,b,a,q",
-		"reader no links":  "↑/↓,esc,i,h,←/→,v,r,y,b,a,q",
-		"reader with link": "↑/↓,↵,esc,i,h,←/→,tab,shift+tab,v,r,y,b,L,a,q",
+		"reader no links":  "↑/↓,esc,i,h,←/→,v,w,r,y,b,a,q",
+		"reader with link": "↑/↓,↵,esc,i,h,←/→,tab,shift+tab,v,w,r,y,b,L,a,q",
 		"raw view":         "↑/↓,esc,i,h,←/→,v,y,b,a,q",
 		"links URL":        "↑/↓,esc,y,/,a,q",
 		"links ambiguous":  "↑/↓,esc,f,y,/,a,q",

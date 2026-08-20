@@ -17,6 +17,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/jonathandeamer/lookit/finger"
+	"github.com/jonathandeamer/lookit/render"
 )
 
 // setClipboard is a seam for testing: it defaults to tea.SetClipboard.
@@ -72,7 +73,10 @@ func (c *commonModel) ensureStyles() styles {
 type histNode struct {
 	entry       Entry
 	state       appState
-	scrollY     int    // reader viewport offset
+	scrollY     int // exact fallback for a reader with no body mapping
+	logicalLine int // prepared source-body line at the reader top
+	hasLogical  bool
+	wrapped     bool
 	listIdx     int    // list selected index
 	listFltr    string // applied list filter
 	listUsers   int
@@ -82,11 +86,30 @@ type histNode struct {
 }
 
 type refreshViewState struct {
-	state      appState
-	scrollY    int
-	linkRaw    string
-	listFilter string
-	selected   userItem
+	state       appState
+	scrollY     int
+	logicalLine int
+	hasLogical  bool
+	wrapped     bool
+	linkRaw     string
+	listFilter  string
+	selected    userItem
+}
+
+func (n histNode) readerPosition() readerPosition {
+	return readerPosition{
+		logicalLine: n.logicalLine,
+		hasLogical:  n.hasLogical,
+		fallbackY:   n.scrollY,
+	}
+}
+
+func (v refreshViewState) readerPosition() readerPosition {
+	return readerPosition{
+		logicalLine: v.logicalLine,
+		hasLogical:  v.hasLogical,
+		fallbackY:   v.scrollY,
+	}
 }
 
 // appModel is the top-level state machine. It routes input and fetch results
@@ -217,6 +240,8 @@ func (m *appModel) snapshot() {
 	n := &m.history[m.pos]
 	if n.state == stateReader {
 		n.scrollY = m.reader.viewport.YOffset()
+		n.logicalLine = m.reader.topLogicalLine()
+		n.hasLogical = n.logicalLine != render.NoBodyLine
 		n.links = m.reader.links
 		n.linkIdx = m.reader.focusedLink
 	} else {
@@ -227,12 +252,17 @@ func (m *appModel) snapshot() {
 
 func (m appModel) captureRefreshView() refreshViewState {
 	view := refreshViewState{state: m.state}
+	if m.pos >= 0 && m.pos < len(m.history) {
+		view.wrapped = m.history[m.pos].wrapped
+	}
 	switch m.state {
 	case stateList:
 		view.listFilter = m.list.list.FilterValue()
 		view.selected, _ = m.list.selected()
 	case stateReader:
 		view.scrollY = m.reader.viewport.YOffset()
+		view.logicalLine = m.reader.topLogicalLine()
+		view.hasLogical = view.logicalLine != render.NoBodyLine
 		if m.reader.focusedLink >= 0 && m.reader.focusedLink < len(m.reader.links) {
 			view.linkRaw = m.reader.links[m.reader.focusedLink].Raw
 		}
@@ -252,20 +282,6 @@ func (m *appModel) restoreRefreshView(view refreshViewState) {
 		m.snapshot()
 		return
 	}
-	m.reader.focusedLink = -1
-	for i, link := range m.reader.links {
-		if view.linkRaw != "" && link.Raw == view.linkRaw {
-			m.reader.focusedLink = i
-			break
-		}
-	}
-	// Re-render: showRouted already set the entry, but it did so before the
-	// link focus above was restored, so the refreshed body carries no
-	// highlight until the entry goes through the reader a second time.
-	node := m.history[m.pos]
-	m.reader.setEntryWithLinks(node.entry, node.links)
-	m.reader.viewport.SetYOffset(view.scrollY)
-	m.snapshot()
 }
 
 // restore rebuilds the active sub-model from a node (no network).
@@ -275,8 +291,7 @@ func (m *appModel) restore(n histNode) {
 		m.state = stateReader
 		m.reader.links = n.links
 		m.reader.focusedLink = n.linkIdx
-		m.reader.setEntryWithLinks(n.entry, n.links)
-		m.reader.viewport.SetYOffset(n.scrollY)
+		m.reader.setEntryWithLinks(n.entry, n.links, n.wrapped, n.readerPosition())
 		return
 	}
 	if parsed, ok := parseUserList(n.entry.Body, n.entry.Target.HostPort); ok {
@@ -295,7 +310,7 @@ func (m *appModel) restore(n histNode) {
 	m.state = stateReader
 	m.reader.links = n.links
 	m.reader.focusedLink = n.linkIdx
-	m.reader.setEntryWithLinks(n.entry, n.links)
+	m.reader.setEntryWithLinks(n.entry, n.links, n.wrapped, n.readerPosition())
 }
 
 // gotoStart returns to the launch screen, reloading it so a bookmark added while
@@ -576,6 +591,7 @@ func (m *appModel) enterRaw() {
 	if m.pos < 0 {
 		return
 	}
+	m.snapshot()
 	m.clearRequestFailure()
 	m.reader.setRaw(m.history[m.pos].entry.Body)
 	m.state = stateReader
@@ -591,8 +607,21 @@ func (m *appModel) exitRaw() {
 	node := m.history[m.pos]
 	m.state = node.state
 	if node.state == stateReader {
-		m.reader.setEntryWithLinks(node.entry, node.links) // re-render the profile
+		m.reader.setEntryWithLinks(node.entry, node.links, node.wrapped, node.readerPosition()) // re-render the profile
 	}
+}
+
+func (m *appModel) toggleWrap() tea.Cmd {
+	if m.pos < 0 || m.pos >= len(m.history) {
+		return nil
+	}
+	node := &m.history[m.pos]
+	node.wrapped = !node.wrapped
+	m.reader.setWrapped(node.wrapped)
+	if node.wrapped {
+		return m.setFlash("wrapping on")
+	}
+	return m.setFlash("original layout")
 }
 
 // submit parses the input and starts a fetch, blurring to content. On a parse
@@ -873,6 +902,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			m.openHelp()
 			return true, m, nil
 		case key.Matches(msg, m.keys.Back) || key.Matches(msg, m.keys.LinkPanel):
+			position := m.reader.position()
 			m.showingLinks = false
 			if m.pos >= 0 {
 				node := m.history[m.pos]
@@ -884,7 +914,7 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 						}
 					}
 				}
-				m.reader.setEntryWithLinks(node.entry, node.links)
+				m.reader.setEntryWithLinks(node.entry, node.links, node.wrapped, position)
 			}
 			return true, m, nil
 		case key.Matches(msg, m.keys.Open) && m.pos >= 0:
@@ -992,17 +1022,21 @@ func (m appModel) handleKey(msg tea.KeyPressMsg) (bool, appModel, tea.Cmd) {
 			m.enterRaw()
 		}
 		return true, m, nil
+	case key.Matches(msg, m.keys.Wrap) && m.pos >= 0:
+		return true, m, m.toggleWrap()
 	case key.Matches(msg, m.keys.LinkNext) && m.pos >= 0:
 		node := &m.history[m.pos]
+		position := m.reader.position()
 		m.reader.nextLink(len(node.links))
 		node.linkIdx = m.reader.focusedLink
-		m.reader.setEntryWithLinks(node.entry, node.links)
+		m.reader.setEntryWithLinks(node.entry, node.links, node.wrapped, position)
 		return true, m, nil
 	case key.Matches(msg, m.keys.LinkPrev) && m.pos >= 0:
 		node := &m.history[m.pos]
+		position := m.reader.position()
 		m.reader.prevLink(len(node.links))
 		node.linkIdx = m.reader.focusedLink
-		m.reader.setEntryWithLinks(node.entry, node.links)
+		m.reader.setEntryWithLinks(node.entry, node.links, node.wrapped, position)
 		return true, m, nil
 	case key.Matches(msg, m.keys.LinkFinger) && m.pos >= 0:
 		node := &m.history[m.pos]
@@ -1083,6 +1117,10 @@ func routeEntry(entry Entry) routedEntry {
 }
 
 func (m *appModel) showRouted(routed routedEntry) {
+	m.showRoutedAt(routed, readerPosition{})
+}
+
+func (m *appModel) showRoutedAt(routed routedEntry, position readerPosition) {
 	m.setAddress(routed.node.entry.Target.Raw)
 	m.setInputFocused(false)
 	m.input.Blur()
@@ -1094,8 +1132,8 @@ func (m *appModel) showRouted(routed routedEntry) {
 		m.listReady = true
 		return
 	}
-	m.reader.focusedLink = -1
-	m.reader.setEntryWithLinks(routed.node.entry, routed.node.links)
+	m.reader.focusedLink = routed.node.linkIdx
+	m.reader.setEntryWithLinks(routed.node.entry, routed.node.links, routed.node.wrapped, position)
 }
 
 func (m appModel) landNavigation(entry Entry) (appModel, tea.Cmd) {
@@ -1128,9 +1166,22 @@ func (m appModel) landRefresh(entry Entry, request pendingRequest) (appModel, te
 		view = *request.view
 	}
 	routed := routeEntry(entry)
-	m.history[m.pos] = routed.node
-	m.showRouted(routed)
-	m.restoreRefreshView(view)
+	routed.node.wrapped = view.wrapped
+	if routed.node.state == stateReader && view.state == stateReader {
+		for i, link := range routed.node.links {
+			if view.linkRaw != "" && link.Raw == view.linkRaw {
+				routed.node.linkIdx = i
+				break
+			}
+		}
+		m.history[m.pos] = routed.node
+		m.showRoutedAt(routed, view.readerPosition())
+		m.snapshot()
+	} else {
+		m.history[m.pos] = routed.node
+		m.showRouted(routed)
+		m.restoreRefreshView(view)
+	}
 	m.requestFailure = nil
 	return m, cmd
 }
@@ -1296,6 +1347,11 @@ func (m appModel) helpFilterActive() bool {
 func (m *appModel) updateKeymap() {
 	refreshHelp := m.refreshHelp()
 	m.keys.Refresh.SetHelp(refreshHelp.Key, refreshHelp.Desc)
+	wrapAction := "wrap"
+	if m.pos >= 0 && m.pos < len(m.history) && m.history[m.pos].wrapped {
+		wrapAction = "unwrap"
+	}
+	m.keys.Wrap.SetHelp("w", wrapAction)
 	if m.state == stateStart {
 		m.keys.Bookmark.SetHelp("b", m.startBookmarkAction())
 	} else {
@@ -1303,7 +1359,7 @@ func (m *appModel) updateKeymap() {
 	}
 	if m.pending != nil {
 		for _, binding := range []*key.Binding{
-			&m.keys.Open, &m.keys.FocusInput, &m.keys.Filter, &m.keys.Raw,
+			&m.keys.Open, &m.keys.FocusInput, &m.keys.Filter, &m.keys.Raw, &m.keys.Wrap,
 			&m.keys.Copy, &m.keys.Help, &m.keys.About, &m.keys.Move,
 			&m.keys.Page, &m.keys.Jump, &m.keys.LinkNext, &m.keys.LinkPrev,
 			&m.keys.LinkFinger, &m.keys.LinkPanel, &m.keys.Refresh,
@@ -1359,6 +1415,10 @@ func (m *appModel) updateKeymap() {
 	m.keys.Home.SetEnabled(content && (m.pos >= 0 || m.state != stateStart))
 
 	inReader := content && m.state == stateReader && !m.showingRaw
+	canWrap := inReader && !m.showingLinks &&
+		m.pos >= 0 && m.pos < len(m.history) &&
+		len(m.history[m.pos].entry.Body) > 0
+	m.keys.Wrap.SetEnabled(canWrap)
 	hasReaderLinks := false
 	if m.state == stateReader && m.pos >= 0 && m.pos < len(m.history) {
 		hasReaderLinks = len(m.history[m.pos].links) > 0

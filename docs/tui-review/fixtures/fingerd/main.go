@@ -42,6 +42,9 @@ const longPlanLines = 60
 // viewport so the wait line cannot scroll off the top.
 const scrollStill = 12
 
+const wrapContinuationMarker = "WRAP-CONTINUATION-MARKER"
+const wrapLongURL = "https://example.com/this-is-one-deliberately-indivisible-hyphenated-address-that-must-stay-intact"
+
 func longPlanBody() []byte {
 	var b strings.Builder
 	b.WriteString("Login: longplan\nName: Long Review\nPlan:\n")
@@ -49,6 +52,35 @@ func longPlanBody() []byte {
 		fmt.Fprintf(&b, "line %03d of a plan long enough to scroll\n", i)
 	}
 	return []byte(b.String())
+}
+
+func wrapPlanBody() []byte {
+	stamp := "2026-08-20 14:32 — This timestamped note runs past eighty cells while remaining a single ordinary prose line."
+	paragraph := "This representative paragraph stays on one physical line so review can show optional wrapping without inventing metadata; " + wrapContinuationMarker + " follows."
+	dispatchUnit := "Archived dispatches sometimes arrive serialised into one physical line, with sentence after sentence preserving meaning but not a comfortable reading width. "
+	extreme := strings.Repeat(dispatchUnit, 4)
+	preformatted := []string{
+		"    HOST             STATE       NOTE",
+		"    relay.example    ready       aligned",
+	}
+
+	lines := []string{
+		"Login: wrapplan",
+		"Name: Wrap Review",
+		"Plan:",
+		stamp,
+		"",
+		paragraph,
+		"",
+	}
+	lines = append(lines, preformatted...)
+	lines = append(lines,
+		"",
+		"Read "+wrapLongURL+" when horizontal scrolling is useful.",
+		"",
+		extreme,
+	)
+	return []byte(strings.Join(lines, "\n") + "\n")
 }
 
 func main() {
@@ -155,6 +187,8 @@ func responseFor(line string) []byte {
 		return []byte(aliceBody)
 	case "longplan":
 		return longPlanBody()
+	case "wrapplan":
+		return wrapPlanBody()
 	case "trunc":
 		return []byte(truncBody)
 	default:

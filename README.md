@@ -49,6 +49,8 @@ lookit --version
 
 Type a target and press Enter to fetch it. Finger a bare `@host` and, when it answers with a list of users, lookit opens that list: move with the arrows, `/` to filter, Enter to finger whoever's highlighted. Enter on a user drills in, Esc walks back through where you've been, and `r` refreshes the current response or retries a failed lookup. While a request is loading, Esc cancels it. Ctrl+C always quits.
 
+Responses keep the server's original line layout by default; in the reader, press `w` to word-wrap long prose for the current response, and press it again to restore the original layout.
+
 lookit opens on a startpage: a built-in catalog of finger communities and services, with your own bookmarks pinned above it. Press `↓` to browse it, `↵` to go, `h` to come back from anywhere, and `b` to bookmark whatever you're looking at — on a user list that bookmarks the host, so drill into someone before pressing `b` to bookmark the person.
 
 Your bookmarks are a plain text file at `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), and it's yours to edit. lookit keeps your comments and ordering, notes the date you were last somewhere, and lists whatever you've been neglecting at the top. It re-reads the file every time you return to the startpage, so you can edit it while lookit is running. The file explains its own format in a header comment; `man lookit` has the rest, including how to keep your own order or hide the catalog.

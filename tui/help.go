@@ -171,7 +171,7 @@ func (m appModel) helpCandidates() []key.Binding {
 	return []key.Binding{
 		m.moveHelpBinding(), open, m.keys.Back, m.keys.FocusInput, m.keys.Home,
 		m.keys.Page, m.keys.LinkNext, m.keys.LinkPrev, m.keys.Filter,
-		m.keys.Browse, m.keys.Raw, m.keys.Refresh,
+		m.keys.Browse, m.keys.Raw, m.keys.Wrap, m.keys.Refresh,
 		m.keys.Copy, m.keys.Bookmark, m.keys.LinkPanel, m.keys.About, m.keys.Quit,
 	}
 }

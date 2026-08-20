@@ -75,8 +75,8 @@ error. `main.go` never renders a response body.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `(no response body)` | `render/render.go` (`RenderWithWidth`) | Successful query with an empty body. |
-| `<queryErr.Error()>` | `render/render.go` (`RenderWithWidth`) | Error line after any returned partial body. Canceled or superseded request results are dropped in `tui/request.go` before they can repaint. |
+| `(no response body)` | `render/layout.go` (`RenderWithWidth`) | Successful query with an empty body. |
+| `<queryErr.Error()>` | `render/layout.go` (`RenderWithWidth`) | Error line after any returned partial body. Canceled or superseded request results are dropped in `tui/request.go` before they can repaint. |
 
 ## TUI Input
 
@@ -88,6 +88,7 @@ error. `main.go` never renders a response body.
 | `No response yet.` | `tui/reader.go` (`newReader`) | The reader's empty viewport. Not shown at launch (launch is the startpage). Reappears if the reader is shown with no current entry. |
 | `error: <parse error>` | `tui/app.go` (`submit`) | Persistent flash after an invalid input submit. Not cleared by the flash timer. |
 | `error: cannot bookmark: <reason>` | `tui/app.go` (`toggleBookmark`) | Flash when the current target cannot be written as a bookmark record. |
+| `wrapping on` / `original layout` | `tui/app.go` (`toggleWrap`) | Transient flash after enabling or disabling word wrapping for the current response. |
 | `✓ bookmarked <target>` / `✓ removed <target>` | `tui/app.go` (`toggleBookmark`) | Transient flash after a successful pin or unpin. |
 | `copied <address>` | `tui/app.go` (`copyAddress`, About `y`) | Transient flash after copying an address or the issues URL. |
 | `nothing to copy` | `tui/app.go` (`copyAddress`) | Transient flash when `y` has no address. |
@@ -177,6 +178,7 @@ runtime aliases.
 | `↵ go` | `tui/keys.go` | Submit/open binding. |
 | `/ filter` | `tui/keys.go` | Filter binding. |
 | `v view source` | `tui/keys.go` | Raw/source view binding. |
+| `w wrap` / `w unwrap` | `tui/keys.go`, `tui/app.go` (`updateKeymap`) | Contextual reader-display binding; available only for a non-empty body in normal reader view. |
 | `r refresh` / `r retry` | `tui/keys.go`, `tui/app.go` (`refreshHelp`) | Contextual refresh/retry; disabled outside an idle reader or list. |
 | `y copy` | `tui/keys.go` | Copy address binding. |
 | `? help` | `tui/keys.go` | Help binding. Shown in the status bar on resting screens, not inside the open overlay. |

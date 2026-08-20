@@ -128,6 +128,14 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 			continue
 		}
 
+		// A quoted span followed by "@relay" is one address, not two tokens.
+		// Defer to the "@" after the closing quote, which quotedAtToken can
+		// assemble into the whole thing.
+		if quotedRelayFollows(text, start, end) {
+			pos = end
+			continue
+		}
+
 		raw := text[start:end]
 
 		// Word boundary checks.
@@ -145,6 +153,7 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		cueWord := findCueWord(text, start)
 		parseRaw := raw
 		quoted := false
+		bareStart, bareRaw := start, raw
 		if quotedStart, quotedRaw, quotedParseRaw, ok := quotedAtToken(text, atAbs, end); ok {
 			overlapsConsumed := false
 			for i := quotedStart; i < end; i++ {
@@ -180,6 +189,30 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		}
 
 		link, ok := classifyAtToken(parseRaw, cueWord, origin)
+		if !ok && quoted {
+			// The quoted span did not classify — a help page's syntax template
+			// ("add?user@host"@relay) has a placeholder inner host, or the relay
+			// itself is a placeholder. First try the inner address: if the relay
+			// is the placeholder but the inner address is real, it should still
+			// link. Only a plain login qualifies — a command query such as
+			// add?user@host belongs to the relay's protocol, and firing it at
+			// the inner host is exactly the split this rule exists to prevent.
+			innerAddr := parseRaw[:strings.LastIndexByte(parseRaw, '@')]
+			if login, _, hasInner := strings.Cut(innerAddr, "@"); hasInner && loginRe.MatchString(login) {
+				if inner, okInner := classifyAtToken(innerAddr, cueWord, origin); okInner {
+					// The whole span stays consumed, so the placeholder relay
+					// cannot link on its own, but Raw narrows to the inner
+					// address: it is what Enter drills and what "c" copies.
+					link, ok, quoted = inner, true, false
+				}
+			}
+			if !ok {
+				// Fall back to the bare token, so the relay itself still links
+				// on syntax templates.
+				start, raw, quoted = bareStart, bareRaw, false
+				link, ok = classifyAtToken(raw, cueWord, origin)
+			}
+		}
 		if !ok {
 			pos = end
 			continue
@@ -329,7 +362,10 @@ func quotedAtToken(text string, at, tokenEnd int) (int, string, string, bool) {
 	}
 	open := lineStart + relOpen
 	query := text[open+1 : at-1]
-	if query == "" || strings.Contains(query, "@") || strings.ContainsRune(query, rune(quote)) {
+	// One "@" inside the quotes is allowed: it is the address argument of a
+	// command such as add?user@host, which the shell hands to finger as a
+	// single word. Two or more cannot be a one-relay forwarding form.
+	if query == "" || strings.Count(query, "@") > 1 || strings.ContainsRune(query, rune(quote)) {
 		return 0, "", "", false
 	}
 
@@ -340,6 +376,23 @@ func quotedAtToken(text string, at, tokenEnd int) (int, string, string, bool) {
 	raw := text[open:at] + hostPart
 	parseRaw := query + hostPart
 	return open, raw, parseRaw, true
+}
+
+// quotedRelayFollows reports whether the token at [start,end) is wrapped in
+// quotes whose closing quote is immediately followed by "@" — the shape a
+// service uses to document a command that takes an address argument, as in
+// `finger "add?user@host"@relay`. The scanner reaches the inner "@" first, so
+// without this the span would be split at the quotes and classified against the
+// inner host instead of the relay.
+func quotedRelayFollows(text string, start, end int) bool {
+	if start == 0 || end+1 >= len(text) {
+		return false
+	}
+	quote := text[start-1]
+	if quote != '"' && quote != '\'' {
+		return false
+	}
+	return text[end] == quote && text[end+1] == '@'
 }
 
 func isWordBoundedFinger(text string, start int) bool {
@@ -612,15 +665,25 @@ func classifyForwardedAtToken(raw, origin string) (Link, bool) {
 	relay := raw[lastAt+1:]
 	innerQuery := raw[:lastAt] // "user@host"
 
-	if relay == "" || !domainSane(relay) {
+	relayHost := canonicalHost(relay) // no port — relay is host only
+
+	// The relay must look like a domain, or be the host we are already reading
+	// from. A single-label origin (@localhost, an intranet name) is a supported
+	// target, and forwarding through it is the one case where a dotless relay is
+	// certainly a real host rather than a documentation placeholder.
+	if relay == "" || (!domainSane(relay) && relayHost != origin) {
 		return Link{}, false
 	}
 	// Inner query must have exactly one @.
 	if strings.Count(innerQuery, "@") != 1 {
 		return Link{}, false
 	}
-
-	relayHost := canonicalHost(relay) // no port — relay is host only
+	// The inner host must look like a domain. Without this a help page's syntax
+	// template — "add?user@host" — would drill, writing a placeholder entry to
+	// a service that takes an address as a command argument.
+	if _, innerHost, _ := strings.Cut(innerQuery, "@"); !domainSane(innerHost) {
+		return Link{}, false
+	}
 
 	if relayHost == origin {
 		// Same relay — build Target manually (ParseTargetPinned rejects 2-@ forms).

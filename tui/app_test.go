@@ -4691,3 +4691,60 @@ func TestStampFailureDoesNotBreakTheLanding(t *testing.T) {
 		t.Fatalf("bookmarks = %q, want the stale file left byte-identical", data)
 	}
 }
+
+// readerWithLinks builds a landed reader node carrying links, with none focused
+// — the resting state a page of links is first seen in.
+func readerWithLinks(t *testing.T, links []Link) appModel {
+	t.Helper()
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "viewer@origin.example")
+	var body strings.Builder
+	for _, l := range links {
+		body.WriteString(l.Raw + "\n")
+	}
+	entry := Entry{Target: target, Body: []byte(body.String())}
+	m.history = []histNode{{entry: entry, state: stateReader, links: links, linkIdx: -1}}
+	m.pos, m.state, m.inputFocused = 0, stateReader, false
+	m.reader.focusedLink = -1
+	m.reader.setEntryWithLinks(entry, links)
+	return m
+}
+
+// A page whose body contains links has to say so: tab is the only way in, and
+// until it is advertised the links are reachable only from the help overlay.
+func TestReaderRestingHintsAdvertiseLinks(t *testing.T) {
+	link := func(raw string) Link {
+		return Link{Kind: LinkURL, Action: ActionCopy, Raw: raw}
+	}
+	tests := []struct {
+		name  string
+		links []Link
+		want  string
+	}{
+		{"none", nil, "↑↓ scroll · r refresh · esc back · ? help"},
+		{"one", []Link{link("https://a.example")}, "tab 1 link · ↑↓ scroll · r refresh · esc back · ? help"},
+		{
+			"several",
+			[]Link{link("https://a.example"), link("https://b.example"), link("https://c.example")},
+			"tab 3 links · ↑↓ scroll · r refresh · esc back · ? help",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := readerWithLinks(t, tt.links)
+			if got := m.buildStatusBar().hints; got != tt.want {
+				t.Fatalf("status hints = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// Focused-link mode has its own hint line; the resting links hint must not
+// double up on it.
+func TestReaderFocusedLinkHintsOmitLinksHint(t *testing.T) {
+	m := readerWithLinks(t, []Link{{Kind: LinkURL, Action: ActionCopy, Raw: "https://a.example"}})
+	m.reader.focusedLink = 0
+	if got, want := m.buildStatusBar().hints, "link 1/1 · url · y copy · tab next · r refresh"; got != want {
+		t.Fatalf("focused hints = %q, want %q", got, want)
+	}
+}

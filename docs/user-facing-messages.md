@@ -99,6 +99,7 @@ embedded catalog and the bookmarks file.
 
 | Message | Source | Surface |
 | --- | --- | --- |
+| `jonathan@tilde.team` / `fingerverse@happynetbox.com` / `me@andros.dev` | `tui/bookmarks.go` (`starterBookmarks`) | Ordered starter records written to a new bookmarks file and rendered under `BOOKMARKS` on first run. Each remains ordinary, independently deletable user configuration. |
 | `YOURS` / `CATALOG` | `tui/start.go` (`overviewOwnershipLabel`, `overviewCatalogLabel`) | Overview line above the list. `YOURS` is deliberately not `BOOKMARKS` — the section header already says that. |
 | `none yet` | `tui/start.go` (`overviewView`) | `YOURS` value when the user has no bookmarks. |
 | `<n>` | `tui/start.go` (`overviewView`) | `YOURS` value when there is at least one bookmark (a bare count, not `N bookmarks`). |

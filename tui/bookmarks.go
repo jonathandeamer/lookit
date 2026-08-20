@@ -199,13 +199,6 @@ const bookmarkFileHeader = `# lookit bookmarks — one target per line: @tilde.t
 
 `
 
-// bookmarkDateLayout is the file's last-visited date: a plain calendar day.
-//
-// The display buckets by local calendar day (relativeDay), so a day is
-// everything it consumes — an instant would record a precision nothing reads
-// back, on every line of a file meant to be read by a person. The cost is
-// real but small: a visit recorded in one timezone and read in another can
-// land one bucket out, which day-fuzzy prose absorbs.
 // starterBookmarks are the records written under bookmarkFileHeader when
 // lookit creates the file, in this order: undated pins tie-break on file
 // order, so the author leads and the rest follow as listed. They are a first
@@ -222,6 +215,13 @@ var starterBookmarks = []string{
 	"me@andros.dev",
 }
 
+// bookmarkDateLayout is the file's last-visited date: a plain calendar day.
+//
+// The display buckets by local calendar day (relativeDay), so a day is
+// everything it consumes — an instant would record a precision nothing reads
+// back, on every line of a file meant to be read by a person. The cost is
+// real but small: a visit recorded in one timezone and read in another can
+// land one bucket out, which day-fuzzy prose absorbs.
 const bookmarkDateLayout = "2006-01-02"
 
 // parseBookmarkTarget accepts a target with an optional last-visited date:

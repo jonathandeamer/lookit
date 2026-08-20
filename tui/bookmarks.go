@@ -200,10 +200,11 @@ const bookmarkFileHeader = `# lookit bookmarks — one target per line: @tilde.t
 `
 
 // starterBookmarks are the records written under bookmarkFileHeader when
-// lookit creates the file, in this order: undated pins tie-break on file
-// order, so the author leads and the rest follow as listed. They are a first
-// run's somewhere-to-go, not managed content — each is as deletable as the
-// last, and an existing file is authoritative, so none of them comes back.
+// lookit creates the file, in this order. The default display sorts these
+// initially undated pins by host and query; "sort manual" reveals the order
+// below. They are a first run's somewhere-to-go, not managed content — each is
+// as deletable as the last, and an existing file is authoritative, so none of
+// them comes back.
 //
 // aboutFingerAuthor is reused rather than repeated; the other two are the
 // fingerverse's own noticeboard and one person keeping a dated .plan, so a new

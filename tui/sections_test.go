@@ -114,7 +114,7 @@ func TestBuildSectionsOrdersBookmarksOldestVisitFirst(t *testing.T) {
 	}
 }
 
-func TestBuildSectionsPutsNeverVisitedBookmarksLastInFileOrder(t *testing.T) {
+func TestBuildSectionsPutsNeverVisitedBookmarksLastInAlphabeticalOrder(t *testing.T) {
 	bm := bookmarkFile{
 		targets: []string{"@never.example", "@plan.cat", "@also-never.example", "@tilde.team"},
 		visited: map[string]time.Time{
@@ -123,26 +123,50 @@ func TestBuildSectionsPutsNeverVisitedBookmarksLastInFileOrder(t *testing.T) {
 		},
 	}
 	got := bookmarkTargets(t, buildSections(catalogFixture(), bm))
-	want := []string{"@tilde.team", "@plan.cat", "@never.example", "@also-never.example"}
+	want := []string{"@tilde.team", "@plan.cat", "@also-never.example", "@never.example"}
 	if !slices.Equal(got, want) {
-		t.Errorf("bookmark order = %v, want %v (undated last, keeping file order)", got, want)
+		t.Errorf("bookmark order = %v, want %v (undated last, alphabetical among themselves)", got, want)
 	}
 }
 
-func TestBuildSectionsKeepsFileOrderForBookmarksVisitedTogether(t *testing.T) {
+func TestBuildSectionsSortsBookmarksVisitedTogetherAlphabetically(t *testing.T) {
 	same := time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC)
 	bm := bookmarkFile{
-		targets: []string{"quake@bbs.airandwave.net", "@plan.cat", "@tilde.team"},
+		targets: []string{"quake@bbs.airandwave.net", "@tilde.team", "@plan.cat", "help@bbs.airandwave.net"},
 		visited: map[string]time.Time{
 			"quake@bbs.airandwave.net": same,
-			"@plan.cat":                same,
 			"@tilde.team":              same,
+			"@plan.cat":                same,
+			"help@bbs.airandwave.net":  same,
 		},
 	}
 	got := bookmarkTargets(t, buildSections(catalogFixture(), bm))
-	want := []string{"quake@bbs.airandwave.net", "@plan.cat", "@tilde.team"}
+	want := []string{"help@bbs.airandwave.net", "quake@bbs.airandwave.net", "@plan.cat", "@tilde.team"}
 	if !slices.Equal(got, want) {
-		t.Errorf("bookmark order = %v, want %v (equal dates tie-break on file order)", got, want)
+		t.Errorf("bookmark order = %v, want %v (equal dates tie-break on host, then token)", got, want)
+	}
+}
+
+func TestBuildSectionsSortsAcceptedTargetFormsByParsedHostAndQuery(t *testing.T) {
+	bm := bookmarkFile{
+		targets: []string{
+			"@z.example",
+			"a.example/charlie",
+			"bob@a.example",
+			"alice@destination.example@relay.example",
+			"finger://a.example/alice",
+		},
+	}
+	got := bookmarkTargets(t, buildSections(catalogFixture(), bm))
+	want := []string{
+		"finger://a.example/alice",
+		"bob@a.example",
+		"a.example/charlie",
+		"alice@destination.example@relay.example",
+		"@z.example",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("bookmark order = %v, want %v (parsed host, then query)", got, want)
 	}
 }
 

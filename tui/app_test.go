@@ -3643,17 +3643,19 @@ func TestBookmarkingCatalogRowsStayAtSectionOrdinal(t *testing.T) {
 	}
 }
 
+// Undated pins render alphabetically, so this seed draws @happynetbox.com,
+// @plan.cat, @tilde.team whatever order the file lists them in.
 func TestRemovingMiddleBookmarkStaysAtBookmarkOrdinal(t *testing.T) {
 	seedBookmarks(t, "@plan.cat\n@tilde.team\n@happynetbox.com\n")
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	m.blurInput()
-	if !m.start.selectTarget("@tilde.team") {
-		t.Fatal("@tilde.team not found")
+	if !m.start.selectTarget("@plan.cat") {
+		t.Fatal("@plan.cat not found")
 	}
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
 	m = next.(appModel)
 	selected, ok := m.start.selected()
-	if !ok || selected.target != "@happynetbox.com" {
+	if !ok || selected.target != "@tilde.team" {
 		t.Fatalf("selected = %+v, %v; want bookmark moved into the removed row's slot", selected, ok)
 	}
 }
@@ -3665,8 +3667,8 @@ func TestRemovingBookmarksStaysAtSectionOrdinal(t *testing.T) {
 		pick string
 		want string
 	}{
-		{name: "first", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@plan.cat", want: "@tilde.team"},
-		{name: "final", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@happynetbox.com", want: "@tilde.team"},
+		{name: "first", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@happynetbox.com", want: "@plan.cat"},
+		{name: "final", seed: "@plan.cat\n@tilde.team\n@happynetbox.com\n", pick: "@tilde.team", want: "@plan.cat"},
 		{name: "only", seed: "@tilde.team\n", pick: "@tilde.team", want: "@cosmic.voyage"},
 	}
 	for _, tt := range tests {

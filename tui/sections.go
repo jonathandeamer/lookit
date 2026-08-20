@@ -3,6 +3,8 @@ package tui
 import (
 	"sort"
 	"strings"
+
+	"github.com/jonathandeamer/lookit/finger"
 )
 
 type startSectionID uint8
@@ -21,16 +23,42 @@ type startSection struct {
 	entries []startEntry
 }
 
-// sortByVisit orders dated rows longest-ago first and undated rows after them.
-// Display-only: the file is not rewritten. SliceStable ties on input order.
+// sortByVisit orders dated rows longest-ago first and undated rows after them,
+// breaking ties alphabetically (targetLess) so the shelf reads the same however
+// the file happens to be arranged. Display-only: the file is not rewritten.
 func sortByVisit(entries []startEntry) {
 	sort.SliceStable(entries, func(i, j int) bool {
 		a, b := entries[i].visited, entries[j].visited
-		if a.IsZero() || b.IsZero() {
-			return !a.IsZero() && b.IsZero()
+		if a.IsZero() != b.IsZero() {
+			return !a.IsZero()
 		}
-		return a.Before(b)
+		if !a.Equal(b) {
+			return a.Before(b)
+		}
+		return targetLess(entries[i].target, entries[j].target)
 	})
+}
+
+// targetLess is the alphabetical order used everywhere targets are sorted for
+// display: host first, then the query token, so one host's rows stay adjacent.
+func targetLess(left, right string) bool {
+	leftHost, leftToken := targetSortParts(left)
+	rightHost, rightToken := targetSortParts(right)
+	if leftHost != rightHost {
+		return leftHost < rightHost
+	}
+	if leftToken != rightToken {
+		return leftToken < rightToken
+	}
+	return left < right
+}
+
+func targetSortParts(target string) (host, token string) {
+	parsed, err := finger.ParseTarget(target)
+	if err != nil {
+		return entryHost(target), entryToken(target)
+	}
+	return parsed.HostPort, parsed.QueryLine()
 }
 
 // buildSections merges the two sources into the rendered order: the user's
@@ -125,11 +153,7 @@ func buildSections(catalog []startEntry, bm bookmarkFile) []startSection {
 			listed = groupByHost(listed, roots, groupNotes, pinned)
 		} else {
 			sort.SliceStable(listed, func(i, j int) bool {
-				leftHost, rightHost := entryHost(listed[i].target), entryHost(listed[j].target)
-				if leftHost != rightHost {
-					return leftHost < rightHost
-				}
-				return entryToken(listed[i].target) < entryToken(listed[j].target)
+				return targetLess(listed[i].target, listed[j].target)
 			})
 		}
 		sections = append(sections, startSection{id: group.id, title: group.title, entries: listed})

@@ -317,7 +317,17 @@ func TestSaveBookmarkDataPreservesSymlink(t *testing.T) {
 	}
 }
 
-func TestLoadBookmarksMissingFileCreatesAuthorBookmark(t *testing.T) {
+// wantStarterData is the exact bytes a first run writes: the header, then one
+// record per starter bookmark in declaration order.
+func wantStarterData() string {
+	data := bookmarkFileHeader
+	for _, target := range starterBookmarks {
+		data += target + "\n"
+	}
+	return data
+}
+
+func TestLoadBookmarksMissingFileCreatesStarterBookmarks(t *testing.T) {
 	path := useMissingTempBookmarks(t)
 
 	file, gotPath := loadBookmarks()
@@ -327,15 +337,18 @@ func TestLoadBookmarksMissingFileCreatesAuthorBookmark(t *testing.T) {
 	if len(file.problems) != 0 {
 		t.Fatalf("problems = %+v, want none", file.problems)
 	}
-	if len(file.targets) != 1 || file.targets[0] != aboutFingerAuthor {
-		t.Fatalf("targets = %+v, want [%s]", file.targets, aboutFingerAuthor)
+	if !slices.Equal(file.targets, starterBookmarks) {
+		t.Fatalf("targets = %+v, want %+v", file.targets, starterBookmarks)
+	}
+	if file.targets[0] != aboutFingerAuthor {
+		t.Fatalf("first target = %q, want the author %q", file.targets[0], aboutFingerAuthor)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read initialized bookmarks: %v", err)
 	}
-	if got, want := string(data), bookmarkFileHeader+aboutFingerAuthor+"\n"; got != want {
+	if got, want := string(data), wantStarterData(); got != want {
 		t.Fatalf("bookmarks = %q, want %q", got, want)
 	}
 	fileInfo, err := os.Stat(path)
@@ -403,19 +416,22 @@ func TestInitializeBookmarkDataReportsConcurrentWinnerReadFailure(t *testing.T) 
 	}
 }
 
-func TestLoadBookmarksDoesNotRestoreDeletedAuthorBookmark(t *testing.T) {
+func TestLoadBookmarksDoesNotRestoreDeletedStarterBookmarks(t *testing.T) {
 	path := useMissingTempBookmarks(t)
 	file, _ := loadBookmarks()
-	if len(file.targets) != 1 || file.targets[0] != aboutFingerAuthor {
-		t.Fatalf("initial targets = %+v, want [%s]", file.targets, aboutFingerAuthor)
+	if !slices.Equal(file.targets, starterBookmarks) {
+		t.Fatalf("initial targets = %+v, want %+v", file.targets, starterBookmarks)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read initialized bookmarks: %v", err)
 	}
-	if err := saveBookmarkData(path, deleteBookmarkLine(data, aboutFingerAuthor)); err != nil {
-		t.Fatalf("remove author bookmark: %v", err)
+	for _, target := range starterBookmarks {
+		data = deleteBookmarkLine(data, target)
+	}
+	if err := saveBookmarkData(path, data); err != nil {
+		t.Fatalf("remove starter bookmarks: %v", err)
 	}
 
 	file, _ = loadBookmarks()
@@ -426,11 +442,34 @@ func TestLoadBookmarksDoesNotRestoreDeletedAuthorBookmark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bookmarks after removal: %v", err)
 	}
-	// Deleting the only record leaves the seeded header and nothing else. The
+	// Deleting every record leaves the seeded header and nothing else. The
 	// file still exists, so it stays authoritative rather than being
-	// initialized again with the author bookmark.
+	// initialized again with the starter bookmarks.
 	if got, want := string(data), bookmarkFileHeader; got != want {
 		t.Fatalf("bookmarks after removal = %q, want %q", got, want)
+	}
+}
+
+// One starter deleted and the others kept is the ordinary case: the file is
+// taken at its word, so the gap is never refilled.
+func TestLoadBookmarksDoesNotRestoreOneDeletedStarterBookmark(t *testing.T) {
+	path := useMissingTempBookmarks(t)
+	loadBookmarks()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read initialized bookmarks: %v", err)
+	}
+	if err := saveBookmarkData(path, deleteBookmarkLine(data, aboutFingerAuthor)); err != nil {
+		t.Fatalf("remove author bookmark: %v", err)
+	}
+
+	file, _ := loadBookmarks()
+	if len(file.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", file.problems)
+	}
+	if want := starterBookmarks[1:]; !slices.Equal(file.targets, want) {
+		t.Fatalf("targets after removal = %+v, want %+v", file.targets, want)
 	}
 }
 

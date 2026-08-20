@@ -175,7 +175,7 @@ func stripComment(line string) string {
 	return line
 }
 
-// bookmarkFileHeader is written above the starter bookmark when lookit creates
+// bookmarkFileHeader is written above the starter bookmarks when lookit creates
 // the file, and never again: it is a greeting, not managed content, so a user
 // who deletes or rewrites it keeps their edit forever.
 //
@@ -198,6 +198,22 @@ const bookmarkFileHeader = `# lookit bookmarks — one target per line: @tilde.t
 #   sort manual    keep this file's order instead
 
 `
+
+// starterBookmarks are the records written under bookmarkFileHeader when
+// lookit creates the file, in this order: undated pins tie-break on file
+// order, so the author leads and the rest follow as listed. They are a first
+// run's somewhere-to-go, not managed content — each is as deletable as the
+// last, and an existing file is authoritative, so none of them comes back.
+//
+// aboutFingerAuthor is reused rather than repeated; the other two are the
+// fingerverse's own noticeboard and one person keeping a dated .plan, so a new
+// file opens on what the small internet is doing now, not only on who made the
+// client.
+var starterBookmarks = []string{
+	aboutFingerAuthor,
+	"fingerverse@happynetbox.com",
+	"me@andros.dev",
+}
 
 // bookmarkDateLayout is the file's last-visited date: a plain calendar day.
 //
@@ -327,7 +343,7 @@ func resolveBookmarksPath() (string, error) {
 }
 
 // loadBookmarks reads and parses the user's file. On first use it initializes a
-// missing file with the author bookmark; every existing file, including an empty
+// missing file with starterBookmarks; every existing file, including an empty
 // one, is authoritative. Read and initialization failures become problems the
 // startpage surfaces. The resolved path is returned so every message can name
 // the file actually in use.
@@ -339,7 +355,10 @@ func loadBookmarks() (bookmarkFile, string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			data = appendBookmarkLine([]byte(bookmarkFileHeader), aboutFingerAuthor, time.Time{})
+			data = []byte(bookmarkFileHeader)
+			for _, target := range starterBookmarks {
+				data = appendBookmarkLine(data, target, time.Time{})
+			}
 			return initializeBookmarkData(path, data), path
 		}
 		return bookmarkFile{problems: []parseProblem{{reason: "cannot read: " + err.Error()}}}, path

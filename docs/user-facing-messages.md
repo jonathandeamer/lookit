@@ -154,6 +154,7 @@ embedded catalog and the bookmarks file.
 | `partial (error)` | `tui/app.go` (`buildStatusBar`) | List flag for a parseable list body returned with an error. |
 | `partial (truncated)` | `tui/app.go` (`buildStatusBar`) | List or reader flag when the body was cut. |
 | `↑↓ scroll` | `tui/app.go` (`buildStatusBar`) | Reader resting hint (then `joinHints`). |
+| `tab 1 link` / `tab <n> links` | `tui/app.go` (`buildStatusBar`, `countLabel`) | Reader resting hint, ahead of `↑↓ scroll`, only when the body carries links and none is focused. |
 | `<scroll>%` | `tui/app.go` (`buildStatusBar`) | Reader scroll position when the body is taller than the viewport. |
 | `link <n>/<total> · <kind> · <actions>` | `tui/app.go` (`buildStatusBar`, `linkKindLabel`) | Reader with a focused link. Kinds: `finger`, `address (ambiguous)`, `url`, `email`, `social`, `forwarded finger`. |
 | `tab next` | `tui/app.go` (`buildStatusBar`) | Extra hint while a reader link is focused. |

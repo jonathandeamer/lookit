@@ -135,12 +135,14 @@ func parseUserListForTarget(body []byte, target finger.Target) (parsedUserList, 
 // on arbitrary servers for selectable lists. The target-aware caller prevents
 // a missing or invalid search response from falling through to looser parsers.
 //
-// A line that is not address-shaped declines the whole response: the shape is
-// the only evidence that this really is a result list. A line that is shaped
-// but whose host is not domainSane is skipped instead, as parseAddressList
-// skips it — there is no host to drill it to, and dropping one unopenable
-// result is better than dropping every openable one alongside it. A response
-// whose every entry is unopenable ends with no users and declines.
+// A line of prose declines the whole response: the address-per-line shape is
+// the only evidence that this really is a result list. A line that holds a
+// lone address-like token but is not address-shaped — an over-long login, a
+// '+' the login grammar rejects, a quoted relay template — is skipped instead,
+// exactly as a shaped line whose host is not domainSane is skipped, as
+// parseAddressList skips it: dropping one unopenable result is better than
+// dropping every openable one alongside it. A response whose every entry is
+// unopenable ends with no users and declines.
 func parseCrossedFingersSearch(lines []string, originHostPort string) ([]User, string, bool) {
 	if !strings.EqualFold(canonicalHost(originHostPort), crossedFingersHost) {
 		return nil, "", false
@@ -164,12 +166,16 @@ func parseCrossedFingersSearch(lines []string, originHostPort string) ([]User, s
 	seen := map[string]bool{}
 	var users []User
 	for _, line := range lines[heading+1:] {
-		if strings.TrimSpace(line) == "" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
 			continue
 		}
 		addr, shaped, sane := addressLine(line)
 		if !shaped {
-			return nil, "", false
+			if !addressishLineRe.MatchString(trimmed) {
+				return nil, "", false
+			}
+			continue
 		}
 		if !sane {
 			continue
@@ -650,6 +656,13 @@ func appendHarvestedTargets(users []User, body []byte, originHostPort string) []
 // here and then validated by domainSane, which is what rejects a placeholder
 // like "user@host" (no dot) and anything carrying a port.
 var addressLineRe = regexp.MustCompile(`^([A-Za-z0-9_][A-Za-z0-9_.-]{0,31})@(\S+)$`)
+
+// addressishLineRe matches a line holding a single whitespace-free token with
+// an "@" in it — address-like to a human reader, but not necessarily openable
+// by the strict grammar above (an over-long login, a '+', a quoted relay
+// template). parseCrossedFingersSearch skips such a line rather than letting
+// it decline the whole response; anything looser is prose and stays fatal.
+var addressishLineRe = regexp.MustCompile(`^\S+@\S+$`)
 
 // minAddressRun is how many consecutive address-only lines open a listing. Two
 // is too low: a pair of addresses on their own lines is an ordinary contact

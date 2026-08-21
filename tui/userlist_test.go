@@ -861,3 +861,57 @@ func TestParseUsers_CrossedFingersSearchDeclinesWhenEveryResultUndrillable(t *te
 		t.Fatal("parseUserListForTarget ok = true, want false when no result can be drilled")
 	}
 }
+
+// A login the strict grammar cannot open — over 32 chars, or carrying a
+// character like '+' — is still plainly an address to a human reader. Like an
+// unsane host, such a result must skip rather than take the whole list to the
+// reader.
+func TestParseUsers_CrossedFingersSearchSkipsUngrammarLogin(t *testing.T) {
+	body := []byte("Search results for \"foo\":\n\n" +
+		"bob@plan.cat\n" +
+		"echoechoechoechoechoechoechoechoecho@plan.cat\n" +
+		"user+tag@plan.cat\n" +
+		"eve@plan.cat\n")
+
+	parsed, ok := parseUserListForTarget(body, hostTarget(t, "search?foo@crossed-fingers.andros.dev"))
+	if !ok {
+		t.Fatal("parseUserListForTarget ok = false, want true despite unopenable logins")
+	}
+	want := []string{"bob@plan.cat", "eve@plan.cat"}
+	if len(parsed.users) != len(want) {
+		t.Fatalf("users = %#v, want targets %v", parsed.users, want)
+	}
+	for i, target := range want {
+		if parsed.users[i].Target != target {
+			t.Errorf("users[%d].Target = %q, want %q", i, parsed.users[i].Target, target)
+		}
+	}
+}
+
+// A quoted relay template is address-like but not address-shaped; it must skip
+// too, not decline the response.
+func TestParseUsers_CrossedFingersSearchSkipsQuotedRelayTemplate(t *testing.T) {
+	body := []byte("Search results for \"foo\":\n\n" +
+		"bob@plan.cat\n" +
+		"\"tomasino@cosmic.voyage\"@relay.example\n" +
+		"eve@plan.cat\n")
+
+	parsed, ok := parseUserListForTarget(body, hostTarget(t, "search?foo@crossed-fingers.andros.dev"))
+	if !ok {
+		t.Fatal("parseUserListForTarget ok = false, want true despite a relay-template line")
+	}
+	want := []string{"bob@plan.cat", "eve@plan.cat"}
+	if len(parsed.users) != len(want) {
+		t.Fatalf("users = %#v, want targets %v", parsed.users, want)
+	}
+}
+
+// Every entry unopenable by the strict grammar leaves nothing to select, so
+// the reader keeps the body.
+func TestParseUsers_CrossedFingersSearchDeclinesWhenEveryResultUngrammar(t *testing.T) {
+	body := []byte("Search results for \"foo\":\n\nechoechoechoechoechoechoechoechoechoecho@plan.cat\n")
+
+	if _, ok := parseUserListForTarget(body, hostTarget(t, "search?foo@crossed-fingers.andros.dev")); ok {
+		t.Fatal("parseUserListForTarget ok = true, want false when no result fits the login grammar")
+	}
+}

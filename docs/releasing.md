@@ -28,31 +28,43 @@ changing deps).
 
 ## The Homebrew tap
 
-`jonathandeamer/homebrew-tap` is a personal tap. It is not advertised — the
-README doesn't mention it — and it exists so lookit installs on the maintainer's
-own Macs. Treat it as a convenience, not a supported install route: the archives
-and the `.deb`/`.rpm` packages are what the README sends people to.
+`jonathandeamer/homebrew-tap` is the install route the README gives macOS users
+first, so treat it as part of the release rather than a convenience. A stable
+tag makes GoReleaser write `Casks/lookit.rb` to the tap's `main` branch;
+`skip_upload: auto` keeps prerelease tags out of it entirely, so `brew upgrade`
+can never serve an untested build.
 
-A stable tag makes GoReleaser write `Casks/lookit.rb` to the tap's `main`
-branch; `skip_upload: auto` keeps prerelease tags out of it entirely, so
-`brew upgrade` can never serve an untested build. Nothing else is needed at
-release time. Verify it by hand afterwards if you like:
-`brew update && brew install --cask jonathandeamer/tap/lookit`, then
-`man lookit`.
+**Confirm the cask actually published before calling a release done.** The
+release job talks to another repository with a token this repo can't test any
+other way, and GoReleaser continues through later publishers after a cask error
+before failing at the end — so a red job can still have produced a perfectly
+good draft release. After the workflow finishes:
+
+```bash
+brew update && brew install --cask jonathandeamer/tap/lookit
+man lookit
+```
+
+If the push failed, the generated file is in `dist/homebrew/Casks/lookit.rb`
+from `make release-snapshot` and can be committed to the tap by hand; the
+archives and the GitHub release are unaffected either way.
+`HOMEBREW_TAP_GITHUB_TOKEN` was verified on 2026-08-21 as a classic token with
+`repo` scope and `push: true` on the tap.
 
 The tap used to serve lookit from a hand-written formula pinning the v0.1.0
 source tarball and building with `depends_on "go" => :build`. That was deleted
 in jonathandeamer/homebrew-tap@d0234ee, ahead of the v0.2.0 tag, so the tap
 holds exactly one lookit definition and an unqualified name has nothing to
-resolve ambiguously. Anyone still on the formula install (realistically: the
-maintainer) needs `brew uninstall lookit` before installing the cask.
+resolve ambiguously. Anyone still on the formula install needs
+`brew uninstall lookit` before installing the cask.
 
-Casks are macOS-first. Homebrew 6.0.x does install casks on Linux — 6.0.16 fixed
-the case of a cask with `on_linux` blocks and no `os` stanza, which is exactly
-what GoReleaser generates here — but lookit does not adopt Homebrew as a Linux
-route and does not promise one, because that would mean carrying a minimum
-Homebrew version for no gain over the packages. `brews:`, the formula equivalent
-of `homebrew_casks`, still generates valid config but is deprecated and fails
+Casks are macOS-first, and the README offers Homebrew for macOS only. Homebrew
+6.0.x does install casks on Linux — 6.0.16 fixed the case of a cask with
+`on_linux` blocks and no `os` stanza, which is exactly what GoReleaser generates
+here — but advertising that would mean carrying a minimum Homebrew version for
+no gain over the `.deb`/`.rpm`, which cover more Linux targets than the cask
+does (the `armv6` build has no cask at all). `brews:`, the formula equivalent of
+`homebrew_casks`, still generates valid config but is deprecated and fails
 `make release-check`, so a formula is not the way back.
 
 ## Version injection

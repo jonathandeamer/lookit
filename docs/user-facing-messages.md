@@ -119,7 +119,7 @@ embedded catalog and the bookmarks file.
 | `expected "catalog on" or "catalog off"` | `tui/bookmarks.go` (`parseBookmarks`) | Reason on a bad `catalog` directive. |
 | `expected "sort visited" or "sort manual"` | `tui/bookmarks.go` (`parseBookmarks`) | Reason on a bad `sort` directive. |
 | `expected a target and an optional date` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line carrying more than a target and a date — most often a description, which belongs after a `#`. |
-| `expected a date like 2026-08-14` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line whose date is not a zero-padded `YYYY-MM-DD` calendar day. |
+| `expected a date like 2026-08-14` | `tui/bookmarks.go` (`parseBookmarkTarget`) | Reason on a bookmark line whose date is neither a zero-padded `YYYY-MM-DD` calendar day nor the exact UTC timestamp format written by v0.2.0-beta.1. |
 | `target "…" cannot be saved unchanged` | `tui/bookmarks.go` (`validateBookmarkRecordTarget`) | Reason a target cannot be persisted as a bookmark record; surfaced via the `error: cannot bookmark: <reason>` flash. |
 | `target is not valid UTF-8` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target is not UTF-8. |
 | `target has an invisible character` | `tui/bookmarks.go` (`validateTarget`) | Bookmark target carries C1/Cf/Zl/Zp. |

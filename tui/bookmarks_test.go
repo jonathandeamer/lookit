@@ -602,15 +602,75 @@ func TestParseBookmarksReadsLastVisited(t *testing.T) {
 	}
 }
 
+func TestBetaBookmarkUpgradeCompatibility(t *testing.T) {
+	tests := []struct {
+		name      string
+		date      string
+		wantVisit time.Time
+	}{
+		{
+			name:      "beta.1 UTC timestamp",
+			date:      "2026-08-14T15:04:05Z",
+			wantVisit: time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC),
+		},
+		{
+			name:      "beta.2 calendar day",
+			date:      "2026-08-14",
+			wantVisit: time.Date(2026, 8, 14, 0, 0, 0, 0, time.Local),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := []byte("  @plan.cat   " + tt.date + "   # beta bookmark\n")
+			parsed := parseBookmarks(in)
+			if len(parsed.problems) != 0 {
+				t.Fatalf("problems = %+v, want none", parsed.problems)
+			}
+			if !slices.Equal(parsed.targets, []string{"@plan.cat"}) {
+				t.Fatalf("targets = %v, want [@plan.cat]", parsed.targets)
+			}
+			if !parsed.visited["@plan.cat"].Equal(tt.wantVisit) {
+				t.Fatalf("visited = %v, want %v", parsed.visited["@plan.cat"], tt.wantVisit)
+			}
+
+			updated, changed := updateBookmarkLine(in, "@plan.cat", time.Date(2026, 8, 21, 9, 30, 0, 0, time.Local))
+			wantFile := "  @plan.cat 2026-08-21   # beta bookmark\n"
+			if !changed || string(updated) != wantFile {
+				t.Fatalf("changed=%v updated=%q, want stable record %q", changed, updated, wantFile)
+			}
+		})
+	}
+}
+
+// The zero instant is refused as a legacy stamp because it round-trips to
+// exactly Go's zero time, which parseBookmarks reads as "date unknown" — a
+// dated record must never silently mean the opposite. The day format gets no
+// matching carve-out: year 1 is an ordinary (if implausible) date, so the
+// record is kept rather than reported as malformed. What the day then *means*
+// is zone-dependent — under a UTC local zone it is that same zero time and the
+// date degrades to unknown — so this asserts only what holds in every zone.
+func TestParseBookmarksKeepsYearOneDayFormat(t *testing.T) {
+	got := parseBookmarks([]byte("@plan.cat 0001-01-01\n"))
+	if len(got.problems) != 0 {
+		t.Fatalf("problems = %+v, want none — a year-one day is a date, not a malformed record", got.problems)
+	}
+	if !slices.Equal(got.targets, []string{"@plan.cat"}) {
+		t.Fatalf("targets = %v, want [@plan.cat]", got.targets)
+	}
+}
+
 func TestParseBookmarksRejectsBadDate(t *testing.T) {
 	for _, line := range []string{
-		"@plan.cat friendly",              // two fields, second not a date
-		"@plan.cat 2026-08-14T15:04:05Z",  // an instant, not a day
-		"@plan.cat 2026-8-14",             // unpadded, so it would not round-trip
-		"@plan.cat 20260814",              // no separators
-		"@plan.cat 14/08/2026",            // a human ordering we do not accept
-		"@plan.cat 2026-13-01",            // no such month
-		"@plan.cat 2026-08-14 2026-08-15", // three fields
+		"@plan.cat friendly",                  // two fields, second not a date
+		"@plan.cat 2026-08-14T15:04:05.1Z",    // beta.1 never emitted fractional seconds
+		"@plan.cat 2026-08-14T15:04:05+00:00", // beta.1 emitted Z, not an offset
+		"@plan.cat 0001-01-01T00:00:00Z",      // the zero instant means "date unknown", not a date
+		"@plan.cat 2026-8-14",                 // unpadded, so it would not round-trip
+		"@plan.cat 20260814",                  // no separators
+		"@plan.cat 14/08/2026",                // a human ordering we do not accept
+		"@plan.cat 2026-13-01",                // no such month
+		"@plan.cat 2026-08-14 2026-08-15",     // three fields
 	} {
 		got := parseBookmarks([]byte(line + "\n"))
 		if len(got.targets) != 0 {

@@ -645,17 +645,18 @@ func TestBetaBookmarkUpgradeCompatibility(t *testing.T) {
 
 // The zero instant is refused as a legacy stamp because it round-trips to
 // exactly Go's zero time, which parseBookmarks reads as "date unknown" — a
-// dated record must never silently mean the opposite. The day format has no
-// such hole: year 1 parses to local midnight, which is not IsZero, so it stays
-// an ordinary (if implausible) date rather than becoming a refusal.
-func TestParseBookmarksAcceptsYearOneDayFormat(t *testing.T) {
+// dated record must never silently mean the opposite. The day format gets no
+// matching carve-out: year 1 is an ordinary (if implausible) date, so the
+// record is kept rather than reported as malformed. What the day then *means*
+// is zone-dependent — under a UTC local zone it is that same zero time and the
+// date degrades to unknown — so this asserts only what holds in every zone.
+func TestParseBookmarksKeepsYearOneDayFormat(t *testing.T) {
 	got := parseBookmarks([]byte("@plan.cat 0001-01-01\n"))
 	if len(got.problems) != 0 {
-		t.Fatalf("problems = %+v, want none", got.problems)
+		t.Fatalf("problems = %+v, want none — a year-one day is a date, not a malformed record", got.problems)
 	}
-	want := time.Date(1, 1, 1, 0, 0, 0, 0, time.Local)
-	if !got.visited["@plan.cat"].Equal(want) {
-		t.Fatalf("visited = %v, want %v", got.visited["@plan.cat"], want)
+	if !slices.Equal(got.targets, []string{"@plan.cat"}) {
+		t.Fatalf("targets = %v, want [@plan.cat]", got.targets)
 	}
 }
 

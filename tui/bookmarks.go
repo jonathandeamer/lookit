@@ -266,8 +266,11 @@ func parseBookmarkTarget(line string) (string, time.Time, error) {
 	// time, which parseBookmarks reads as "date unknown" — so accepting it would
 	// make a dated record silently mean the opposite, the one place a line
 	// lookit cannot understand would be guessed at rather than surfaced. The day
-	// format has no such hole: "0001-01-01" parses to local midnight, not IsZero.
-	// beta.1 never emitted a zero stamp, so only a hand-edited file reaches this.
+	// format gets no matching carve-out, and it is not immune either: where
+	// time.Local is UTC — CI, many servers — "0001-01-01" is that same zero
+	// time, so the record keeps its target but loses its date. Both spellings
+	// are reachable only by hand: beta.1 never emitted a zero stamp, and no
+	// write path emits a year-one day.
 	visited, err = time.Parse(beta1BookmarkDateLayout, fields[1])
 	if err == nil && !visited.IsZero() && fields[1] == visited.Format(beta1BookmarkDateLayout) {
 		return fields[0], visited, nil

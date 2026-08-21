@@ -68,5 +68,5 @@ service browserversion@happynetbox.com Current version numbers for major browser
 service 1@happynetbox.com Interactive fiction, one page per finger query
 service originsfinger@happynetbox.com Les Earnest tells how finger began
 service @crossed-fingers.andros.dev The world's first .plan search engine?
-service help@crossed-fingers.andros.dev How to add, search and list every account
+service help@crossed-fingers.andros.dev How to add, search and list accounts
 service search?gemini@crossed-fingers.andros.dev Example search: plans that mention Gemini

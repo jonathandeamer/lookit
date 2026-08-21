@@ -608,6 +608,128 @@ func TestUserFetchStaysInReader(t *testing.T) {
 	}
 }
 
+func TestCrossedFingersSearchFetchOpensResultList(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "search?smolnet@crossed-fingers.andros.dev")
+	body := []byte("Search results for \"smolnet\":\n\necho@plan.cat\nfab@redterminal.org\n")
+	entry := Entry{Target: target, Body: body, Meta: finger.Meta{Addr: target.HostPort}}
+
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateList {
+		t.Fatalf("state = %d, want stateList", got.state)
+	}
+	selected, ok := got.list.selected()
+	if !ok || selected.target != "echo@plan.cat" {
+		t.Fatalf("selected = %#v, %v; want echo@plan.cat", selected, ok)
+	}
+	if view := got.View().Content; !strings.Contains(view, `Search results for "smolnet":`) {
+		t.Fatalf("list view missing search heading: %q", view)
+	}
+}
+
+func TestCrossedFingersSearchWithNoMatchesStaysInReader(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "search?zzzzlookitnomatchzzzz@crossed-fingers.andros.dev")
+	body := []byte("Search results for \"zzzzlookitnomatchzzzz\":\n\nNo matches.\n")
+	entry := Entry{Target: target, Body: body, Meta: finger.Meta{Addr: target.HostPort}}
+
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateReader {
+		t.Fatalf("state = %d, want stateReader", got.state)
+	}
+}
+
+func TestCrossedFingersChangedSearchLayoutKeepsFullLineResultsDrillable(t *testing.T) {
+	fetch, seen := fetchRecorder("Plan: hi\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	target := hostTarget(t, "search?smolnet@crossed-fingers.andros.dev")
+	body := []byte(
+		"Search results for \"smolnet\":\n\n" +
+			"echo@plan.cat\n" +
+			"Contact admin@example.com if these results look wrong.\n",
+	)
+	got := deliverNavigation(m, Entry{Target: target, Body: body})
+
+	if got.state != stateReader {
+		t.Fatalf("state = %d, want stateReader for an unrecognized search layout", got.state)
+	}
+	if len(got.reader.links) != 2 {
+		t.Fatalf("links = %#v, want the result row and prose address", got.reader.links)
+	}
+	result, prose := got.reader.links[0], got.reader.links[1]
+	if result.Raw != "echo@plan.cat" || result.Kind != LinkFinger || result.Action != ActionDrill || result.Ambiguous || !result.Strong {
+		t.Errorf("full-line result = %#v, want a definite Finger link", result)
+	}
+	if prose.Raw != "admin@example.com" || prose.Kind != LinkFinger || prose.Action != ActionCopy || !prose.Ambiguous {
+		t.Errorf("prose address = %#v, want an ambiguous address", prose)
+	}
+
+	next, _ := got.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	got = next.(appModel)
+	if got.reader.focusedLink != 0 {
+		t.Fatalf("focused link = %d, want the first result after Tab", got.reader.focusedLink)
+	}
+	next, cmd := got.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got = next.(appModel)
+	if got.pending == nil || cmd == nil {
+		t.Fatalf("Enter on result: pending=%#v cmd=%v, want a fetch request", got.pending, cmd)
+	}
+	runCmds(cmd)
+	if len(*seen) != 1 || (*seen)[0] != "echo@plan.cat" {
+		t.Fatalf("fetched targets = %v, want [echo@plan.cat]", *seen)
+	}
+}
+
+func TestCrossedFingersNonSearchCommandStaysInReader(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	target := hostTarget(t, "help@crossed-fingers.andros.dev")
+	body := []byte("Help\n\nalice@example.com\nbob@example.com\ncarol@example.com\n")
+	entry := Entry{Target: target, Body: body, Meta: finger.Meta{Addr: target.HostPort}}
+
+	next, _ := deliverNavigationResult(m, fetchResultMsg{entry: entry})
+	got := next.(appModel)
+
+	if got.state != stateReader {
+		t.Fatalf("state = %d, want stateReader", got.state)
+	}
+}
+
+func TestCrossedFingersStrictSearchParserIsQueryScoped(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		body   string
+	}{
+		{
+			name:   "host query does not claim a search-shaped body",
+			target: "@crossed-fingers.andros.dev",
+			body:   "Search results for \"smolnet\":\n\necho@plan.cat\n",
+		},
+		{
+			name:   "search query does not fall through to a generic list",
+			target: "search?smolnet@crossed-fingers.andros.dev",
+			body:   "Results for smolnet\n\nLogin     Name\necho      Echo\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := hostTarget(t, tt.target)
+			got := deliverNavigation(newApp(stubFetch(t), colorprofile.NoTTY), Entry{
+				Target: target,
+				Body:   []byte(tt.body),
+			})
+			if got.state != stateReader {
+				t.Fatalf("state = %d, want stateReader", got.state)
+			}
+		})
+	}
+}
+
 func TestEnterInListDrillsIntoUser(t *testing.T) {
 	fetch, seen := fetchRecorder("Plan: hi\n")
 	m := newApp(fetch, colorprofile.NoTTY)
@@ -658,11 +780,11 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 		"=> 2026-05-25 finger://tilde.team/yalla\n")
 	m.history = []histNode{{entry: Entry{Target: host, Body: body}, state: stateList}}
 	m.pos = 0
-	users, ok := ParseUsers(body, "")
+	parsed, ok := parseUserListForTarget(body, host)
 	if !ok {
-		t.Fatal("ParseUsers ok = false, want true")
+		t.Fatal("parseUserListForTarget ok = false, want true")
 	}
-	m.list = newListWithPreamble(m.common, host, users, body, false)
+	m.list = newListFromParsed(m.common, host, parsed)
 	m.state = stateList
 	m.inputFocused = false // Enter must reach the list, not the input
 
@@ -1206,6 +1328,42 @@ func TestEscBackDoesNotRefetch(t *testing.T) {
 	m = step.(appModel)
 	if m.pos != 0 || m.state != stateList {
 		t.Fatalf("after Esc back: pos=%d state=%d, want 0/list", m.pos, m.state)
+	}
+}
+
+func TestEscBackRestoresCrossedFingersSearchList(t *testing.T) {
+	fetch, _ := fetchRecorder("Plan: hi\n")
+	m := newApp(fetch, colorprofile.NoTTY)
+	search := hostTarget(t, "search?jonathandeamer@crossed-fingers.andros.dev")
+	m = deliverNavigation(m, Entry{
+		Target: search,
+		Body:   []byte("Search results for \"jonathandeamer\":\n\njonathan@tilde.team\n"),
+	})
+	if m.state != stateList {
+		t.Fatalf("initial state = %d, want stateList", m.state)
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(appModel)
+	if m.pending == nil {
+		t.Fatal("Enter on the search result did not start a request")
+	}
+	next, _ = m.Update(fetchResultMsg{
+		reqID: m.reqSeq,
+		entry: Entry{
+			Target: hostTarget(t, "jonathan@tilde.team"),
+			Body:   []byte("Plan: hi\n"),
+		},
+	})
+	m = next.(appModel)
+	if m.state != stateReader {
+		t.Fatalf("drilled state = %d, want stateReader", m.state)
+	}
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = next.(appModel)
+	if m.pos != 0 || m.state != stateList {
+		t.Fatalf("after Esc: pos=%d state=%d, want 0/list", m.pos, m.state)
 	}
 }
 

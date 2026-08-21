@@ -26,36 +26,34 @@ The release archives bundle `README.md`, `LICENSE`, `man/lookit.1`, and a genera
 redistributing the compiled binaries; regenerate with `make notices` after
 changing deps).
 
-## The Homebrew tap: one-time cleanup at the next stable release
+## The Homebrew tap
 
-`jonathandeamer/homebrew-tap` currently serves lookit from a **hand-written
-formula**, `Formula/lookit.rb`, added on 2026-08-02. It pins the v0.1.0 source
-tarball and builds from source (`depends_on "go" => :build`). The cask
-automation in `.goreleaser.yaml` landed after v0.1.0 was tagged and there has
-been no stable tag since, so `homebrew_casks` has never actually run and
-`Casks/lookit.rb` does not exist yet.
+`jonathandeamer/homebrew-tap` is a personal tap. It is not advertised — the
+README doesn't mention it — and it exists so lookit installs on the maintainer's
+own Macs. Treat it as a convenience, not a supported install route: the archives
+and the `.deb`/`.rpm` packages are what the README sends people to.
 
-The first stable tag after v0.1.0 creates it, and the tap then holds a formula
-and a cask both named `lookit`. Homebrew is understood to prefer the formula
-when the name is unqualified, which would leave
-`brew install jonathandeamer/tap/lookit` installing v0.1.0 from source and
-`brew upgrade` never moving anyone to the new version: GoReleaser writes only
-the cask and never touches the hand-written formula. That precedence has not
-been tested here, and it doesn't need to be — a tap offering two different
-lookits at two different versions is worth clearing up either way.
+A stable tag makes GoReleaser write `Casks/lookit.rb` to the tap's `main`
+branch; `skip_upload: auto` keeps prerelease tags out of it entirely, so
+`brew upgrade` can never serve an untested build. Nothing else is needed at
+release time. Verify it by hand afterwards if you like:
+`brew update && brew install --cask jonathandeamer/tap/lookit`, then
+`man lookit`.
 
-**So, as part of the first stable release after v0.1.0:** delete
-`Formula/lookit.rb` from the tap once the release has published and the cask is
-in place, then confirm `brew update && brew info jonathandeamer/tap/lookit`
-reports the new version from `Casks/`. Doing it in that order leaves no window
-where the tap offers nothing. Once the formula is gone this section can go too.
+The tap used to serve lookit from a hand-written formula pinning the v0.1.0
+source tarball and building with `depends_on "go" => :build`. That was deleted
+in jonathandeamer/homebrew-tap@d0234ee, ahead of the v0.2.0 tag, so the tap
+holds exactly one lookit definition and an unqualified name has nothing to
+resolve ambiguously. Anyone still on the formula install (realistically: the
+maintainer) needs `brew uninstall lookit` before installing the cask.
 
-Two things not to be surprised by. Casks are macOS-only, so Homebrew stops
-being an install route for Linux once the formula goes; the release archives
-already are that route, and the README points there first. And `brews:` (the
-formula equivalent of `homebrew_casks`) is deprecated in GoReleaser and fails
-`make release-check`, so staying on a formula is not an option worth
-reaching for.
+Casks are macOS-first. Homebrew 6.0.x does install casks on Linux — 6.0.16 fixed
+the case of a cask with `on_linux` blocks and no `os` stanza, which is exactly
+what GoReleaser generates here — but lookit does not adopt Homebrew as a Linux
+route and does not promise one, because that would mean carrying a minimum
+Homebrew version for no gain over the packages. `brews:`, the formula equivalent
+of `homebrew_casks`, still generates valid config but is deprecated and fails
+`make release-check`, so a formula is not the way back.
 
 ## Version injection
 

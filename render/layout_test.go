@@ -40,18 +40,42 @@ func TestWordWrapBodyLine(t *testing.T) {
 	}
 }
 
-func TestRenderLayoutUnwrappedMatchesCompatibilityRenderer(t *testing.T) {
+// RenderLayout highlights fields one physical body line at a time, where the
+// pre-wrap renderer highlighted the whole body in a single call. Comparing the
+// two entry points cannot catch a regression in that split — RenderWithWidth
+// now delegates to RenderLayout, so it would compare the implementation with
+// itself — and NoTTY skips highlightFields outright. So pin the plain text and
+// the field styling directly, on a colored profile.
+func TestRenderLayoutUnwrappedOutputIsStable(t *testing.T) {
 	target := finger.Target{HostPort: "plan.cat:79", Raw: "alice@plan.cat"}
-	body := []byte("Login: alice\nPlan:\nalpha beta gamma\n")
-	err := errors.New("read response timed out after 30s")
-	want := RenderWithWidth(target, body, err, colorprofile.NoTTY, true, 18)
+	body := []byte("Login: alice\nPlan:\nalpha beta gamma\nOn since Tuesday\n")
+	queryErr := errors.New("read response timed out after 30s")
 
-	got := RenderLayout(target, body, err, colorprofile.NoTTY, true, LayoutOptions{ErrorWidth: 18})
-	if got.Text != want {
-		t.Fatalf("unwrapped layout differs from compatibility renderer:\n got %q\nwant %q", got.Text, want)
+	layout := RenderLayout(target, body, queryErr, colorprofile.TrueColor, true, LayoutOptions{ErrorWidth: 18})
+
+	const wantPlain = "Login: alice\nPlan:\nalpha beta gamma\nOn since Tuesday\n" +
+		"read response\ntimed out after\n30s\n"
+	if got := ansi.Strip(layout.Text); got != wantPlain {
+		t.Fatalf("plain text = %q, want %q", got, wantPlain)
 	}
-	if got.BodyLineCount != 3 {
-		t.Fatalf("BodyLineCount = %d, want 3", got.BodyLineCount)
+	if layout.BodyLineCount != 4 {
+		t.Fatalf("BodyLineCount = %d, want 4", layout.BodyLineCount)
+	}
+
+	// Exactly the three field labels are styled, each over the label alone.
+	const fieldColour = "\x1b[38;2;255;95;162m"
+	if got := strings.Count(layout.Text, fieldColour); got != 3 {
+		t.Fatalf("field colour appears %d times, want 3: %q", got, layout.Text)
+	}
+	for _, label := range []string{"Login:", "Plan:", "On since"} {
+		if !strings.Contains(layout.Text, fieldColour+label) {
+			t.Errorf("label %q is not styled at the start of its line: %q", label, layout.Text)
+		}
+	}
+
+	// RenderWithWidth is a delegation shim over RenderLayout; keep it wired up.
+	if want := RenderWithWidth(target, body, queryErr, colorprofile.TrueColor, true, 18); layout.Text != want {
+		t.Fatalf("RenderWithWidth diverged from its delegate:\n got %q\nwant %q", want, layout.Text)
 	}
 }
 

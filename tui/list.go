@@ -297,20 +297,6 @@ func acceptFilter(l *list.Model) bool {
 	return true
 }
 
-func extractListPreamble(body []byte) string {
-	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
-	if preamble, ok := columnarPreamble(lines); ok {
-		return preamble
-	}
-	if preamble, ok := gridPreamble(lines); ok {
-		return preamble
-	}
-	if preamble, ok := markerPreamble(lines); ok {
-		return preamble
-	}
-	return ""
-}
-
 func columnarPreamble(lines []string) (string, bool) {
 	for i, ln := range lines {
 		fields := strings.Fields(ln)

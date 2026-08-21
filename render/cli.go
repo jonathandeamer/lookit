@@ -15,7 +15,7 @@ func Usage(profile colorprofile.Profile) string {
 	t := NewTheme(profile)
 	cmd := t.Target.Render("lookit")
 	var b strings.Builder
-	fmt.Fprintln(&b, "A finger client built for exploring, not just querying.")
+	fmt.Fprintln(&b, "A modern TUI browser for the finger protocol.")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, t.Footer.Render("Usage:"))
 	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Field.Render("[TARGET]"))
@@ -36,7 +36,7 @@ func Usage(profile colorprofile.Profile) string {
 	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Field.Render("@plan.cat"))
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, t.Footer.Render("Press ? inside lookit for keyboard shortcuts."))
-	fmt.Fprintln(&b, t.Footer.Render("Full reference: man lookit (package), man ./man/lookit.1 (archive or clone)."))
+	fmt.Fprintln(&b, t.Footer.Render("Full reference: man lookit (installed), man ./man/lookit.1 (archive or clone)."))
 	fmt.Fprintln(&b, t.Footer.Render("go install copies the binary only."))
 	return b.String()
 }

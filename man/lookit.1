@@ -1,4 +1,4 @@
-.\" Man page for lookit, a finger client built for exploring.
+.\" Man page for lookit, a modern TUI browser for the finger protocol.
 .\" Preview it without installing:  man ./man/lookit.1
 .\"
 .\" Keep this readable as prose. It is the reference for people on a tilde or
@@ -6,9 +6,9 @@
 .\" Deliberately absent: the keybindings. "?" inside lookit is context-aware and
 .\" derived from the live keymap, so any list printed here would start rotting
 .\" the day a binding moves.
-.TH LOOKIT 1 2026-08-16 lookit "User Commands"
+.TH LOOKIT 1 2026-08-21 lookit "User Commands"
 .SH NAME
-lookit \- interactive client for the finger protocol
+lookit \- modern TUI browser for the finger protocol
 .SH SYNOPSIS
 .B lookit
 .RI [ target ]
@@ -19,10 +19,10 @@ lookit \- interactive client for the finger protocol
 .B lookit
 .BR \-h | \-\-help
 .SH DESCRIPTION
-lookit is a finger client built for exploring, not just querying. It opens a
-full-screen browser: the list of users on a host is selectable, links inside a
-response can be followed, and you can walk back through everywhere you have
-been without fetching any of it again.
+lookit is a modern TUI browser for the finger protocol. It opens full-screen:
+the list of users on a host is selectable, links inside a response can be
+followed, and you can walk back through everywhere you have been without
+fetching any of it again.
 .PP
 Finger (RFC 1288, TCP port 79) is one of the oldest things on the internet: ask
 a server about a person and it tells you who they are, whether they are logged

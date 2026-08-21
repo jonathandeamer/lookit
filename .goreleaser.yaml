@@ -70,7 +70,18 @@ nfpms:
       - deb
       - rpm
     maintainer: Jonathan Deamer <jonathandeamer@gmail.com>
-    description: Interactive client for the finger protocol (RFC 1288)
+    # Debian convention for the first line: a phrase completing "lookit is a
+    # …", lowercase, no trailing period. nfpm uses it as the deb synopsis and
+    # the rest as the extended description. RPM's Summary is capitalized by
+    # convention, hence the separate rpm.summary below.
+    description: |-
+      modern TUI browser for the finger protocol
+      lookit browses finger (RFC 1288) servers rather than just querying them:
+      a host's user list is selectable, links inside a response can be
+      followed, and history lets you walk back without fetching anything
+      again.
+    rpm:
+      summary: Modern TUI browser for the finger protocol
     license: MIT
     homepage: "https://github.com/jonathandeamer/lookit"
     section: net
@@ -92,8 +103,9 @@ nfpms:
 checksum:
   name_template: checksums.txt
 
-# Build the release notes from local commit subjects (the repo commits straight
-# to main with Conventional Commit prefixes), grouped by type.
+# Build the release notes from local commit subjects (squash-merged PR titles,
+# which the commit-style workflow holds to Conventional Commits), grouped by
+# type.
 changelog:
   use: git
   sort: asc
@@ -138,7 +150,8 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Casks
     homepage: "https://github.com/jonathandeamer/lookit"
-    description: "Interactive client for the finger protocol"
+    # Homebrew style: no leading article, no trailing period, name not repeated.
+    description: "Modern TUI browser for the finger protocol"
     # Homebrew symlinks this into its own man path, so `man lookit` works on
     # macOS the way it does from the deb/rpm on Linux.
     manpages:

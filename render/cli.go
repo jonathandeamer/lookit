@@ -36,7 +36,7 @@ func Usage(profile colorprofile.Profile) string {
 	fmt.Fprintf(&b, "  %s %s\n", cmd, t.Field.Render("@plan.cat"))
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, t.Footer.Render("Press ? inside lookit for keyboard shortcuts."))
-	fmt.Fprintln(&b, t.Footer.Render("Full reference: man lookit (installed), man ./man/lookit.1 (archive or clone)."))
+	fmt.Fprintln(&b, t.Footer.Render("Full reference: man lookit, or man ./man/lookit.1 from an archive or clone."))
 	fmt.Fprintln(&b, t.Footer.Render("go install copies the binary only."))
 	return b.String()
 }

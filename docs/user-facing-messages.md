@@ -16,7 +16,7 @@ named function or constant when changing copy; line numbers drift.
 | --- | --- | --- |
 | `A modern TUI browser for the finger protocol.` plus the structured `Usage:`, `Targets:`, `Options:`, and `Examples:` sections | `render/cli.go` (`Usage`) | `-h`/`--help` output on stdout. |
 | `Press ? inside lookit for keyboard shortcuts.` | `render/cli.go` (`Usage`) | First of three closing lines in `-h`/`--help` output: the keys live in the app, not here. |
-| `Full reference: man lookit (installed), man ./man/lookit.1 (archive or clone).` followed by `go install copies the binary only.` | `render/cli.go` (`Usage`) | Final two closing lines in `-h`/`--help` output: Homebrew and the packages install the page, archives and clones carry it in-tree, and `go install` does not include it. |
+| `Full reference: man lookit, or man ./man/lookit.1 from an archive or clone.` followed by `go install copies the binary only.` | `render/cli.go` (`Usage`) | Final two closing lines in `-h`/`--help` output: Homebrew and the packages install the page, archives and clones carry it in-tree, and `go install` does not include it. |
 | `lookit version <version> (built <builtAt>)`, or `lookit version <version>` when the build date is unknown | `main.go` (`versionString`) | `-v`/`--version` output on stdout. |
 | `lookit: unknown option "<option>"` followed by `Try 'lookit --help' for usage.` | `main.go` (`run`), `render/cli.go` (`InvocationError`) | Unknown option diagnostic on stderr. |
 | `lookit: expected at most one target` followed by `Try 'lookit --help' for usage.` | `main.go` (`run`), `render/cli.go` (`InvocationError`) | Excess positional-target diagnostic on stderr. |

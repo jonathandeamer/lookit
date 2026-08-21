@@ -2,29 +2,27 @@
 # Visual review of chrome belongs in docs/tui-review/, not here.
 #
 # Record from the repo root:  vhs demo/demo.tape
-# Needs vhs, ttyd, and ffmpeg on PATH:  brew install vhs ffmpeg ttyd
+# Needs vhs, ttyd, ffmpeg, Go, and JetBrains Mono Nerd Font.
 #
-# This fingers tilde.team and graph.no live, so the Sleep values around fetches
-# assume a working connection. The TUI and network can't be tested headlessly,
-# so treat the timings as a starting point and tune them after the first record.
+# This uses live finger servers. Record only when tilde.team, the Backup Box,
+# and Crossed Fingers are responding, then tune the Tab count and reading
+# pauses against the responses actually shown.
 
 Output demo/demo.gif
+Require go
 
 # --- Look ----------------------------------------------------------------
 # Render at 2x the README's 600px display width for retina crispness.
 Set Width 1200
 Set Height 750
-# 18 (down from 22) so tilde.team's welcome banner leaves room for more than a
-# single user row in the list. Trade-off: smaller text when scaled to 600px.
 Set FontSize 18
-# "JetBrainsMono NF" is the installed family name for JetBrainsMono Nerd Font
-# (brew install --cask font-jetbrains-mono-nerd-font). Renders the wordmark.
 Set FontFamily "JetBrainsMono NF"
 Set Padding 20
 
 # Lighter file for a README hero, and a calm cursor (no blink shimmer).
 Set Framerate 24
 Set CursorBlink false
+Set WaitTimeout 12s
 
 # macOS-style window card, framed in lookit's brand violet.
 Set WindowBar Colorful
@@ -38,71 +36,98 @@ Set Theme { "name": "lookit", "background": "#171719", "foreground": "#f0edf5", 
 
 Set TypingSpeed 80ms
 
-# --- Install the released v0.1.0 off-camera ------------------------------
-# Use the tagged release, not a local dirty build, so the About screen shows a
-# clean 'v0.1.0' (the build-date row hides itself when the date is unknown).
-# go install puts the binary on $PATH (~/go/bin), so the visible command below
-# is a clean 'lookit' rather than './lookit'.
+# --- Prepare the v0.2 build and a disposable profile off-camera -----------
+# An existing empty bookmarks file is deliberate: it leaves the catalog
+# visible without adding lookit's first-run starter bookmarks. Nothing here
+# reads or writes the recorder's real configuration.
 Hide
-Type "export PATH=$HOME/go/bin:$PATH"
+Type "mkdir -p out/demo/bin out/demo/config/lookit"
+Enter
+Type ": > out/demo/config/lookit/bookmarks"
+Enter
+Type "go build -ldflags '-X main.version=0.2.0' -o out/demo/bin/lookit ."
+Enter
+Type "export PATH=$PWD/out/demo/bin:$PATH"
+Enter
+Type "export XDG_CONFIG_HOME=$PWD/out/demo/config"
 Enter
 Type "export PS1='$ '"
 Enter
-Type "go install github.com/jonathandeamer/lookit@v0.1.0"
-Enter
-Sleep 5s
 Type "clear"
 Enter
 Show
 
-# --- Open a host; lookit lists its users ---------------------------------
-Type "lookit @tilde.team"
-Sleep 600ms
+# --- Start with somewhere to explore -------------------------------------
+Type "lookit"
+Sleep 500ms
 Enter
-Sleep 3s
-
-# Page forward through the list, then step back a couple. Quick, to show it moves.
-Right@300ms 5
-Sleep 700ms
-Left@300ms 2
-Sleep 700ms
-
-# --- Filter to a user and drill in ---------------------------------------
-Type "/"
-Sleep 400ms
-Type "jon"
+Wait+Screen /@plan.cat/
 Sleep 1200ms
-# First Enter confirms the filter (jonathan is now selected); the list owns
-# keys while filtering, so a second Enter is what drills into the user.
+
+# Down leaves the target input and selects the first catalog row: @plan.cat.
+Down
+Sleep 700ms
+Type "b"
+Wait+Screen /bookmarked @plan.cat/
+Sleep 1300ms
+
+# --- Browse tilde.team and find Jonathan ---------------------------------
+Type "i"
+Sleep 400ms
+Ctrl+U
+Type "@tilde.team"
+Sleep 500ms
 Enter
+Wait+Screen /[0-9]+ users/
+Sleep 900ms
+
+Type "/"
+Type "jon"
+Sleep 900ms
+Enter
+Sleep 500ms
+Enter
+Wait+Screen /finger:\/\/thebackupbox.net\/fingp/
+Sleep 1700ms
+
+# Walk the links in the response until the Backup Box finger link is focused.
+# Confirm this count against Jonathan's live .plan before recording.
+Tab@450ms 3
 Sleep 800ms
 Enter
-Sleep 3s
+Wait+Screen /fingp@thebackupbox.net/
+Sleep 1600ms
 
-# Walk back to the list without re-fetching.
-Escape
-Sleep 1500ms
-
-# --- Context-aware help, then about --------------------------------------
+# --- Let the interface explain itself ------------------------------------
 Type "?"
-Sleep 2500ms
+Sleep 2200ms
 Type "a"
-Sleep 2500ms
-
-# Back to the list.
+Sleep 2200ms
 Escape
-Sleep 1200ms
+Sleep 900ms
+Type "h"
+Wait+Screen /@plan.cat/
+Sleep 1000ms
 
-# --- Finger a different host from the target input -----------------------
-# 'i' focuses the input pre-filled with the current target, so clear it first.
+# The Crossed Fingers example is the final catalog row. Bubbles binds G to
+# "go to end"; VHS 0.11 tokenizes an End command but does not implement it.
+Type "G"
+Wait+Screen /search\?gemini@crossed-fingers.andros.dev/
+Sleep 900ms
+Enter
+Wait+Screen /Search results for "gemini":/
+Sleep 1700ms
+
+# Reuse the current target, changing only the remote search term.
 Type "i"
 Sleep 500ms
-Ctrl+U
-Sleep 300ms
-Type "liverpool@graph.no"
-Sleep 600ms
+Ctrl+A
+Right@80ms 7
+Delete@100ms 6
+Type "smolnet"
+Sleep 700ms
 Enter
-Sleep 3500ms
+Wait+Screen /Search results for "smolnet":/
 
-# Let the final frame breathe.
-Sleep 1500ms
+# Finish on the results rather than an overlay or loading state.
+Sleep 2200ms

@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-const plainUsage = "A finger client built for exploring, not just querying.\n" +
+const plainUsage = "A modern TUI browser for the finger protocol.\n" +
 	"\n" +
 	"Usage:\n" +
 	"  lookit [TARGET]\n" +
@@ -29,7 +29,7 @@ const plainUsage = "A finger client built for exploring, not just querying.\n" +
 	"  lookit @plan.cat\n" +
 	"\n" +
 	"Press ? inside lookit for keyboard shortcuts.\n" +
-	"Full reference: man lookit (package), man ./man/lookit.1 (archive or clone).\n" +
+	"Full reference: man lookit (installed), man ./man/lookit.1 (archive or clone).\n" +
 	"go install copies the binary only.\n"
 
 func TestUsagePlainIsByteIdentical(t *testing.T) {

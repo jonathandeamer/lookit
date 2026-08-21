@@ -135,6 +135,8 @@ homebrew_casks:
       owner: jonathandeamer
       name: homebrew-tap
       branch: "lookit-{{ .Version }}"
+      # A fine-grained token needs Contents: write to push this branch and
+      # Pull requests: write to open the draft PR. A classic `repo` token works.
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
       pull_request:
         enabled: true

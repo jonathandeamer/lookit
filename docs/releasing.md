@@ -14,6 +14,9 @@ cask in `jonathandeamer/homebrew-tap` (via `HOMEBREW_TAP_GITHUB_TOKEN`). The
 workflow does not write to the tap's `main` branch. Validate the config locally
 with `make release-check` and dry-run a build with `make release-snapshot`.
 Workflow actions are pinned to commit SHAs (Dependabot keeps them current).
+`HOMEBREW_TAP_GITHUB_TOKEN` must be a classic token with `repo` scope, or a
+fine-grained token scoped to the tap with Contents and Pull requests set to
+write.
 
 The `linux/armv6` build is the Pi Zero / Pi 1 baseline (ARM1176JZF-S). One
 ARMv6 build covers the ARMv7 boards too, so there is deliberately no separate
@@ -42,15 +45,28 @@ entirely.
 
 Finish the first stable release in this order:
 
-1. Let the release workflow finish. Review the draft GitHub release and the
-   draft tap PR. GoReleaser does not fail the whole release when opening that PR
-   fails, so confirm the PR exists before continuing. Do not merge it while its
-   archive URLs still point at an unpublished release.
+1. Let the release workflow finish successfully. Review the draft GitHub
+   release and the draft tap PR. GoReleaser continues through later publishers
+   after a cask publishing error, then fails the release job at the end. Treat a
+   red workflow as a failure, and confirm the PR exists before continuing. Do
+   not merge it while its archive URLs still point at an unpublished release.
 2. Publish the GitHub release.
 3. On the generated tap branch, delete `Formula/lookit.rb` and update the tap
    README so the same PR replaces the old formula with `Casks/lookit.rb`.
-4. Confirm `brew update && brew info jonathandeamer/tap/lookit` resolves the new
-   cask, then test a clean install and `man lookit` before merging the tap PR.
+4. Check out the generated branch in the local tap before testing it:
+
+   ```bash
+   brew tap jonathandeamer/tap
+   tap_repo="$(brew --repo jonathandeamer/tap)"
+   git -C "$tap_repo" fetch origin lookit-0.2.0
+   git -C "$tap_repo" switch --detach FETCH_HEAD
+   HOMEBREW_NO_AUTO_UPDATE=1 brew info jonathandeamer/tap/lookit
+   HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask jonathandeamer/tap/lookit
+   man lookit
+   ```
+
+   Run these on a machine without lookit installed, then run
+   `git -C "$tap_repo" switch main` before merging the tap PR.
 5. Tell existing v0.1.0 formula users how to remove the formula and install the
    cask in the v0.2.0 release note. Write and test that command during the
    release, when both artifacts are available.

@@ -25,17 +25,26 @@ It's built on the [Charm](https://charm.sh) stack, so it behaves like the TUIs y
 
 ## Install
 
-The prebuilt binaries are the simplest option and need no Go installed. Grab the archive for your OS and architecture from the [Releases page](https://github.com/jonathandeamer/lookit/releases), unpack it, and move the `lookit` binary onto your `PATH`. This is the recommended approach on a tilde or pubnix box, where the system Go is often too old to build from source.
+```bash
+brew install --cask jonathandeamer/tap/lookit
+```
 
-With Go 1.25 or newer (the version in `go.mod`) you can install from source instead:
+Or take a `.deb`, `.rpm`, or archive for your platform from the [Releases page](https://github.com/jonathandeamer/lookit/releases) — no Go needed, which is the point on a tilde or pubnix box where the system Go is usually too old. The packages install the manual for you; from an archive, put both files where they belong:
+
+```bash
+tar xzf lookit_*.tar.gz
+mkdir -p ~/.local/bin ~/.local/share/man/man1
+mv lookit ~/.local/bin/
+mv man/lookit.1 ~/.local/share/man/man1/
+```
+
+With Go 1.25 or newer (the version in `go.mod`):
 
 ```bash
 go install github.com/jonathandeamer/lookit@latest
 ```
 
-Or clone the repo and run `go build .`.
-
-However you install it, `lookit(1)` is the full reference. The packages put it where `man lookit` will find it; from a downloaded archive or a clone, read it in place with `man ./man/lookit.1`.
+That copies the binary only, with no manual. Run `man lookit` after a package install or the archive installation above; from an unpacked archive or clone, read the page in place with `man ./man/lookit.1`. `lookit(1)` is the full reference.
 
 ## Usage
 
@@ -53,7 +62,7 @@ Responses keep the server's original line layout by default; in the reader, pres
 
 lookit opens on a startpage: a built-in catalog of finger communities and services, with your own bookmarks pinned above it. Press `↓` to browse it, `↵` to go, `h` to come back from anywhere, and `b` to bookmark whatever you're looking at — on a user list that bookmarks the host, so drill into someone before pressing `b` to bookmark the person.
 
-Your bookmarks are a plain text file at `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), and it's yours to edit. lookit keeps your comments and ordering, notes the date you were last somewhere, and lists whatever you've been neglecting at the top. It re-reads the file every time you return to the startpage, so you can edit it while lookit is running. The file explains its own format in a header comment; `man lookit` has the rest, including how to keep your own order or hide the catalog.
+Your bookmarks are a plain text file at `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), and it's yours to edit. lookit keeps your comments and ordering, notes the date you were last somewhere, and lists whatever you've been neglecting at the top. Put `catalog off` on its own line to hide the built-in catalog, or `sort manual` to keep the file's order instead. It re-reads the file every time you return to the startpage, so you can edit it while lookit is running. The file explains its own format in a header comment, and `lookit(1)` is the full reference.
 
 Everything is keyboard-driven. Press `?` inside lookit for the full, context-aware key list.
 

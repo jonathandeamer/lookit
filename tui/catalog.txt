@@ -28,6 +28,11 @@
 # says small. One exception: wiki@bbs.airandwave.net was catalogued on
 # 2026-08-12 while bbs.airandwave.net was unreachable, from the host's own
 # menu listing "wiki" under "Reference" rather than from an observed response.
+# The crossed-fingers.andros.dev entries were added and probed live on
+# 2026-08-21, and the children's notes come from that host's own help text.
+# Its root note is the second exception: neither the host nor the fingerverse
+# page claims "first" (both say "aggregator and plain-text search engine"), so
+# that word is lookit's, and the question mark is there because of it.
 #
 # When refreshing, probe SERIALLY — bbs.airandwave.net rate-limits and a
 # concurrent sweep reports false deaths.
@@ -62,3 +67,6 @@ service random@happynetbox.com Jump to a random happynetbox user
 service browserversion@happynetbox.com Current version numbers for major browsers
 service 1@happynetbox.com Interactive fiction, one page per finger query
 service originsfinger@happynetbox.com Les Earnest tells how finger began
+service @crossed-fingers.andros.dev The world's first .plan search engine?
+service help@crossed-fingers.andros.dev How to add, search and list every account
+service search?gemini@crossed-fingers.andros.dev Example search: plans that mention Gemini

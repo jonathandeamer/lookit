@@ -4283,12 +4283,12 @@ func TestOverviewAndStatusCountsFollowRowsOnScreen(t *testing.T) {
 		want   startOverviewCounts
 		total  int
 	}{
-		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 23}, total: 29},
+		{name: "unfiltered", want: startOverviewCounts{communities: 6, services: 26}, total: 32},
 		// Pinning a child really does remove a row from SERVICES, so this
 		// count honestly falls; pinning the parent does not, so it holds.
-		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 22}, total: 29},
-		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 23}, total: 30},
-		{name: "repeated bookmarks are deduplicated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 1, communities: 5, services: 23}, total: 29},
+		{name: "child pinned", seed: "dict@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 25}, total: 32},
+		{name: "parent pinned", seed: "@bbs.airandwave.net\n", want: startOverviewCounts{bookmarks: 1, communities: 6, services: 26}, total: 33},
+		{name: "repeated bookmarks are deduplicated", seed: "@tilde.team\n@tilde.team\n", want: startOverviewCounts{bookmarks: 1, communities: 5, services: 26}, total: 32},
 		// A filter flattens the view and drops structural rows with it, so no
 		// host is counted twice under one.
 		{name: "filtered", filter: "happynetbox.com", want: startOverviewCounts{communities: 1, services: 5}, total: 6},

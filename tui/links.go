@@ -45,6 +45,14 @@ type Link struct {
 // document order. originHostPort is the Entry.Target.HostPort of the response
 // (used for the same-relay forwarding check).
 func DetectLinks(body []byte, originHostPort string) []Link {
+	return detectLinks(body, originHostPort, linkDetectionOptions{})
+}
+
+type linkDetectionOptions struct {
+	definiteBareAddressLines bool
+}
+
+func detectLinks(body []byte, originHostPort string, options linkDetectionOptions) []Link {
 	text := string(body)
 	if text == "" {
 		return nil
@@ -55,9 +63,18 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 	// document order at the end — phase 1 collects scheme URLs and phase 2
 	// collects @-tokens, so without sorting a URL that follows an earlier
 	// @-token would appear before it in the result.
+	// linkAt carries a link with the span it consumed. end is the end of the
+	// consumed span, not of link.Raw: the two differ where Raw is narrower than
+	// what was claimed (trailing punctuation stripped from a bare token, or the
+	// inner address of a quoted "user@host"@relay). rawCoversSpan records
+	// whether Raw is that span modulo trailing punctuation, which is what the
+	// whole-line promotion below needs — the quoted case is a relay template,
+	// not a bare address on a line.
 	type linkAt struct {
-		pos  int
-		link Link
+		start         int
+		end           int
+		rawCoversSpan bool
+		link          Link
 	}
 
 	// Phase 1: collect scheme-URL spans left-to-right.
@@ -88,7 +105,7 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		for i := span[0]; i < span[0]+len(raw); i++ {
 			consumed[i] = true
 		}
-		found = append(found, linkAt{span[0], link})
+		found = append(found, linkAt{start: span[0], end: span[0] + len(raw), rawCoversSpan: true, link: link})
 	}
 
 	// Phase 2: scan for @-containing tokens in unconsumed text.
@@ -153,6 +170,7 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		cueWord := findCueWord(text, start)
 		parseRaw := raw
 		quoted := false
+		innerOfQuoted := false
 		bareStart, bareRaw := start, raw
 		if quotedStart, quotedRaw, quotedParseRaw, ok := quotedAtToken(text, atAbs, end); ok {
 			overlapsConsumed := false
@@ -203,7 +221,7 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 					// The whole span stays consumed, so the placeholder relay
 					// cannot link on its own, but Raw narrows to the inner
 					// address: it is what Enter drills and what "c" copies.
-					link, ok, quoted = inner, true, false
+					link, ok, quoted, innerOfQuoted = inner, true, false, true
 				}
 			}
 			if !ok {
@@ -223,16 +241,33 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		for i := start; i < end; i++ {
 			consumed[i] = true
 		}
-		found = append(found, linkAt{start, link})
+		found = append(found, linkAt{start: start, end: end, rawCoversSpan: !innerOfQuoted, link: link})
 		pos = end
 	}
 
-	sort.Slice(found, func(i, j int) bool { return found[i].pos < found[j].pos })
+	sort.Slice(found, func(i, j int) bool { return found[i].start < found[j].start })
 	links := make([]Link, len(found))
 	for i, la := range found {
+		if options.definiteBareAddressLines && la.rawCoversSpan &&
+			la.link.Kind == LinkFinger && la.link.Ambiguous &&
+			occupiesTrimmedLine(text, la.start, la.end) {
+			la.link.Action = ActionDrill
+			la.link.Ambiguous = false
+			la.link.Strong = true
+		}
 		links[i] = la.link
 	}
 	return links
+}
+
+func occupiesTrimmedLine(text string, start, end int) bool {
+	lineStart := strings.LastIndexByte(text[:start], '\n') + 1
+	lineEnd := len(text)
+	if newline := strings.IndexByte(text[end:], '\n'); newline >= 0 {
+		lineEnd = end + newline
+	}
+	return strings.TrimSpace(text[lineStart:start]) == "" &&
+		strings.TrimSpace(text[end:lineEnd]) == ""
 }
 
 // harvestableLogin reports whether a Target's login matches the legacy

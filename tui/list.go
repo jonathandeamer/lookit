@@ -159,15 +159,15 @@ func (m *listModel) applyStyles(st styles) {
 	applyListStyles(&m.list, st)
 }
 
-func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, generic bool) listModel {
+func newListFromParsed(common *commonModel, host finger.Target, parsed parsedUserList) listModel {
+	return newListWithPreambleText(common, host, parsed.users, parsed.preamble, parsed.generic)
+}
+
+func newListWithPreambleText(common *commonModel, host finger.Target, users []User, preamble string, generic bool) listModel {
 	total := len(users)
 	m := newList(common, host, users)
 	m.generic = generic
-	if parsed, ok := parseUserList(body, host.HostPort); ok {
-		m.preamble = parsed.preamble
-	} else {
-		m.preamble = extractListPreamble(body)
-	}
+	m.preamble = preamble
 	if generic {
 		note := "Auto-detected user list from an unrecognized response — press v to view source."
 		if m.preamble != "" {
@@ -295,20 +295,6 @@ func acceptFilter(l *list.Model) bool {
 	}
 	l.FilterInput.Blur()
 	return true
-}
-
-func extractListPreamble(body []byte) string {
-	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
-	if preamble, ok := columnarPreamble(lines); ok {
-		return preamble
-	}
-	if preamble, ok := gridPreamble(lines); ok {
-		return preamble
-	}
-	if preamble, ok := markerPreamble(lines); ok {
-		return preamble
-	}
-	return ""
 }
 
 func columnarPreamble(lines []string) (string, bool) {

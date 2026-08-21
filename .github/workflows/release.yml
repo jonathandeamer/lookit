@@ -33,6 +33,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # v0.2.0 only. changelog.use: git diffs against the previous
+          # reachable tag, which is v0.2.0-beta.2, so the generated notes would
+          # cover three commits instead of the whole minor. Remove this line
+          # once v0.2.0 has shipped: from v0.2.1 on, the previous reachable tag
+          # is the right one on its own. See docs/releasing.md.
+          GORELEASER_PREVIOUS_TAG: v0.1.0
       # Sign build provenance for the redistributed archives + checksums, so a
       # downloader can run `gh attestation verify <file> --repo <owner>/<repo>`
       # and confirm the binary was built by this workflow from this commit.

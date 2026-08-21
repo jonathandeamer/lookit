@@ -225,10 +225,16 @@ var starterBookmarks = []string{
 // land one bucket out, which day-fuzzy prose absorbs.
 const bookmarkDateLayout = "2006-01-02"
 
+// beta1BookmarkDateLayout is the exact UTC-at-seconds format v0.2.0-beta.1
+// wrote. It remains readable so upgrading does not hide an existing bookmark;
+// the next successful visit rewrites the record with bookmarkDateLayout.
+const beta1BookmarkDateLayout = "2006-01-02T15:04:05Z"
+
 // parseBookmarkTarget accepts a target with an optional last-visited date:
-// "<target>" or "<target> <YYYY-MM-DD>". Anything else is refused. A bad date
-// refuses the whole record — a line lookit cannot understand is surfaced as a
-// problem, never guessed at (the file's existing contract), and only a
+// "<target>" or "<target> <YYYY-MM-DD>". The exact timestamp spelling emitted
+// by v0.2.0-beta.1 is accepted as legacy input. Anything else is refused. A bad
+// date refuses the whole record — a line lookit cannot understand is surfaced
+// as a problem, never guessed at (the file's existing contract), and only a
 // validated time.Time ever reaches the display, so the file still needs no
 // sanitize call.
 func parseBookmarkTarget(line string) (string, time.Time, error) {
@@ -252,10 +258,14 @@ func parseBookmarkTarget(line string) (string, time.Time, error) {
 	// spelling — "2026-8-4" parses but is refused, so what the file holds is
 	// always what the write path would emit.
 	visited, err := time.ParseInLocation(bookmarkDateLayout, fields[1], time.Local)
-	if err != nil || fields[1] != visited.Format(bookmarkDateLayout) {
-		return "", time.Time{}, fmt.Errorf("expected a date like 2026-08-14")
+	if err == nil && fields[1] == visited.Format(bookmarkDateLayout) {
+		return fields[0], visited, nil
 	}
-	return fields[0], visited, nil
+	visited, err = time.Parse(beta1BookmarkDateLayout, fields[1])
+	if err == nil && fields[1] == visited.Format(beta1BookmarkDateLayout) {
+		return fields[0], visited, nil
+	}
+	return "", time.Time{}, fmt.Errorf("expected a date like 2026-08-14")
 }
 
 // validateBookmarkRecordTarget verifies that target survives the bookmark

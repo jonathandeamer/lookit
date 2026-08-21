@@ -294,9 +294,9 @@ func (m *appModel) restore(n histNode) {
 		m.reader.setEntryWithLinks(n.entry, n.links, n.wrapped, n.readerPosition())
 		return
 	}
-	if parsed, ok := parseUserList(n.entry.Body, n.entry.Target.HostPort); ok {
+	if parsed, ok := parseUserListForTarget(n.entry.Body, n.entry.Target); ok {
 		m.state = stateList
-		m.list = newListWithPreamble(m.common, n.entry.Target, parsed.users, n.entry.Body, parsed.generic)
+		m.list = newListFromParsed(m.common, n.entry.Target, parsed)
 		m.listReady = true
 		if n.listFltr != "" {
 			m.list.list.SetFilterText(n.listFltr)
@@ -1101,11 +1101,13 @@ type routedEntry struct {
 
 func routeEntry(entry Entry) routedEntry {
 	routed := routedEntry{node: histNode{entry: entry, state: stateReader, linkIdx: -1}}
-	routed.node.links = DetectLinks(entry.Body, entry.Target.HostPort)
+	routed.node.links = detectLinks(entry.Body, entry.Target.HostPort, linkDetectionOptions{
+		definiteBareAddressLines: isCrossedFingersSearchTarget(entry.Target),
+	})
 	if len(entry.Body) == 0 || !shouldOpenList(entry) {
 		return routed
 	}
-	parsed, ok := parseUserList(entry.Body, entry.Target.HostPort)
+	parsed, ok := parseUserListForTarget(entry.Body, entry.Target)
 	if !ok {
 		return routed
 	}
@@ -1128,7 +1130,7 @@ func (m *appModel) showRoutedAt(routed routedEntry, position readerPosition) {
 	m.showingLinks = false
 	m.state = routed.node.state
 	if routed.node.state == stateList {
-		m.list = newListWithPreamble(m.common, routed.node.entry.Target, routed.parsed.users, routed.node.entry.Body, routed.node.listGeneric)
+		m.list = newListFromParsed(m.common, routed.node.entry.Target, *routed.parsed)
 		m.listReady = true
 		return
 	}
@@ -1223,12 +1225,12 @@ func (m *appModel) refreshCurrent() tea.Cmd {
 	return cmd
 }
 
-// shouldOpenList reports whether a fetch result is a host-style listing that
-// should open the selectable list rather than the plain reader. Host queries
-// (no user) qualify; "ring@thebackupbox.net" is special-cased because that
-// pseudo-user returns the Finger Ring directory rather than a single profile.
+// shouldOpenList reports whether a fetch result may be a listing rather than a
+// single profile. Parsing still decides whether the body is actually a list.
+// Host queries qualify, as do the named directory/search services below.
 func shouldOpenList(entry Entry) bool {
 	return entry.Target.HostQuery() ||
+		isCrossedFingersSearchTarget(entry.Target) ||
 		(entry.Target.QueryLine() == "ring" && strings.HasPrefix(entry.Target.HostPort, "thebackupbox.net:"))
 }
 

@@ -3,6 +3,8 @@ package tui
 import (
 	"regexp"
 	"strings"
+
+	"github.com/jonathandeamer/lookit/finger"
 )
 
 // User is one entry in a host's finger user list.
@@ -40,12 +42,12 @@ type parsedUserList struct {
 
 // ParseUsers extracts a host's listed users/entries from a finger response
 // body. It returns (users, true) only when a format is confidently recognized;
-// otherwise (nil, false). The caller guarantees this is a host query.
+// otherwise (nil, false). originHostPort scopes service-specific formats.
 //
-// Several gated matchers are tried in order: the generic columnar (Login
-// header), grid (cue line), and marker ("> login") formats, then service-
-// specific menu/table formats (typed-hole, sava, redterminal, the Finger Ring,
-// telehack). Results are deduplicated, order preserved.
+// Target-aware routing handles strict Crossed Fingers searches separately so
+// they cannot fall through. This general parser handles the generic columnar
+// (Login header), grid, marker, and service-specific menu/table formats.
+// Results are deduplicated, order preserved.
 func ParseUsers(body []byte, originHostPort string) ([]User, bool) {
 	parsed, ok := parseUserList(body, originHostPort)
 	return parsed.users, ok
@@ -85,6 +87,72 @@ func parseUserList(body []byte, originHostPort string) (parsedUserList, bool) {
 		return parsedUserList{users: users, preamble: preamble}, true
 	}
 	return parsedUserList{}, false
+}
+
+const crossedFingersHost = "crossed-fingers.andros.dev"
+
+func isCrossedFingersSearchTarget(target finger.Target) bool {
+	return strings.EqualFold(canonicalHost(target.HostPort), crossedFingersHost) &&
+		strings.HasPrefix(target.QueryLine(), "search?")
+}
+
+func parseUserListForTarget(body []byte, target finger.Target) (parsedUserList, bool) {
+	if isCrossedFingersSearchTarget(target) {
+		users, preamble, ok := parseCrossedFingersSearch(strings.Split(string(body), "\n"), target.HostPort)
+		if !ok {
+			return parsedUserList{}, false
+		}
+		return parsedUserList{users: users, preamble: preamble}, true
+	}
+	return parseUserList(body, target.HostPort)
+}
+
+// parseCrossedFingersSearch handles the aggregator's named search response.
+// The host and heading make a single address conclusive here; the general
+// address-list fallback still requires three to avoid mistaking contact blocks
+// on arbitrary servers for selectable lists. The target-aware caller prevents
+// a missing or invalid search response from falling through to looser parsers.
+func parseCrossedFingersSearch(lines []string, originHostPort string) ([]User, string, bool) {
+	if !strings.EqualFold(canonicalHost(originHostPort), crossedFingersHost) {
+		return nil, "", false
+	}
+
+	heading := -1
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, `Search results for "`) && strings.HasSuffix(trimmed, `":`) {
+			heading = i
+		}
+		break
+	}
+	if heading < 0 {
+		return nil, "", false
+	}
+
+	seen := map[string]bool{}
+	var users []User
+	for _, line := range lines[heading+1:] {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		addr, shaped, sane := addressLine(line)
+		if !shaped || !sane {
+			return nil, "", false
+		}
+		if seen[addr] {
+			continue
+		}
+		seen[addr] = true
+		login, _, _ := strings.Cut(addr, "@")
+		users = append(users, User{Login: login, Target: addr})
+	}
+	if len(users) == 0 {
+		return nil, "", false
+	}
+	return users, trimPreamble(lines[:heading+1]), true
 }
 
 // parseColumnar handles classic fingerd output: a "Login ... Name ..." header

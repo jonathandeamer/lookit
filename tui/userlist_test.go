@@ -585,6 +585,101 @@ func TestParseUsers_NoLiveEscapeInParsedFields(t *testing.T) {
 
 // ---- Address-only listings (a run of bare user@host lines) ----
 
+func TestParseUsers_CrossedFingersSearchAllowsSingleResult(t *testing.T) {
+	body := []byte("Search results for \"jonathandeamer\":\n\njonathan@tilde.team\n")
+
+	parsed, ok := parseUserListForTarget(body, hostTarget(t, "search?jonathandeamer@crossed-fingers.andros.dev"))
+	if !ok {
+		t.Fatal("parseUserList ok = false, want true for one Crossed Fingers search result")
+	}
+	if len(parsed.users) != 1 {
+		t.Fatalf("users = %#v, want one result", parsed.users)
+	}
+	want := User{Login: "jonathan", Target: "jonathan@tilde.team"}
+	if parsed.users[0] != want {
+		t.Errorf("user = %#v, want %#v", parsed.users[0], want)
+	}
+	if parsed.preamble != "Search results for \"jonathandeamer\":" {
+		t.Errorf("preamble = %q, want the search heading", parsed.preamble)
+	}
+	if parsed.generic {
+		t.Error("generic = true, want false for a named Crossed Fingers format")
+	}
+}
+
+func TestParseUsers_CrossedFingersSearchAllowsTwoResults(t *testing.T) {
+	body := []byte("Search results for \"smolnet\":\n\necho@plan.cat\nfab@redterminal.org\n")
+
+	parsed, ok := parseUserListForTarget(body, hostTarget(t, "search?smolnet@crossed-fingers.andros.dev"))
+	if !ok {
+		t.Fatal("parseUserList ok = false, want true for two Crossed Fingers search results")
+	}
+	want := []string{"echo@plan.cat", "fab@redterminal.org"}
+	if len(parsed.users) != len(want) {
+		t.Fatalf("users = %#v, want targets %v", parsed.users, want)
+	}
+	for i, target := range want {
+		if parsed.users[i].Target != target {
+			t.Errorf("users[%d].Target = %q, want %q", i, parsed.users[i].Target, target)
+		}
+	}
+}
+
+func TestParseUsers_CrossedFingersSearchShapeIsHostScoped(t *testing.T) {
+	body := []byte("Search results for \"alice\":\n\nalice@example.com\n")
+
+	if _, ok := parseUserList(body, "unrelated.example:79"); ok {
+		t.Fatal("parseUserList ok = true, want false for a single address from another host")
+	}
+}
+
+func TestParseUsers_CrossedFingersNoMatchesStaysReader(t *testing.T) {
+	body := []byte("Search results for \"zzzzlookitnomatchzzzz\":\n\nNo matches.\n")
+
+	if _, ok := parseUserListForTarget(body, hostTarget(t, "search?zzzzlookitnomatchzzzz@crossed-fingers.andros.dev")); ok {
+		t.Fatal("parseUserList ok = true, want false for a no-match response")
+	}
+}
+
+func TestParseUsers_CrossedFingersChangedLayoutDeclinesWholeResponse(t *testing.T) {
+	body := []byte(
+		"Search results for \"smolnet\":\n\n" +
+			"echo@plan.cat\n" +
+			"fab@redterminal.org\n" +
+			"hyblon@net.iltabellinoweb.eu\n" +
+			"smog1@typed-hole.org\n" +
+			"Results may be ranked differently.\n",
+	)
+
+	if _, ok := parseUserListForTarget(body, hostTarget(t, "search?smolnet@crossed-fingers.andros.dev")); ok {
+		t.Fatal("parseUserList ok = true, want false for an unrecognized search layout")
+	}
+}
+
+func TestParseUsers_CrossedFingersChangedLayoutDoesNotFallThroughToGenericMatcher(t *testing.T) {
+	body := []byte(
+		"Search results for \"smolnet\":\n\n" +
+			"Login     Name\n" +
+			"echo      Echo\n",
+	)
+
+	if _, ok := parseUserListForTarget(body, hostTarget(t, "search?smolnet@crossed-fingers.andros.dev")); ok {
+		t.Fatal("parseUserList ok = true, want the claimed search response to bypass generic matchers")
+	}
+}
+
+func TestParseUsers_CrossedFingersSearchRejectsContentBeforeHeading(t *testing.T) {
+	body := []byte(
+		"Notice: results are experimental.\n" +
+			"Search results for \"smolnet\":\n\n" +
+			"echo@plan.cat\n",
+	)
+
+	if _, ok := parseUserListForTarget(body, hostTarget(t, "search?smolnet@crossed-fingers.andros.dev")); ok {
+		t.Fatal("parseUserListForTarget ok = true, want false for content before the search heading")
+	}
+}
+
 // An aggregator lists accounts that live on other hosts, so each line is a
 // whole address rather than a local login. crossed-fingers.andros.dev's
 // "Registered accounts" index is the shape this matches.

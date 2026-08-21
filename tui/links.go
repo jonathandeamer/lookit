@@ -45,6 +45,14 @@ type Link struct {
 // document order. originHostPort is the Entry.Target.HostPort of the response
 // (used for the same-relay forwarding check).
 func DetectLinks(body []byte, originHostPort string) []Link {
+	return detectLinks(body, originHostPort, linkDetectionOptions{})
+}
+
+type linkDetectionOptions struct {
+	definiteBareAddressLines bool
+}
+
+func detectLinks(body []byte, originHostPort string, options linkDetectionOptions) []Link {
 	text := string(body)
 	if text == "" {
 		return nil
@@ -56,8 +64,9 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 	// collects @-tokens, so without sorting a URL that follows an earlier
 	// @-token would appear before it in the result.
 	type linkAt struct {
-		pos  int
-		link Link
+		start int
+		end   int
+		link  Link
 	}
 
 	// Phase 1: collect scheme-URL spans left-to-right.
@@ -88,7 +97,7 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		for i := span[0]; i < span[0]+len(raw); i++ {
 			consumed[i] = true
 		}
-		found = append(found, linkAt{span[0], link})
+		found = append(found, linkAt{start: span[0], end: span[0] + len(raw), link: link})
 	}
 
 	// Phase 2: scan for @-containing tokens in unconsumed text.
@@ -223,16 +232,32 @@ func DetectLinks(body []byte, originHostPort string) []Link {
 		for i := start; i < end; i++ {
 			consumed[i] = true
 		}
-		found = append(found, linkAt{start, link})
+		found = append(found, linkAt{start: start, end: start + len(link.Raw), link: link})
 		pos = end
 	}
 
-	sort.Slice(found, func(i, j int) bool { return found[i].pos < found[j].pos })
+	sort.Slice(found, func(i, j int) bool { return found[i].start < found[j].start })
 	links := make([]Link, len(found))
 	for i, la := range found {
+		if options.definiteBareAddressLines && la.link.Kind == LinkFinger && la.link.Ambiguous &&
+			occupiesTrimmedLine(text, la.start, la.end) {
+			la.link.Action = ActionDrill
+			la.link.Ambiguous = false
+			la.link.Strong = true
+		}
 		links[i] = la.link
 	}
 	return links
+}
+
+func occupiesTrimmedLine(text string, start, end int) bool {
+	lineStart := strings.LastIndexByte(text[:start], '\n') + 1
+	lineEnd := len(text)
+	if newline := strings.IndexByte(text[end:], '\n'); newline >= 0 {
+		lineEnd = end + newline
+	}
+	return strings.TrimSpace(text[lineStart:start]) == "" &&
+		strings.TrimSpace(text[end:lineEnd]) == ""
 }
 
 // harvestableLogin reports whether a Target's login matches the legacy

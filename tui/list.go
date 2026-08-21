@@ -160,14 +160,24 @@ func (m *listModel) applyStyles(st styles) {
 }
 
 func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, generic bool) listModel {
+	preamble := ""
+	if parsed, ok := parseUserList(body, host.HostPort); ok {
+		preamble = parsed.preamble
+	} else {
+		preamble = extractListPreamble(body)
+	}
+	return newListWithPreambleText(common, host, users, preamble, generic)
+}
+
+func newListFromParsed(common *commonModel, host finger.Target, parsed parsedUserList) listModel {
+	return newListWithPreambleText(common, host, parsed.users, parsed.preamble, parsed.generic)
+}
+
+func newListWithPreambleText(common *commonModel, host finger.Target, users []User, preamble string, generic bool) listModel {
 	total := len(users)
 	m := newList(common, host, users)
 	m.generic = generic
-	if parsed, ok := parseUserList(body, host.HostPort); ok {
-		m.preamble = parsed.preamble
-	} else {
-		m.preamble = extractListPreamble(body)
-	}
+	m.preamble = preamble
 	if generic {
 		note := "Auto-detected user list from an unrecognized response — press v to view source."
 		if m.preamble != "" {

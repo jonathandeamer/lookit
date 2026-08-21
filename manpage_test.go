@@ -97,22 +97,21 @@ func TestOptionDocumentedTreatsFlagsAsTokens(t *testing.T) {
 	}
 }
 
-// TestTheThreeSurfacesPointAtEachOther guards the division of labour between
-// lookit's three documentation surfaces, each of which is deliberately
-// incomplete on its own:
+// TestTheDocumentationSurfacesPointAtTheirFullReferences guards the division of
+// labour between lookit's documentation surfaces:
 //
 //   - --help is a reminder of what to type, so it hands off to "?" for the keys
-//     and to the man page for everything else;
+//     and tells each install type where the man page is (or is not);
 //   - the man page is the full reference, but cannot list context-aware keys, so
 //     it hands off to "?" too;
-//   - the README sells and installs, and defers the bookmarks-file grammar to
-//     the man page rather than restating it.
+//   - the README sells and installs, and states the two settings a user can
+//     configure without making the man page their only source.
 //
 // A handoff that goes missing turns its surface into a dead end, and nothing
 // else would notice.
-func TestTheThreeSurfacesPointAtEachOther(t *testing.T) {
+func TestTheDocumentationSurfacesPointAtTheirFullReferences(t *testing.T) {
 	help := render.Usage(colorprofile.NoTTY)
-	for _, want := range []string{"man lookit", "?"} {
+	for _, want := range []string{"man lookit", "man ./man/lookit.1", "go install copies the binary only", "?"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("--help does not point at %q", want)
 		}
@@ -133,11 +132,16 @@ func TestTheThreeSurfacesPointAtEachOther(t *testing.T) {
 	if !strings.Contains(string(readme), "man lookit") {
 		t.Error("README.md does not point at the man page")
 	}
+	for _, want := range []string{"man ./man/lookit.1", "copies the binary only", "catalog off", "sort manual"} {
+		if !strings.Contains(string(readme), want) {
+			t.Errorf("README.md does not mention %q", want)
+		}
+	}
 }
 
-// TestManPageDocumentsTheBookmarksFile guards the man page's reason for
-// existing: it is where the bookmarks file is specified, so the README does not
-// have to be. Each token below is a piece of the grammar a reader cannot guess.
+// TestManPageDocumentsTheBookmarksFile guards the full reference for the
+// bookmarks file. Each token below is a piece of the grammar a reader cannot
+// guess.
 func TestManPageDocumentsTheBookmarksFile(t *testing.T) {
 	page, err := os.ReadFile(manPagePath)
 	if err != nil {

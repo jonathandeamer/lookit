@@ -1,6 +1,6 @@
 # ☞ lookit
 
-A finger client built for exploring, not just querying.
+A modern TUI browser for the finger protocol.
 
 <p align="center">
   <a href="https://github.com/jonathandeamer/lookit/releases"><img src="https://img.shields.io/github/release/jonathandeamer/lookit.svg" alt="Latest Release"></a>
@@ -8,70 +8,71 @@ A finger client built for exploring, not just querying.
 </p>
 
 <p align="center">
-  <img src="demo/demo.gif" alt="Animated demo of lookit browsing finger servers: filtering tilde.team's user list, opening a user's .plan, and fingering another host for a weather report." width="600">
+  <img src="demo/demo.gif" alt="Animated demo of lookit bookmarking plan.cat, browsing Jonathan's tilde.team profile, following a finger link to the Backup Box, and changing a Crossed Fingers search from Gemini to smolnet." width="600">
 </p>
 
 Finger is one of the oldest things on the internet ([RFC 1288](https://www.rfc-editor.org/rfc/rfc1288), TCP port 79): ask a server about a person and it tells you who they are, whether they're logged in, and whatever they've left in their `.plan` file.
 
 It faded once the web arrived, but never died. On the small internet, [tilde communities](https://tildeverse.org/) and [pubnixes](https://tilde.wiki/Public_Access_Unix_System) still run finger servers, and people keep a `.plan` as a slow, personal microblog. lookit is for poking around that world.
 
-## What lookit does
+## Browsing with lookit
 
-While the `finger` command is built around querying a specific address, lookit is built for exploring when you don't know where you're going.
+`finger @host` has always listed who's around. When a response looks like a user list, lookit makes it selectable. You can follow links inside responses, and the in-session history lets you go back without sending another query. lookit turns one-off `finger` commands into a browsing session.
 
-It doesn't show you anything `finger` couldn't — `finger @host` has always listed who's around. What it adds is movement: the user list is selectable, links inside a response are drillable, and you can walk back through where you've been without re-fetching. It turns a string of one-off commands into one session.
+Run lookit without a target and it opens on a built-in catalog of finger communities and services, with your own bookmarks above it. Give it a target and it opens there instead.
 
-It's built on the [Charm](https://charm.sh) stack, so it behaves like the TUIs you already use and adapts to light or dark terminals.
+It adapts to light and dark terminals and leaves the mouse free for native selection and copy.
 
 ## Install
 
-The prebuilt binaries are the simplest option and need no Go installed. Grab the archive for your OS and architecture from the [Releases page](https://github.com/jonathandeamer/lookit/releases), unpack it, and move the `lookit` binary onto your `PATH`. This is the recommended approach on a tilde or pubnix box, where the system Go is often too old to build from source.
+Take a `.deb`, `.rpm`, or archive for your platform from the [Releases page](https://github.com/jonathandeamer/lookit/releases). These need no Go, which matters on a tilde or pubnix box where the system Go is often too old.
 
-With Go 1.25 or newer (the version in `go.mod`) you can install from source instead:
+The Linux packages install the manual for you. From an archive, unpack into a fresh directory, then put both files where they belong. Replace the example archive name with the file you downloaded:
+
+```bash
+archive=lookit_0.2.0_darwin_arm64.tar.gz
+mkdir lookit-archive
+tar xzf "$archive" -C lookit-archive
+mkdir -p ~/.local/bin ~/.local/share/man/man1
+mv lookit-archive/lookit ~/.local/bin/
+mv lookit-archive/man/lookit.1 ~/.local/share/man/man1/
+```
+
+Make sure `~/.local/bin` is on your `PATH`; if you add it to your shell configuration, start a new shell before running lookit. This lets your shell find `lookit` and lets `man lookit` find the page under `~/.local/share/man`.
+
+With Go 1.25 or newer:
 
 ```bash
 go install github.com/jonathandeamer/lookit@latest
 ```
 
-Or clone the repo and run `go build .`.
-
-However you install it, `lookit(1)` is the full reference. The packages put it where `man lookit` will find it; from a downloaded archive or a clone, read it in place with `man ./man/lookit.1`.
+`go install` copies the binary only and does not include the manual. Run `man lookit` after installing from a Linux package or with the archive commands above. From an unpacked archive or clone, read the page in place with `man ./man/lookit.1`. `lookit(1)` is the full reference.
 
 ## Usage
 
 ```bash
-lookit                       # open the browser
+lookit                       # open the browser and view the catalog
 lookit jonathan@tilde.team   # open it on one person
 lookit @plan.cat             # open it on a host, then browse its users
-lookit @tilde.team:79        # spell out the port (79 is the default)
-lookit --version
 ```
 
-Type a target and press Enter to fetch it. Finger a bare `@host` and, when it answers with a list of users, lookit opens that list: move with the arrows, `/` to filter, Enter to finger whoever's highlighted. Enter on a user drills in, Esc walks back through where you've been, and `r` refreshes the current response or retries a failed lookup. While a request is loading, Esc cancels it. Ctrl+C always quits.
+`lookit --help` covers target syntax. Inside lookit, `?` shows the keys available on the current screen, including how to filter a list, wrap long prose, and refresh a response.
 
-Responses keep the server's original line layout by default; in the reader, press `w` to word-wrap long prose for the current response, and press it again to restore the original layout.
+## Bookmarks
 
-lookit opens on a startpage: a built-in catalog of finger communities and services, with your own bookmarks pinned above it. Press `↓` to browse it, `↵` to go, `h` to come back from anywhere, and `b` to bookmark whatever you're looking at — on a user list that bookmarks the host, so drill into someone before pressing `b` to bookmark the person.
+lookit stores bookmarks in `~/.config/lookit/bookmarks`, or in `$XDG_CONFIG_HOME/lookit/bookmarks` when that variable is set. The file is plain text and yours to edit; lookit preserves comments and ordering. It records when you last visited a bookmark and normally puts whatever you haven't checked in a while at the top.
 
-Your bookmarks are a plain text file at `~/.config/lookit/bookmarks` (or `$XDG_CONFIG_HOME/lookit/bookmarks`), and it's yours to edit. lookit keeps your comments and ordering, notes the date you were last somewhere, and lists whatever you've been neglecting at the top. It re-reads the file every time you return to the startpage, so you can edit it while lookit is running. The file explains its own format in a header comment; `man lookit` has the rest, including how to keep your own order or hide the catalog.
+Press `b` to add or remove the current target. On a user list it acts on the host, so open a person first to bookmark that address.
 
-Everything is keyboard-driven. Press `?` inside lookit for the full, context-aware key list.
+Put `catalog off` on its own line to hide the built-in catalog, or `sort manual` to keep the file's order. lookit rereads the file whenever you return to the startpage, so you can edit it while lookit is running. The file explains its format in a header comment; `lookit(1)` has the full reference.
 
-## What lookit is not
+## lookit is for reading finger
 
-- A finger server. It won't host your `.plan` or answer anyone's queries; that job belongs to `fingerd`. lookit only reads.
-- A way to write: it doesn't post or edit.
-- A background process. Nothing polls and nothing runs as a daemon.
-- A general small-web browser. It speaks finger and follows `finger://` links, but won't fetch gopher, gemini, or the web.
-
-## Coming soon
-- Richer styling and link discovery, tuned to how today's finger servers format their menus and links.
-- Discovery and subscriptions: following a `.plan` to see what's changed since you last looked.
-- Maybe a local mode: finger the machine you're already on, reading its users and `.plan` files straight off disk with no network round-trip.
+lookit reads finger servers and follows `finger://` links. It does not host or edit `.plan` files, run a daemon, or fetch Gopher, Gemini, or web pages. Use `fingerd` to serve a `.plan`.
 
 ## Built with
 
-lookit is built with [Charm](https://charm.sh) tools: [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Bubbles](https://github.com/charmbracelet/bubbles), and [Lip Gloss](https://github.com/charmbracelet/lipgloss); the demo gif above was recorded with another Charm tool, [VHS](https://github.com/charmbracelet/vhs). It speaks [RFC 1288](https://www.rfc-editor.org/rfc/rfc1288) finger over TCP/79.
+lookit is built with [Charm](https://charm.sh)'s [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Bubbles](https://github.com/charmbracelet/bubbles), and [Lip Gloss](https://github.com/charmbracelet/lipgloss). The demo was recorded with [VHS](https://github.com/charmbracelet/vhs).
 
 ## Contributing
 

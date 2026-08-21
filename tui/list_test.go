@@ -116,9 +116,16 @@ func TestListNotFilteringByDefault(t *testing.T) {
 }
 
 func TestGenericListFlaggedGeneric(t *testing.T) {
-	users := []User{{Login: "betsy"}, {Login: "oleander"}}
+	host := hostTarget(t, "@unknown.host")
 	body := []byte("betsy\noleander\n")
-	m := newListWithPreamble(testCommon(), hostTarget(t, "@unknown.host"), users, body, true)
+	parsed, ok := parseUserListForTarget(body, host)
+	if !ok {
+		t.Fatal("parseUserListForTarget ok = false, want true")
+	}
+	if !parsed.generic {
+		t.Fatal("parsed.generic = false, want true")
+	}
+	m := newListFromParsed(testCommon(), host, parsed)
 	// Flags are now in the status bar, not appended to the list Title.
 	wantTitle := "@unknown.host — 2 users"
 	if m.list.Title != wantTitle {
@@ -138,20 +145,31 @@ func TestListTitleUsesSingularUserLabel(t *testing.T) {
 }
 
 func TestGenericListPreambleHasViewSourceNote(t *testing.T) {
-	users := []User{{Login: "betsy"}, {Login: "oleander"}}
+	host := hostTarget(t, "@unknown.host")
 	body := []byte("betsy\noleander\n")
-	m := newListWithPreamble(testCommon(), hostTarget(t, "@unknown.host"), users, body, true)
+	parsed, ok := parseUserListForTarget(body, host)
+	if !ok {
+		t.Fatal("parseUserListForTarget ok = false, want true")
+	}
+	if !parsed.generic {
+		t.Fatal("parsed.generic = false, want true")
+	}
+	m := newListFromParsed(testCommon(), host, parsed)
 	if !strings.Contains(m.preamble, "press v to view source") {
 		t.Fatalf("preamble = %q, want it to mention the view-source key", m.preamble)
 	}
 }
 
 func TestRecognizedListNotFlagged(t *testing.T) {
-	users := []User{{Login: "alrs"}, {Login: "dtracker"}}
+	host := hostTarget(t, "@tilde.team")
 	body := []byte(hostListBody())
-	m := newListWithPreamble(testCommon(), hostTarget(t, "@tilde.team"), users, body, false)
+	parsed, ok := parseUserListForTarget(body, host)
+	if !ok {
+		t.Fatal("parseUserListForTarget ok = false, want true")
+	}
+	m := newListFromParsed(testCommon(), host, parsed)
 	// Title is a plain "host — N users" string; no flag suffixes (flags are in the bar).
-	wantTitle := "@tilde.team — 2 users"
+	wantTitle := fmt.Sprintf("@tilde.team — %d users", len(parsed.users))
 	if m.list.Title != wantTitle {
 		t.Fatalf("title = %q, want plain %q", m.list.Title, wantTitle)
 	}
@@ -270,7 +288,7 @@ func TestNewListWithPreambleNoNoteAtCap(t *testing.T) {
 		users[i] = User{Login: fmt.Sprintf("u%d", i)}
 	}
 	common := testCommon()
-	m := newListWithPreamble(common, finger.Target{Raw: "@big.example"}, users, nil, false)
+	m := newListWithPreambleText(common, finger.Target{Raw: "@big.example"}, users, "", false)
 	if got := len(m.list.Items()); got != maxListEntries {
 		t.Fatalf("at cap: kept %d items, want %d", got, maxListEntries)
 	}
@@ -285,7 +303,7 @@ func TestNewListWithPreambleNotesTruncation(t *testing.T) {
 		users[i] = User{Login: fmt.Sprintf("u%d", i)}
 	}
 	common := testCommon()
-	m := newListWithPreamble(common, finger.Target{Raw: "@big.example"}, users, nil, false)
+	m := newListWithPreambleText(common, finger.Target{Raw: "@big.example"}, users, "", false)
 	if !strings.Contains(m.preamble, "truncated") {
 		t.Fatalf("preamble = %q, want a truncation note", m.preamble)
 	}
@@ -350,7 +368,7 @@ func TestCappedListWithFallbackStylesKeepsFullWidthSelection(t *testing.T) {
 		users[i] = User{Login: fmt.Sprintf("u%04d", i)}
 	}
 	common := &commonModel{width: 36, height: 14}
-	m := newListWithPreamble(common, finger.Target{Raw: "@big.example"}, users, nil, false)
+	m := newListWithPreambleText(common, finger.Target{Raw: "@big.example"}, users, "", false)
 
 	if got := len(m.list.Items()); got != maxListEntries {
 		t.Fatalf("newListWithPreamble kept %d items, want exactly %d", got, maxListEntries)

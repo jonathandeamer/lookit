@@ -159,16 +159,6 @@ func (m *listModel) applyStyles(st styles) {
 	applyListStyles(&m.list, st)
 }
 
-func newListWithPreamble(common *commonModel, host finger.Target, users []User, body []byte, generic bool) listModel {
-	preamble := ""
-	if parsed, ok := parseUserList(body, host.HostPort); ok {
-		preamble = parsed.preamble
-	} else {
-		preamble = extractListPreamble(body)
-	}
-	return newListWithPreambleText(common, host, users, preamble, generic)
-}
-
 func newListFromParsed(common *commonModel, host finger.Target, parsed parsedUserList) listModel {
 	return newListWithPreambleText(common, host, parsed.users, parsed.preamble, parsed.generic)
 }

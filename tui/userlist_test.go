@@ -795,3 +795,69 @@ func TestParseUsers_AddressListDeduplicates(t *testing.T) {
 		t.Errorf("logins = %v, want [a b c]", got)
 	}
 }
+
+// A forwarded target lands on the aggregator's HostPort but the body comes from
+// the relayed host, so it must not reach the strict search parser: that parser
+// makes a single address conclusive, which is only safe for a body Crossed
+// Fingers itself composed.
+func TestParseUsers_CrossedFingersSearchRejectsForwardedTarget(t *testing.T) {
+	body := []byte("Search results for \"foo\":\n\nbob@evil.example\ncarol@evil.example\n")
+	target := hostTarget(t, "search?foo@evil.example@crossed-fingers.andros.dev")
+
+	if isCrossedFingersSearchTarget(target) {
+		t.Fatal("isCrossedFingersSearchTarget = true, want false for a forwarded target")
+	}
+	if _, ok := parseUserListForTarget(body, target); ok {
+		t.Fatal("parseUserListForTarget ok = true, want false for a relayed body")
+	}
+}
+
+func TestParseUsers_CrossedFingersSearchPrefixIsCaseInsensitive(t *testing.T) {
+	body := []byte("Search results for \"foo\":\n\nbob@plan.cat\n")
+	target := hostTarget(t, "SEARCH?foo@crossed-fingers.andros.dev")
+
+	if !isCrossedFingersSearchTarget(target) {
+		t.Fatal("isCrossedFingersSearchTarget = false, want true for an upper-case prefix")
+	}
+	if _, ok := parseUserListForTarget(body, target); !ok {
+		t.Fatal("parseUserListForTarget ok = false, want true")
+	}
+}
+
+// One result lookit cannot drill must not cost the reader the ones it can.
+func TestParseUsers_CrossedFingersSearchSkipsUndrillableResult(t *testing.T) {
+	body := []byte("Search results for \"foo\":\n\nbob@plan.cat\ndave@tilde.club:7979\neve@plan.cat\n")
+
+	parsed, ok := parseUserListForTarget(body, hostTarget(t, "search?foo@crossed-fingers.andros.dev"))
+	if !ok {
+		t.Fatal("parseUserListForTarget ok = false, want true despite one unopenable result")
+	}
+	want := []string{"bob@plan.cat", "eve@plan.cat"}
+	if len(parsed.users) != len(want) {
+		t.Fatalf("users = %#v, want targets %v", parsed.users, want)
+	}
+	for i, target := range want {
+		if parsed.users[i].Target != target {
+			t.Errorf("users[%d].Target = %q, want %q", i, parsed.users[i].Target, target)
+		}
+	}
+}
+
+// A line that is not address-shaped is still fatal: the shape is the only
+// evidence the body really is a result list.
+func TestParseUsers_CrossedFingersSearchStillDeclinesOnProse(t *testing.T) {
+	body := []byte("Search results for \"foo\":\n\nbob@plan.cat\nSee also the index.\n")
+
+	if _, ok := parseUserListForTarget(body, hostTarget(t, "search?foo@crossed-fingers.andros.dev")); ok {
+		t.Fatal("parseUserListForTarget ok = true, want false for a prose line among results")
+	}
+}
+
+// Every entry unopenable leaves nothing to select, so the reader keeps the body.
+func TestParseUsers_CrossedFingersSearchDeclinesWhenEveryResultUndrillable(t *testing.T) {
+	body := []byte("Search results for \"foo\":\n\nbob@local\ncarol@local\n")
+
+	if _, ok := parseUserListForTarget(body, hostTarget(t, "search?foo@crossed-fingers.andros.dev")); ok {
+		t.Fatal("parseUserListForTarget ok = true, want false when no result can be drilled")
+	}
+}

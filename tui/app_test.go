@@ -780,11 +780,11 @@ func TestMenuListKeepsPreambleAndDrillsIntoExplicitTarget(t *testing.T) {
 		"=> 2026-05-25 finger://tilde.team/yalla\n")
 	m.history = []histNode{{entry: Entry{Target: host, Body: body}, state: stateList}}
 	m.pos = 0
-	users, ok := ParseUsers(body, "")
+	parsed, ok := parseUserListForTarget(body, host)
 	if !ok {
-		t.Fatal("ParseUsers ok = false, want true")
+		t.Fatal("parseUserListForTarget ok = false, want true")
 	}
-	m.list = newListWithPreamble(m.common, host, users, body, false)
+	m.list = newListFromParsed(m.common, host, parsed)
 	m.state = stateList
 	m.inputFocused = false // Enter must reach the list, not the input
 

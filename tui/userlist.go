@@ -91,9 +91,31 @@ func parseUserList(body []byte, originHostPort string) (parsedUserList, bool) {
 
 const crossedFingersHost = "crossed-fingers.andros.dev"
 
+const crossedFingersSearchPrefix = "search?"
+
+// isCrossedFingersSearchTarget reports whether target is a search the user sent
+// to the aggregator itself. Two trust decisions hang off it — the strict search
+// parser, and the definite-link promotion in routeEntry — so it must admit only
+// a body Crossed Fingers composed, never one it relayed. RFC 1288 forwarding
+// makes that distinction invisible in HostPort alone: "search?foo@evil.example@
+// crossed-fingers.andros.dev" parses to this host with the relayed query still
+// in the query line, and the body comes from evil.example. An "@" anywhere in
+// the query line therefore disqualifies the target, matching the forwarded-
+// target refusal (finger.ErrServerForwarding) that guards drilling.
+//
+// The host comparison stays port-agnostic, like the Finger Ring's in
+// shouldOpenList: a port the user typed is a target they chose, not a body the
+// aggregator handed us.
 func isCrossedFingersSearchTarget(target finger.Target) bool {
-	return strings.EqualFold(canonicalHost(target.HostPort), crossedFingersHost) &&
-		strings.HasPrefix(target.QueryLine(), "search?")
+	query := target.QueryLine()
+	if strings.Contains(query, "@") {
+		return false
+	}
+	if len(query) < len(crossedFingersSearchPrefix) ||
+		!strings.EqualFold(query[:len(crossedFingersSearchPrefix)], crossedFingersSearchPrefix) {
+		return false
+	}
+	return strings.EqualFold(canonicalHost(target.HostPort), crossedFingersHost)
 }
 
 func parseUserListForTarget(body []byte, target finger.Target) (parsedUserList, bool) {
@@ -112,6 +134,13 @@ func parseUserListForTarget(body []byte, target finger.Target) (parsedUserList, 
 // address-list fallback still requires three to avoid mistaking contact blocks
 // on arbitrary servers for selectable lists. The target-aware caller prevents
 // a missing or invalid search response from falling through to looser parsers.
+//
+// A line that is not address-shaped declines the whole response: the shape is
+// the only evidence that this really is a result list. A line that is shaped
+// but whose host is not domainSane is skipped instead, as parseAddressList
+// skips it — there is no host to drill it to, and dropping one unopenable
+// result is better than dropping every openable one alongside it. A response
+// whose every entry is unopenable ends with no users and declines.
 func parseCrossedFingersSearch(lines []string, originHostPort string) ([]User, string, bool) {
 	if !strings.EqualFold(canonicalHost(originHostPort), crossedFingersHost) {
 		return nil, "", false
@@ -139,8 +168,11 @@ func parseCrossedFingersSearch(lines []string, originHostPort string) ([]User, s
 			continue
 		}
 		addr, shaped, sane := addressLine(line)
-		if !shaped || !sane {
+		if !shaped {
 			return nil, "", false
+		}
+		if !sane {
+			continue
 		}
 		if seen[addr] {
 			continue

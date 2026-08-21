@@ -1184,3 +1184,42 @@ func TestApplyLinkOverlay_BodyNotHeader(t *testing.T) {
 		t.Errorf("plain line appears to be unexpectedly styled in overlay result")
 	}
 }
+
+// A result row written with trailing punctuation still occupies its whole line,
+// so it must promote like its unpunctuated neighbours. The link span, not
+// Link.Raw, is what decides that: Raw has the punctuation stripped off.
+func TestCrossedFingersSearchPromotesResultWithTrailingPunctuation(t *testing.T) {
+	body := []byte("Search results for \"smolnet\":\n\necho@plan.cat,\n")
+	links := detectLinks(body, "crossed-fingers.andros.dev:79", linkDetectionOptions{
+		definiteBareAddressLines: true,
+	})
+	if len(links) != 1 {
+		t.Fatalf("links = %#v, want the single result row", links)
+	}
+	l := links[0]
+	if l.Raw != "echo@plan.cat" {
+		t.Errorf("Raw = %q, want the address without trailing punctuation", l.Raw)
+	}
+	if l.Kind != LinkFinger || l.Action != ActionDrill || l.Ambiguous || !l.Strong {
+		t.Errorf("link = %#v, want a definite Finger link", l)
+	}
+}
+
+// The inner address of a relay template is not a bare address on a line — the
+// quote and the relay share the span — so whole-line promotion must skip it.
+func TestCrossedFingersSearchDoesNotPromoteQuotedRelayTemplate(t *testing.T) {
+	body := []byte("Search results for \"smolnet\":\n\n\"tomasino@cosmic.voyage\"@relay\n")
+	links := detectLinks(body, "crossed-fingers.andros.dev:79", linkDetectionOptions{
+		definiteBareAddressLines: true,
+	})
+	if len(links) != 1 {
+		t.Fatalf("links = %#v, want the inner address of the template", links)
+	}
+	l := links[0]
+	if l.Raw != "tomasino@cosmic.voyage" {
+		t.Fatalf("Raw = %q, want the inner address", l.Raw)
+	}
+	if l.Strong || l.Action == ActionDrill || !l.Ambiguous {
+		t.Errorf("link = %#v, want no whole-line promotion for a relay template", l)
+	}
+}

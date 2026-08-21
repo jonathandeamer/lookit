@@ -1367,6 +1367,22 @@ func TestEscBackRestoresCrossedFingersSearchList(t *testing.T) {
 	}
 }
 
+// Only routeEntry builds a routedEntry, and it sets stateList and parsed
+// together — but the type does not enforce that pairing. A hand-built
+// list-state entry with no parsed list must fall back to the reader rather
+// than panic on the nil deref, mirroring restore's defensive branch.
+func TestShowRoutedAtNilParsedFallsBackToReader(t *testing.T) {
+	m := newApp(stubFetch(t), colorprofile.NoTTY)
+	entry := Entry{Target: hostTarget(t, "@tilde.team"), Body: []byte("plain response\n")}
+	routed := routedEntry{node: histNode{entry: entry, state: stateList, linkIdx: -1}}
+
+	m.showRouted(routed)
+
+	if m.state != stateReader {
+		t.Fatalf("state = %d, want stateReader for a list node with no parsed list", m.state)
+	}
+}
+
 func TestRouteFetchSnapshotsListBeforeReplacingIt(t *testing.T) {
 	m := newApp(stubFetch(t), colorprofile.NoTTY)
 	host := hostTarget(t, "@tilde.team")

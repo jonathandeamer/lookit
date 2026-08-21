@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jonathandeamer/lookit/finger"
 )
 
@@ -92,6 +93,55 @@ func TestLongPlanScrollsAtEveryTapeHeight(t *testing.T) {
 	}
 	if strings.Contains(string(got), "://") {
 		t.Fatal("long plan must carry no links; tab-focus would change the still")
+	}
+}
+
+func TestResponseForWrapPlan(t *testing.T) {
+	got := responseFor("wrapplan")
+	if !bytes.Equal(got, responseFor("wrapplan")) {
+		t.Fatal("wrapplan response is not deterministic")
+	}
+	text := string(got)
+	if !strings.Contains(text, wrapContinuationMarker) || !strings.Contains(text, wrapLongURL) {
+		t.Fatalf("wrapplan body is missing stable tape markers: %q", text)
+	}
+
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	var timestamped, paragraph, extreme bool
+	for _, line := range lines {
+		width := ansi.StringWidth(line)
+		switch {
+		case strings.HasPrefix(line, "2026-08-20 14:32"):
+			timestamped = width >= 100 && width <= 125
+		case strings.Contains(line, wrapContinuationMarker):
+			paragraph = width >= 140 && width <= 175
+		case strings.HasPrefix(line, "Archived dispatches"):
+			extreme = width >= 500 && width <= 700
+		}
+	}
+	if !timestamped || !paragraph || !extreme {
+		t.Fatalf("representative line shapes missing: timestamped=%v paragraph=%v extreme=%v", timestamped, paragraph, extreme)
+	}
+
+	for _, want := range []string{
+		"    HOST             STATE       NOTE",
+		"    relay.example    ready       aligned",
+	} {
+		if !strings.Contains(text, want) || ansi.StringWidth(want) > 45 {
+			t.Fatalf("preformatted line missing or too wide: %q", want)
+		}
+	}
+	if ansi.StringWidth(wrapLongURL) <= 45 {
+		t.Fatalf("long URL width = %d, want wider than the narrow review geometry", ansi.StringWidth(wrapLongURL))
+	}
+
+	for _, copied := range []string{
+		"smog3@typed-hole.org", "charlie_root@annihilation.social",
+		"chrkrhc@omg.lol", "epoch@thebackupbox.net",
+	} {
+		if strings.Contains(text, copied) {
+			t.Fatalf("wrapplan copied a crawled address %q", copied)
+		}
 	}
 }
 

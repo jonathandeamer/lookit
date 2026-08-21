@@ -83,7 +83,7 @@ func settledReader(t *testing.T, entry Entry) appModel {
 	node := histNode{entry: entry, state: stateReader, links: DetectLinks(entry.Body, entry.Target.HostPort), linkIdx: -1}
 	m.history, m.pos, m.state = []histNode{node}, 0, stateReader
 	m.reader.focusedLink = -1
-	m.reader.setEntryWithLinks(entry, node.links)
+	m.reader.setEntryWithLinks(entry, node.links, false, readerPosition{})
 	return m
 }
 
@@ -106,21 +106,57 @@ func deliverRefresh(m appModel, entry Entry, retry bool) appModel {
 	return next.(appModel)
 }
 
-func TestReaderRefreshPreservesScrollAndLinkRaw(t *testing.T) {
+func TestReaderRefreshPreservesLinkAndRecentresIt(t *testing.T) {
 	target := hostTarget(t, "alice@plan.cat")
 	old := Entry{Target: target, Body: []byte("top\nhttps://example.com\n" + strings.Repeat("line\n", 40))}
 	m := settledReader(t, old)
 	m.reader.setSize(40, 6)
 	m.reader.focusedLink = 0
-	m.reader.setEntryWithLinks(old, m.history[0].links)
+	m.reader.setEntryWithLinks(old, m.history[0].links, false, readerPosition{})
 	m.reader.viewport.SetYOffset(8)
 	fresh := Entry{Target: target, Body: []byte("changed\nhttps://example.com\n" + strings.Repeat("new\n", 40))}
 	got := deliverRefresh(m, fresh, false)
-	if got.reader.viewport.YOffset() != 8 {
-		t.Fatalf("YOffset = %d", got.reader.viewport.YOffset())
+	if got.reader.viewport.YOffset() != 0 {
+		t.Fatalf("YOffset = %d, want focused link centred at 0", got.reader.viewport.YOffset())
 	}
 	if got.reader.focusedLink < 0 || got.reader.links[got.reader.focusedLink].Raw != "https://example.com" {
 		t.Fatalf("focused link = %d, links=%#v", got.reader.focusedLink, got.reader.links)
+	}
+}
+
+func TestReaderRefreshPreservesWrappingAndLogicalSourceLine(t *testing.T) {
+	target := hostTarget(t, "alice@plan.cat")
+	old := Entry{Target: target, Body: []byte("first source line has many words to wrap\nsecond source line has many words to wrap as well\nthird source line\n")}
+	m := settledReader(t, old)
+	m.reader.setSize(18, 3)
+	next, _ := m.Update(wrapKey())
+	m = next.(appModel)
+	m.reader.viewport.SetYOffset(m.reader.layout.DisplayLineFor(1))
+
+	fresh := Entry{Target: target, Body: []byte("changed first source line has many words\nchanged second source line also has many words\nchanged third line\n")}
+	got := deliverRefresh(m, fresh, false)
+	if !got.history[0].wrapped || !got.reader.wrapped {
+		t.Fatalf("refresh lost wrapping: node=%v reader=%v", got.history[0].wrapped, got.reader.wrapped)
+	}
+	if logical := got.reader.topLogicalLine(); logical != 1 {
+		t.Fatalf("refresh top logical line = %d, want 1", logical)
+	}
+}
+
+func TestReaderRefreshClampsLogicalSourceLineForShorterBody(t *testing.T) {
+	target := hostTarget(t, "alice@plan.cat")
+	old := Entry{Target: target, Body: []byte("first\nsecond\nthird\n")}
+	m := settledReader(t, old)
+	m.reader.setSize(18, 3)
+	m.reader.viewport.SetYOffset(m.reader.layout.DisplayLineFor(2))
+
+	fresh := Entry{Target: target, Body: []byte("only remaining line\n")}
+	got := deliverRefresh(m, fresh, false)
+	if logical := got.reader.topLogicalLine(); logical != 0 {
+		t.Fatalf("short refresh top logical line = %d, want clamped line 0", logical)
+	}
+	if offset := got.reader.viewport.YOffset(); offset != 0 {
+		t.Fatalf("short refresh YOffset = %d, want 0", offset)
 	}
 }
 
@@ -247,9 +283,15 @@ func TestNavigationFailureStillPushesErrorNode(t *testing.T) {
 
 func TestEmptyBodyRefreshFailurePreservesEntry(t *testing.T) {
 	old := Entry{Target: hostTarget(t, "alice@plan.cat"), Body: []byte("old\n")}
-	got := deliverRefresh(settledReader(t, old), Entry{Target: old.Target, Err: errors.New("dial failed")}, false)
+	m := settledReader(t, old)
+	next, _ := m.Update(wrapKey())
+	m = next.(appModel)
+	got := deliverRefresh(m, Entry{Target: old.Target, Err: errors.New("dial failed")}, false)
 	if string(got.history[0].entry.Body) != "old\n" || got.requestFailure == nil || got.requestFailure.err.Error() != "dial failed" {
 		t.Fatalf("empty failure result = entry %#v failure %#v", got.history[0].entry, got.requestFailure)
+	}
+	if !got.history[0].wrapped || !got.reader.wrapped {
+		t.Fatalf("empty refresh failure lost wrapping: node=%v reader=%v", got.history[0].wrapped, got.reader.wrapped)
 	}
 }
 

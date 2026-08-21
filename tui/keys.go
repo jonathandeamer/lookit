@@ -12,6 +12,7 @@ type keyMap struct {
 	Open       key.Binding
 	Filter     key.Binding
 	Raw        key.Binding
+	Wrap       key.Binding
 	Refresh    key.Binding
 	Copy       key.Binding
 	Help       key.Binding
@@ -41,6 +42,7 @@ func newKeyMap() keyMap {
 		Open:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("↵", "go")),
 		Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 		Raw:        key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view source")),
+		Wrap:       key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "wrap")),
 		Refresh:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Copy:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),

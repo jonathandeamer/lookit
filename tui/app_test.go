@@ -47,7 +47,7 @@ func readerWithFocusedLink(t *testing.T, fetch FetchFunc, link Link) appModel {
 	m.history = []histNode{{entry: entry, state: stateReader, links: []Link{link}, linkIdx: 0}}
 	m.pos, m.state, m.inputFocused = 0, stateReader, false
 	m.reader.focusedLink = 0
-	m.reader.setEntryWithLinks(entry, []Link{link})
+	m.reader.setEntryWithLinks(entry, []Link{link}, false, readerPosition{})
 	return m
 }
 
@@ -125,7 +125,7 @@ func linksPanelModel(t *testing.T, fetch FetchFunc, links []Link) appModel {
 	m.history = []histNode{{entry: entry, state: stateReader, links: links, linkIdx: 0}}
 	m.pos, m.state, m.inputFocused = 0, stateReader, false
 	m.reader.focusedLink = 0
-	m.reader.setEntryWithLinks(entry, links)
+	m.reader.setEntryWithLinks(entry, links, false, readerPosition{})
 	m.showingLinks = true
 	m.linksPanel = newLinksPanel(m.common, links)
 	m.linksPanel.setSize(m.common.width, m.common.bodyHeight())
@@ -1400,7 +1400,7 @@ func TestDisplayedAliasAndDelegatedMoveReplayThroughNormalRouting(t *testing.T) 
 	reader := settledReader(t, entry)
 	reader.history[0].links, reader.history[0].linkIdx = links, 1
 	reader.reader.links, reader.reader.focusedLink = links, 1
-	reader.reader.setEntryWithLinks(entry, links)
+	reader.reader.setEntryWithLinks(entry, links, false, readerPosition{})
 	reader.common.width, reader.common.height = 120, 24
 	reader.openHelp()
 	(&reader).updateKeymap()
@@ -2292,7 +2292,7 @@ func TestReaderLinkAliasesRemainAvailable(t *testing.T) {
 	m.history = []histNode{{entry: entry, state: stateReader, links: links, linkIdx: 0}}
 	m.pos, m.state, m.inputFocused = 0, stateReader, false
 	m.reader.focusedLink = 0
-	m.reader.setEntryWithLinks(entry, links)
+	m.reader.setEntryWithLinks(entry, links, false, readerPosition{})
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m = next.(appModel)
@@ -4708,7 +4708,7 @@ func readerWithLinks(t *testing.T, links []Link) appModel {
 	m.history = []histNode{{entry: entry, state: stateReader, links: links, linkIdx: -1}}
 	m.pos, m.state, m.inputFocused = 0, stateReader, false
 	m.reader.focusedLink = -1
-	m.reader.setEntryWithLinks(entry, links)
+	m.reader.setEntryWithLinks(entry, links, false, readerPosition{})
 	return m
 }
 

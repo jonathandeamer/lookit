@@ -260,9 +260,19 @@ service child, and `start-bottom` assumes `textfile` sorts last.
 | `reader-input.png` | `i` on the landed reader (`esc cancel`) |
 | `reader-help.png` | `?` panel over a landed reader — overlay vs the status bar |
 | `reader-scroll.png` | `longplan` scrolled 12 lines; status carries a scroll percentage |
+| `wrap-original.png` | representative long-prose fixture in its default, unwrapped layout |
+| `wrap-enabled.png` | the same response after `w` wraps prose without breaking preformatted lines or the overlong URL |
 | `generic.png` | `@127.0.0.1:2480` — `auto-detected` |
 | `truncated.png` | `trunc@127.0.0.1:2479` — `partial (truncated)` |
 | `error.png` | `nobody@127.0.0.1:1` — dial refused, `r retry` (Wait matches `connect:` so 60-col wrap still lands) |
+
+The `wrapplan` fixture is original prose shaped from the crawl's measured
+line-width distribution, not copied live Finger content: it includes ordinary
+110–175-cell prose, a 500–700-cell serialised line, a short preformatted block,
+and one indivisible URL wider than the narrow geometry. Compare the two wrap
+frames to check that the original layout remains intact by default, wrapped
+prose has a readable measure, preformatted lines and the URL remain intact,
+and ordinary prose does not clip at narrow widths.
 
 ## Rubric: does it look wrong
 

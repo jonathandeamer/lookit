@@ -47,7 +47,7 @@ These errors originate in `finger.ParseTarget` and are surfaced by the CLI as
 These errors originate in `finger.Query`. Recognised dial and read failures
 are classified by `finger.QueryError`; unrecognised ones keep the underlying
 text. Ordinary query errors are appended to the body-only reader output by
-`render.RenderWithWidth`; a parseable list body returned with an error
+`render.RenderLayout`; a parseable list body returned with an error
 instead contributes the `partial (error)` list flag.
 
 | Message | Source | Surface |
@@ -67,16 +67,18 @@ instead contributes the `partial (error)` list flag.
 
 ## Response Body Renderer
 
-These messages are produced by `render.RenderWithWidth` for the TUI reader
-viewport. The renderer receives no response metadata and adds no synthetic
-receipt, target header, latency, byte-count footer, or truncation footer. Output
-starts with the first response-body line, the empty-response treatment, or an
-error. `main.go` never renders a response body.
+These messages are produced by `render.RenderLayout` for the TUI reader
+viewport (`render.RenderWithWidth`, in `render/render.go`, is a thin
+compatibility wrapper over it and is no longer called by the reader). The
+renderer receives no response metadata and adds no synthetic receipt, target
+header, latency, byte-count footer, or truncation footer. Output starts with
+the first response-body line, the empty-response treatment, or an error.
+`main.go` never renders a response body.
 
 | Message | Source | Surface |
 | --- | --- | --- |
-| `(no response body)` | `render/render.go` (`RenderWithWidth`) | Successful query with an empty body. |
-| `<queryErr.Error()>` | `render/render.go` (`RenderWithWidth`) | Error line after any returned partial body. Canceled or superseded request results are dropped in `tui/request.go` before they can repaint. |
+| `(no response body)` | `render/layout.go` (`RenderLayout`) | Successful query with an empty body. |
+| `<queryErr.Error()>` | `render/layout.go` (`RenderLayout`) | Error line after any returned partial body. Canceled or superseded request results are dropped in `tui/request.go` before they can repaint. |
 
 ## TUI Input
 
@@ -88,6 +90,7 @@ error. `main.go` never renders a response body.
 | `No response yet.` | `tui/reader.go` (`newReader`) | The reader's empty viewport. Not shown at launch (launch is the startpage). Reappears if the reader is shown with no current entry. |
 | `error: <parse error>` | `tui/app.go` (`submit`) | Persistent flash after an invalid input submit. Not cleared by the flash timer. |
 | `error: cannot bookmark: <reason>` | `tui/app.go` (`toggleBookmark`) | Flash when the current target cannot be written as a bookmark record. |
+| `wrapping on` / `original layout` | `tui/app.go` (`toggleWrap`) | Transient flash after enabling or disabling word wrapping for the current response. |
 | `✓ bookmarked <target>` / `✓ removed <target>` | `tui/app.go` (`toggleBookmark`) | Transient flash after a successful pin or unpin. |
 | `copied <address>` | `tui/app.go` (`copyAddress`, About `y`) | Transient flash after copying an address or the issues URL. |
 | `nothing to copy` | `tui/app.go` (`copyAddress`) | Transient flash when `y` has no address. |
@@ -177,6 +180,7 @@ runtime aliases.
 | `↵ go` | `tui/keys.go` | Submit/open binding. |
 | `/ filter` | `tui/keys.go` | Filter binding. |
 | `v view source` | `tui/keys.go` | Raw/source view binding. |
+| `w wrap` / `w unwrap` | `tui/keys.go`, `tui/app.go` (`updateKeymap`) | Contextual reader-display binding; available only for a non-empty body in normal reader view. |
 | `r refresh` / `r retry` | `tui/keys.go`, `tui/app.go` (`refreshHelp`) | Contextual refresh/retry; disabled outside an idle reader or list. |
 | `y copy` | `tui/keys.go` | Copy address binding. |
 | `? help` | `tui/keys.go` | Help binding. Shown in the status bar on resting screens, not inside the open overlay. |
@@ -236,7 +240,7 @@ The TUI uses `charm.land/bubbles/v2/list`. Most built-in list chrome is hidden
 - Network errors are classified in `finger.QueryError`. Recognised failures
   get lookit's own sentence; unrecognised ones keep the underlying text.
   `errors.Is` / `errors.As` still unwrap to the original net error.
-- `render.RenderWithWidth` owns only the TUI reader's body/empty/error
+- `render.RenderLayout` owns only the TUI reader's body/empty/error
   presentation; response metadata and transient request state belong to the
   status bar.
 - TUI status-bar and help copy is state-dependent. Any configurable message

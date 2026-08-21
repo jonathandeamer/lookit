@@ -643,11 +643,28 @@ func TestBetaBookmarkUpgradeCompatibility(t *testing.T) {
 	}
 }
 
+// The zero instant is refused as a legacy stamp because it round-trips to
+// exactly Go's zero time, which parseBookmarks reads as "date unknown" — a
+// dated record must never silently mean the opposite. The day format has no
+// such hole: year 1 parses to local midnight, which is not IsZero, so it stays
+// an ordinary (if implausible) date rather than becoming a refusal.
+func TestParseBookmarksAcceptsYearOneDayFormat(t *testing.T) {
+	got := parseBookmarks([]byte("@plan.cat 0001-01-01\n"))
+	if len(got.problems) != 0 {
+		t.Fatalf("problems = %+v, want none", got.problems)
+	}
+	want := time.Date(1, 1, 1, 0, 0, 0, 0, time.Local)
+	if !got.visited["@plan.cat"].Equal(want) {
+		t.Fatalf("visited = %v, want %v", got.visited["@plan.cat"], want)
+	}
+}
+
 func TestParseBookmarksRejectsBadDate(t *testing.T) {
 	for _, line := range []string{
 		"@plan.cat friendly",                  // two fields, second not a date
 		"@plan.cat 2026-08-14T15:04:05.1Z",    // beta.1 never emitted fractional seconds
 		"@plan.cat 2026-08-14T15:04:05+00:00", // beta.1 emitted Z, not an offset
+		"@plan.cat 0001-01-01T00:00:00Z",      // the zero instant means "date unknown", not a date
 		"@plan.cat 2026-8-14",                 // unpadded, so it would not round-trip
 		"@plan.cat 20260814",                  // no separators
 		"@plan.cat 14/08/2026",                // a human ordering we do not accept

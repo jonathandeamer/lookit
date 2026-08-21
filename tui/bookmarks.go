@@ -261,8 +261,15 @@ func parseBookmarkTarget(line string) (string, time.Time, error) {
 	if err == nil && fields[1] == visited.Format(bookmarkDateLayout) {
 		return fields[0], visited, nil
 	}
+	// The zero instant is excluded deliberately: "0001-01-01T00:00:00Z" is the
+	// one legacy spelling that both parses and round-trips to exactly Go's zero
+	// time, which parseBookmarks reads as "date unknown" — so accepting it would
+	// make a dated record silently mean the opposite, the one place a line
+	// lookit cannot understand would be guessed at rather than surfaced. The day
+	// format has no such hole: "0001-01-01" parses to local midnight, not IsZero.
+	// beta.1 never emitted a zero stamp, so only a hand-edited file reaches this.
 	visited, err = time.Parse(beta1BookmarkDateLayout, fields[1])
-	if err == nil && fields[1] == visited.Format(beta1BookmarkDateLayout) {
+	if err == nil && !visited.IsZero() && fields[1] == visited.Format(beta1BookmarkDateLayout) {
 		return fields[0], visited, nil
 	}
 	return "", time.Time{}, fmt.Errorf("expected a date like 2026-08-14")

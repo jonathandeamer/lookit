@@ -27,14 +27,18 @@ It adapts to light and dark terminals and leaves the mouse free for native selec
 
 Take a `.deb`, `.rpm`, or archive for your platform from the [Releases page](https://github.com/jonathandeamer/lookit/releases). These need no Go, which matters on a tilde or pubnix box where the system Go is often too old.
 
-The Linux packages install the manual for you. From an archive, put both files where they belong:
+The Linux packages install the manual for you. From an archive, unpack into a fresh directory, then put both files where they belong. Replace the example archive name with the file you downloaded:
 
 ```bash
-tar xzf lookit_*.tar.gz
+archive=lookit_0.2.0_darwin_arm64.tar.gz
+mkdir lookit-archive
+tar xzf "$archive" -C lookit-archive
 mkdir -p ~/.local/bin ~/.local/share/man/man1
-mv lookit ~/.local/bin/
-mv man/lookit.1 ~/.local/share/man/man1/
+mv lookit-archive/lookit ~/.local/bin/
+mv lookit-archive/man/lookit.1 ~/.local/share/man/man1/
 ```
+
+Make sure `~/.local/bin` is on your `PATH`; if you add it to your shell configuration, start a new shell before running lookit. This lets your shell find `lookit` and lets `man lookit` find the page under `~/.local/share/man`.
 
 With Go 1.25 or newer:
 
@@ -57,6 +61,8 @@ lookit @plan.cat             # open it on a host, then browse its users
 ## Bookmarks
 
 lookit stores bookmarks in `~/.config/lookit/bookmarks`, or in `$XDG_CONFIG_HOME/lookit/bookmarks` when that variable is set. The file is plain text and yours to edit; lookit preserves comments and ordering. It records when you last visited a bookmark and normally puts whatever you haven't checked in a while at the top.
+
+Press `b` to add or remove the current target. On a user list it acts on the host, so open a person first to bookmark that address.
 
 Put `catalog off` on its own line to hide the built-in catalog, or `sort manual` to keep the file's order. lookit rereads the file whenever you return to the startpage, so you can edit it while lookit is running. The file explains its format in a header comment; `lookit(1)` has the full reference.
 

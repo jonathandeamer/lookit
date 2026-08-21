@@ -9,11 +9,11 @@ isn't releasing doesn't carry them.
 `.github/workflows/release.yml` runs `make release` (GoReleaser) on a pushed
 `v*` tag, building macOS/Linux × amd64/arm64 archives plus a `linux/armv6`
 archive, `.deb`/`.rpm` packages for each Linux target, creating a **draft**
-GitHub release, and publishing the updated Homebrew cask to
-`jonathandeamer/homebrew-tap` (via `HOMEBREW_TAP_GITHUB_TOKEN`). Validate the
-config locally with `make release-check` and dry-run a build with
-`make release-snapshot`. Workflow actions are pinned to commit SHAs (Dependabot
-keeps them current).
+GitHub release, and opening a **draft pull request** with the updated Homebrew
+cask in `jonathandeamer/homebrew-tap` (via `HOMEBREW_TAP_GITHUB_TOKEN`). The
+workflow does not write to the tap's `main` branch. Validate the config locally
+with `make release-check` and dry-run a build with `make release-snapshot`.
+Workflow actions are pinned to commit SHAs (Dependabot keeps them current).
 
 The `linux/armv6` build is the Pi Zero / Pi 1 baseline (ARM1176JZF-S). One
 ARMv6 build covers the ARMv7 boards too, so there is deliberately no separate
@@ -26,7 +26,7 @@ The release archives bundle `README.md`, `LICENSE`, `man/lookit.1`, and a genera
 redistributing the compiled binaries; regenerate with `make notices` after
 changing deps).
 
-## The Homebrew tap: one-time cleanup at the next stable release
+## The Homebrew tap at the next stable release
 
 `jonathandeamer/homebrew-tap` currently serves lookit from a **hand-written
 formula**, `Formula/lookit.rb`, added on 2026-08-02. It pins the v0.1.0 source
@@ -35,27 +35,34 @@ automation in `.goreleaser.yaml` landed after v0.1.0 was tagged and there has
 been no stable tag since, so `homebrew_casks` has never actually run and
 `Casks/lookit.rb` does not exist yet.
 
-The first stable tag after v0.1.0 creates it, and the tap then holds a formula
-and a cask both named `lookit`. Homebrew is understood to prefer the formula
-when the name is unqualified, which would leave
-`brew install jonathandeamer/tap/lookit` installing v0.1.0 from source and
-`brew upgrade` never moving anyone to the new version: GoReleaser writes only
-the cask and never touches the hand-written formula. That precedence has not
-been tested here, and it doesn't need to be — a tap offering two different
-lookits at two different versions is worth clearing up either way.
+The first stable tag after v0.1.0 makes GoReleaser create a branch named for the
+lookit version and open a draft tap PR containing `Casks/lookit.rb`. It does not
+merge the cask or change the tap's `main` branch. Prerelease tags skip the tap
+entirely.
 
-**So, as part of the first stable release after v0.1.0:** delete
-`Formula/lookit.rb` from the tap once the release has published and the cask is
-in place, then confirm `brew update && brew info jonathandeamer/tap/lookit`
-reports the new version from `Casks/`. Doing it in that order leaves no window
-where the tap offers nothing. Once the formula is gone this section can go too.
+Finish the first stable release in this order:
 
-Two things not to be surprised by. Casks are macOS-only, so Homebrew stops
-being an install route for Linux once the formula goes; the release archives
-already are that route, and the README points there first. And `brews:` (the
-formula equivalent of `homebrew_casks`) is deprecated in GoReleaser and fails
-`make release-check`, so staying on a formula is not an option worth
-reaching for.
+1. Let the release workflow finish. Review the draft GitHub release and the
+   draft tap PR. GoReleaser does not fail the whole release when opening that PR
+   fails, so confirm the PR exists before continuing. Do not merge it while its
+   archive URLs still point at an unpublished release.
+2. Publish the GitHub release.
+3. On the generated tap branch, delete `Formula/lookit.rb` and update the tap
+   README so the same PR replaces the old formula with `Casks/lookit.rb`.
+4. Confirm `brew update && brew info jonathandeamer/tap/lookit` resolves the new
+   cask, then test a clean install and `man lookit` before merging the tap PR.
+5. Tell existing v0.1.0 formula users how to remove the formula and install the
+   cask in the v0.2.0 release note. Write and test that command during the
+   release, when both artifacts are available.
+
+Keeping the removal and addition in one tap PR avoids a tap with two different
+`lookit` definitions and avoids a period where neither is available. Once that
+PR is merged, replace this one-time checklist with the normal cask update flow.
+
+The generated cask contains macOS and 64-bit Linux downloads, plus the man page,
+so Homebrew remains an install route on both systems. The `linux/armv6` build is
+available through the release archive and packages instead. GoReleaser's
+formula publisher, `brews:`, is deprecated and fails `make release-check`.
 
 ## Version injection
 

@@ -123,8 +123,8 @@ release:
   # A plain vX.Y.Z tag has no hyphen and is unaffected.
   prerelease: auto
 
-# Automatically publish/update Homebrew cask in jonathandeamer/homebrew-tap
-# upon a tagged release.
+# Prepare the Homebrew cask in a draft PR against jonathandeamer/homebrew-tap.
+# The release workflow never writes directly to the tap's main branch.
 homebrew_casks:
   - name: lookit
     # 'auto' skips the cask push for prerelease tags, so tagging a release
@@ -134,8 +134,15 @@ homebrew_casks:
     repository:
       owner: jonathandeamer
       name: homebrew-tap
-      branch: main
+      branch: "lookit-{{ .Version }}"
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        draft: true
+        base:
+          owner: jonathandeamer
+          name: homebrew-tap
+          branch: main
     directory: Casks
     homepage: "https://github.com/jonathandeamer/lookit"
     description: "Interactive client for the finger protocol"
@@ -143,4 +150,3 @@ homebrew_casks:
     # macOS the way it does from the deb/rpm on Linux.
     manpages:
       - man/lookit.1
-

@@ -25,13 +25,9 @@ It adapts to light and dark terminals and leaves the mouse free for native selec
 
 ## Install
 
-```bash
-brew install --cask jonathandeamer/tap/lookit
-```
+Take a `.deb`, `.rpm`, or archive for your platform from the [Releases page](https://github.com/jonathandeamer/lookit/releases). These need no Go, which matters on a tilde or pubnix box where the system Go is often too old.
 
-Or take a `.deb`, `.rpm`, or archive for your platform from the [Releases page](https://github.com/jonathandeamer/lookit/releases). These need no Go, which matters on a tilde or pubnix box where the system Go is often too old.
-
-Homebrew and the Linux packages install the manual for you. From an archive, put both files where they belong:
+The Linux packages install the manual for you. From an archive, put both files where they belong:
 
 ```bash
 tar xzf lookit_*.tar.gz
@@ -46,7 +42,7 @@ With Go 1.25 or newer:
 go install github.com/jonathandeamer/lookit@latest
 ```
 
-`go install` copies the binary only and does not include the manual. Run `man lookit` after installing with Homebrew, a Linux package, or the archive commands above. From an unpacked archive or clone, read the page in place with `man ./man/lookit.1`. `lookit(1)` is the full reference.
+`go install` copies the binary only and does not include the manual. Run `man lookit` after installing from a Linux package or with the archive commands above. From an unpacked archive or clone, read the page in place with `man ./man/lookit.1`. `lookit(1)` is the full reference.
 
 ## Usage
 

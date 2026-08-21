@@ -1129,11 +1129,15 @@ func (m *appModel) showRoutedAt(routed routedEntry, position readerPosition) {
 	m.showingRaw = false
 	m.showingLinks = false
 	m.state = routed.node.state
-	if routed.node.state == stateList {
+	if routed.node.state == stateList && routed.parsed != nil {
 		m.list = newListFromParsed(m.common, routed.node.entry.Target, *routed.parsed)
 		m.listReady = true
 		return
 	}
+	// Defensive: a list-state node without its parsed list shows the body in
+	// the reader rather than panicking. Unreachable in practice (routeEntry
+	// sets state and parsed together); mirrors the same branch in restore.
+	m.state = stateReader
 	m.reader.focusedLink = routed.node.linkIdx
 	m.reader.setEntryWithLinks(routed.node.entry, routed.node.links, routed.node.wrapped, position)
 }

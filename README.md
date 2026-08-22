@@ -25,12 +25,18 @@ It adapts to light and dark terminals and leaves the mouse free for native selec
 
 ## Install
 
-Take a `.deb`, `.rpm`, or archive for your platform from the [Releases page](https://github.com/jonathandeamer/lookit/releases). These need no Go, which matters on a tilde or pubnix box where the system Go is often too old.
-
-The Linux packages install the manual for you. From an archive, unpack into a fresh directory, then put both files where they belong. Replace the example archive name with the file you downloaded:
+On macOS:
 
 ```bash
-archive=lookit_0.2.0_darwin_arm64.tar.gz
+brew install --cask jonathandeamer/tap/lookit
+```
+
+On Linux, take a `.deb`, `.rpm`, or archive for your platform from the [Releases page](https://github.com/jonathandeamer/lookit/releases). These need no Go, which matters on a tilde or pubnix box where the system Go is often too old. There is an `armv6` archive for the Pi Zero and Pi 1.
+
+Homebrew and the Linux packages install the manual for you, so `man lookit` works straight away. From an archive, unpack into a fresh directory, then put both files where they belong. Replace the example archive name with the file you downloaded:
+
+```bash
+archive=lookit_0.2.0_linux_amd64.tar.gz
 mkdir lookit-archive
 tar xzf "$archive" -C lookit-archive
 mkdir -p ~/.local/bin ~/.local/share/man/man1
@@ -46,7 +52,7 @@ With Go 1.25 or newer:
 go install github.com/jonathandeamer/lookit@latest
 ```
 
-`go install` copies the binary only and does not include the manual. Run `man lookit` after installing from a Linux package or with the archive commands above. From an unpacked archive or clone, read the page in place with `man ./man/lookit.1`. `lookit(1)` is the full reference.
+`go install` copies the binary only and does not include the manual. From an unpacked archive or clone, read the page in place with `man ./man/lookit.1`. `lookit(1)` is the full reference.
 
 ## Usage
 

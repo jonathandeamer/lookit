@@ -28,8 +28,20 @@ type userItem struct {
 	target string
 }
 
-// FilterValue lets the list filter by login as the user types "/".
-func (i userItem) FilterValue() string { return i.login }
+// FilterValue lets the list filter by what the row shows — login, name, and
+// target — so typing "/" can find a user by any of them, mirroring the
+// startpage rule (target + " " + note). Login stays first, so existing
+// login-only matches keep working.
+func (i userItem) FilterValue() string {
+	parts := []string{i.login}
+	if i.name != "" {
+		parts = append(parts, i.name)
+	}
+	if i.target != "" {
+		parts = append(parts, i.target)
+	}
+	return strings.Join(parts, " ")
+}
 
 // Title satisfies list.DefaultItem — the primary line is the login.
 func (i userItem) Title() string { return i.login }

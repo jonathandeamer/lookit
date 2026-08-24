@@ -208,6 +208,43 @@ func TestUserItemDescription(t *testing.T) {
 	}
 }
 
+func TestUserItemFilterValueSearchesLoginNameAndTarget(t *testing.T) {
+	tests := []struct {
+		name string
+		item userItem
+		want string
+	}{
+		{
+			name: "login, name and target",
+			item: userItem{login: "alrs", name: "Alvaro", target: "alrs@tilde.team"},
+			want: "alrs Alvaro alrs@tilde.team",
+		},
+		{
+			name: "login and name",
+			item: userItem{login: "alrs", name: "Alvaro"},
+			want: "alrs Alvaro",
+		},
+		{
+			name: "login and target",
+			item: userItem{login: "alrs", target: "alrs@tilde.team"},
+			want: "alrs alrs@tilde.team",
+		},
+		{
+			name: "login only",
+			item: userItem{login: "alrs"},
+			want: "alrs",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.item.FilterValue()
+			if got != tc.want {
+				t.Fatalf("FilterValue() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDefaultDelegateRendersLoginAndName(t *testing.T) {
 	common := &commonModel{width: 80, height: 20, darkBackground: true, styles: newStyles(true)}
 	m := newList(common, hostTarget(t, "@tilde.team"), []User{{Login: "alrs", Name: "Alvaro"}})

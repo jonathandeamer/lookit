@@ -213,11 +213,7 @@ func (m *appModel) applyStyles() {
 	m.reader.styles = st
 	m.about.setBackground(m.common.darkBackground)
 	m.start.applyStyles(st)
-	if m.showingRaw {
-		m.reader.darkBackground = m.common.darkBackground
-	} else {
-		m.reader.setBackground(m.common.darkBackground)
-	}
+	m.reader.setBackground(m.common.darkBackground)
 	if m.listReady {
 		m.list.applyStyles(st)
 	}

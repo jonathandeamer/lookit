@@ -1278,6 +1278,45 @@ func TestVTogglesRawBodyOnProfile(t *testing.T) {
 	}
 }
 
+func TestRawViewSurvivesWindowResize(t *testing.T) {
+	// View source must keep the unprocessed body across a WindowSizeMsg;
+	// showingRaw alone is not enough — the viewport used to silently
+	// re-render the styled entry while the status bar still said raw.
+	m := newApp(stubFetch(t), colorprofile.TrueColor)
+	target := hostTarget(t, "alice@plan.cat")
+	body := "Login: alice\nPlan:\nhello from the raw body\n"
+	opened, _ := deliverNavigationResult(m, fetchResultMsg{entry: Entry{Target: target, Body: []byte(body)}})
+	m = opened.(appModel)
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = sized.(appModel)
+
+	raw, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
+	m = raw.(appModel)
+	if !m.showingRaw {
+		t.Fatal("precondition: v enters source view")
+	}
+	before := m.reader.viewport.View()
+	if strings.Contains(before, "\x1b[") {
+		t.Fatalf("raw view should be unstyled before resize: %q", before)
+	}
+	if !strings.Contains(before, "hello from the raw body") {
+		t.Fatalf("raw view missing body before resize: %q", before)
+	}
+
+	resized, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = resized.(appModel)
+	if !m.showingRaw {
+		t.Fatal("showingRaw cleared across resize")
+	}
+	after := m.reader.viewport.View()
+	if strings.Contains(after, "\x1b[") {
+		t.Fatalf("raw view regained styling after resize: %q", after)
+	}
+	if !strings.Contains(after, "hello from the raw body") {
+		t.Fatalf("raw view lost body after resize: %q", after)
+	}
+}
+
 func TestBookmarkKeyTogglesCurrentTargetInRawReader(t *testing.T) {
 	path := useTempBookmarks(t)
 	useNow(t, time.Date(2026, 8, 14, 15, 4, 5, 0, time.UTC))

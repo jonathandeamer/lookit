@@ -26,6 +26,7 @@ type readerModel struct {
 	layout         render.Layout
 	wrapped        bool
 	raw            bool
+	rawBody        string // unprocessed body while raw; empty when not
 	links          []Link // detected links in document order
 	focusedLink    int    // index into links; -1 = none focused
 }
@@ -67,7 +68,18 @@ func (m *readerModel) setSize(width, height int) {
 		return
 	}
 	m.viewport.SetXOffset(0)
-	if m.current != nil && !m.raw {
+	m.refillContent(position)
+}
+
+// refillContent re-fills the viewport from the active source after a size,
+// profile, or background change. Raw view keeps the unprocessed body; the
+// rendered entry path re-runs render.
+func (m *readerModel) refillContent(position readerPosition) {
+	if m.raw {
+		m.viewport.SetContent(m.rawBody)
+		return
+	}
+	if m.current != nil {
 		m.setEntryWithLinks(*m.current, m.links, m.wrapped, position)
 	}
 }
@@ -88,16 +100,12 @@ func (m readerModel) render(entry Entry) render.Layout {
 // setProfile updates the color profile and re-renders the current entry.
 func (m *readerModel) setProfile(p colorprofile.Profile) {
 	m.profile = p
-	if m.current != nil && !m.raw {
-		m.setEntryWithLinks(*m.current, m.links, m.wrapped, m.position())
-	}
+	m.refillContent(m.position())
 }
 
 func (m *readerModel) setBackground(dark bool) {
 	m.darkBackground = dark
-	if m.current != nil && !m.raw {
-		m.setEntryWithLinks(*m.current, m.links, m.wrapped, m.position())
-	}
+	m.refillContent(m.position())
 }
 
 // setEntry displays a fetched result.
@@ -165,6 +173,7 @@ func (m *readerModel) setEntryWithLinks(entry Entry, links []Link, wrapped bool,
 	m.links = links
 	m.wrapped = wrapped
 	m.raw = false
+	m.rawBody = ""
 	m.setRenderedContent(m.render(entry))
 	m.positionAfterRender(position)
 }
@@ -238,6 +247,7 @@ func (m *readerModel) prevLink(count int) {
 // bypassing render's field highlighting and error treatment.
 func (m *readerModel) setRaw(body []byte) {
 	m.raw = true
+	m.rawBody = string(body)
 	m.layout = render.Layout{}
-	m.viewport.SetContent(string(body))
+	m.viewport.SetContent(m.rawBody)
 }
